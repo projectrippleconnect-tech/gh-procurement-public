@@ -1,0 +1,750 @@
+'use client'
+
+import {useCallback,useEffect,useMemo,useState} from 'react'
+import {supabase} from '@/lib/supabase'
+import {money,qty,stamp,itemTitle,whatsappUrl} from '@/lib/helpers'
+import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
+import {InfoButton} from './help-ui'
+import {extractPriceListFile} from '@/lib/price-list-extract'
+import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
+import {buildSupplierQuoteReplyText,downloadSupplierPriceRequestPng,shareSupplierPriceRequestPng} from '@/lib/rfq-share'
+
+export function Requirements({profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
+ const canAdd=can('procurement.requirements.manage')
+ const canReview=can('procurement.requirements.manage')
+ const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
+ const[rows,setRows]=useState([]),[suppliers,setSuppliers]=useState([]),[selected,setSelected]=useState(new Set()),[chosen,setChosen]=useState(new Set()),[suggestedSuppliers,setSuggestedSuppliers]=useState([]),[due,setDue]=useState(''),[busy,setBusy]=useState(false),[page,setPage]=useState(0),[total,setTotal]=useState(0),[scopeOverrides,setScopeOverrides]=useState({})
+ const pageSize=200
+ const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
+ const[addMode,setAddMode]=useState('standard'),[specialItem,setSpecialItem]=useState(null)
+ const[special,setSpecial]=useState({reason:'customer_request',customer_qty:'',purchase_qty:'',customer_reference:'',notes:'',priority:''})
+ const[stage,setStage]=useState(canReview?'pending_review':'all')
+ const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
+ const changeStage=next=>{setSelected(new Set());setStage(next)}
+
+ const reasonLabels={
+  customer_request:'Customer request',
+  customer_paid:'Customer already paid / committed',
+  seasonal_stock:'Seasonal demand / expected sale',
+  low_price_opportunity:'Low-price buying opportunity',
+  bulk_sale:'Bulk sale / sudden depletion',
+  project_order:'Project / contractor order',
+  promotional_stock:'Promotion / campaign stock',
+  manual_extra:'Other planned extra stock'
+ }
+
+ const load=useCallback(async()=>{try{
+  let q=supabase.from('proc_v_requirements').select('*',{count:'exact'}).in('status',['open','quoting','partially_ordered','ordered','partially_received']).order('source_activity_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
+  if(stage==='pending_review')q=q.eq('approval_status','pending_review')
+  if(stage==='approved')q=q.eq('approval_status','approved').eq('has_active_rfq',false)
+  if(stage==='held')q=q.eq('approval_status','held')
+  const tasks=[q]
+  if(canReview){
+   tasks.push(supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name'))
+   tasks.push(supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']))
+   tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted']))
+   tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).eq('status','quoted'))
+   tasks.push(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['pending_approval','approved','sent','partially_received']))
+  }
+  const results=await Promise.all(tasks)
+  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0)
+  if(canReview){
+   const b=results[1];if(b.error)throw b.error;setSuppliers(b.data||[])
+   for(const x of results.slice(2))if(x.error)throw x.error
+   setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
+  }
+ }catch(e){fail(e)}},[fail,stage,canReview,page])
+ useEffect(()=>{load()},[load])
+ useEffect(()=>{setPage(0);setChosen(new Set());setScopeOverrides({})},[stage])
+
+ useEffect(()=>{
+  if(!canAdd||itemSearch.trim().length<2){setItemResults([]);return}
+  const t=setTimeout(async()=>{
+   const r=await supabase.rpc('proc_search_stock_items_v1',{p_query:itemSearch.trim(),p_category:null,p_main_group:null,p_movement:null,p_limit:20})
+   if(r.error)return fail(r.error)
+   setItemResults((r.data||[]).map(x=>({...x,id:x.item_id})))
+  },160)
+  return()=>clearTimeout(t)
+ },[itemSearch,canAdd,fail])
+
+ useEffect(()=>{
+  if(!canReview||!selected.size){setSuggestedSuppliers([]);return}
+  const approved=[...selected].filter(id=>rows.find(r=>r.id===id)?.approval_status==='approved')
+  if(!approved.length){setSuggestedSuppliers([]);return}
+  const timer=setTimeout(async()=>{const r=await supabase.rpc('proc_suggest_suppliers',{p_requirement_ids:approved});if(r.error)return fail(r.error);setSuggestedSuppliers(r.data||[])},220)
+  return()=>clearTimeout(timer)
+ },[selected,rows,canReview,fail])
+
+ async function addManual(item){
+  const n=Number(manualQty);if(!Number.isFinite(n)||n<=0)return fail(new Error(t('requirements.qty_positive','Enter a required quantity greater than zero.')))
+  setBusy(true);const r=await supabase.rpc('proc_add_requirement_v2',{p_item_id:item.id,p_required_qty:n,p_notes:manualNote||null});setBusy(false)
+  if(r.error)return fail(r.error)
+  flash(itemTitle(item)+' added to Procurement Review.');setItemSearch('');setItemResults([]);setManualQty('');setManualNote('');load()
+ }
+
+ function chooseSpecial(item){
+  setSpecialItem(item);setItemResults([]);setItemSearch('')
+  const current=Number(item.book_stock||0),max=Number(item.max_stock||0)
+  const topUp=Math.max(max-current,0)
+  setSpecial(x=>({...x,purchase_qty:topUp>0?String(topUp):'',customer_qty:''}))
+ }
+ function smartQty(kind){
+  if(!specialItem)return
+  const current=Number(specialItem.book_stock||0),max=Number(specialItem.max_stock||0),requested=Number(special.customer_qty||0)
+  let n=0
+  if(kind==='minimum_customer')n=Math.max(requested-current,0)
+  if(kind==='customer_plus_max')n=Math.max(requested+max-current,0)
+  if(kind==='top_up_max')n=Math.max(max-current,0)
+  if(kind==='one_max_extra')n=Math.max(max,1)
+  if(kind==='two_max_extra')n=Math.max(max*2,1)
+  if(n>0)setSpecial(x=>({...x,purchase_qty:String(n)}))
+ }
+ async function addSpecial(){
+  if(!specialItem)return fail(new Error(t('requirements.select_special_item','Select an item for the special purchase request.')))
+  const purchase=Number(special.purchase_qty),requested=special.customer_qty===''?null:Number(special.customer_qty)
+  if(!Number.isFinite(purchase)||purchase<=0)return fail(new Error(t('requirements.purchase_positive','Enter a purchase quantity greater than zero.')))
+  if(['customer_request','customer_paid'].includes(special.reason)&&(requested===null||!Number.isFinite(requested)||requested<=0))return fail(new Error(t('requirements.customer_qty_error','Enter the customer requested quantity.')))
+  setBusy(true)
+  const r=await supabase.rpc('proc_add_special_purchase_request_v1',{
+   p_item_id:specialItem.id,p_purchase_qty:purchase,p_reason:special.reason,
+   p_customer_requested_qty:requested,p_customer_reference:special.customer_reference||null,
+   p_notes:special.notes||null,p_priority:special.priority||null
+  })
+  setBusy(false)
+  if(r.error)return fail(r.error)
+  flash('Special purchase '+r.data.requirement_no+' created for '+itemTitle(specialItem)+'.')
+  setSpecialItem(null);setSpecial({reason:'customer_request',customer_qty:'',purchase_qty:'',customer_reference:'',notes:'',priority:''});load()
+ }
+
+ async function setQty(id,v){
+  if(!canReview)return
+  const n=Number(v);if(!Number.isFinite(n)||n<0)return fail(new Error(t('requirements.adjusted_nonnegative','Adjusted quantity must be zero or positive.')))
+  const r=await supabase.rpc('proc_update_requirement_qty_v2',{p_requirement_id:id,p_adjusted_qty:n})
+  if(r.error)return fail(r.error);flash('Requirement quantity updated.');load()
+ }
+ async function setMeta(id,key,value){
+  if(!canReview)return
+  const patch={[key]:value===''?null:value};const r=await supabase.from('proc_requirements').update(patch).eq('id',id)
+  if(r.error)fail(r.error);else{flash('Requirement updated.');load()}
+ }
+ async function review(action,ids=[...selected]){
+  if(!canReview||!ids.length)return fail(new Error(t('requirements.select_one','Select at least one requirement.')))
+  const reason=action==='approve'?null:(prompt(action==='hold'?'Reason for holding these items (optional):':'Reason for rejecting these items (optional):')||null)
+  const r=await supabase.rpc('proc_review_requirements',{p_requirement_ids:ids,p_action:action,p_selected:action==='approve',p_reason:reason})
+  if(r.error)return fail(r.error)
+  flash((r.data||ids.length)+' requirement(s) '+(action==='approve'?'approved for supplier pricing':action==='hold'?'placed on hold':'rejected')+'.');setChosen(new Set());if(action==='approve'){setSelected(new Set(ids));setStage('approved')}else{setSelected(new Set());load()}
+ }
+ async function create(){
+  if(!canReview)return
+  const ids=[...selected].filter(id=>{const r=rows.find(x=>x.id===id);return r?.approval_status==='approved'&&Number(r.remaining_to_order)>0})
+  if(!ids.length)return fail(new Error(t('requirements.select_approved','Select at least one approved requirement with quantity still to order.')))
+  if(!chosen.size)return fail(new Error(t('requirements.select_supplier','Select at least one supplier.')))
+  const unmatched=[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id))
+  const missingReason=unmatched.find(id=>!String(scopeOverrides[id]||'').trim())
+  if(missingReason){
+   const name=suppliers.find(s=>s.id===missingReason)?.name||'Selected supplier'
+   return fail(new Error(name+' does not match the configured coverage for these items. Enter an override reason before requesting prices.'))
+  }
+  setBusy(true)
+  const enable=await supabase.from('proc_requirements').update({selected_for_order:true,updated_at:new Date().toISOString()}).in('id',ids).eq('approval_status','approved')
+  if(enable.error){setBusy(false);return fail(enable.error)}
+  const r=await supabase.rpc('proc_create_rfq_v4',{
+   p_requirement_ids:ids,p_supplier_ids:[...chosen],p_due_date:due||null,p_notes:null,p_scope_overrides:scopeOverrides
+  })
+  setBusy(false)
+  if(r.error)return fail(r.error)
+  flash('RFQ '+r.data.rfq_no+' prepared for '+ids.length+' item(s). Next: send it and enter supplier prices.');setSelected(new Set());setChosen(new Set());setScopeOverrides({});setDue('');load();navigate('rfq')
+ }
+
+ const defaults=[
+  {key:'requirement_no',label:'Requirement',render:r=><span className="mono tiny">{r.requirement_no}</span>},
+  {key:'description',label:'Item',render:r=><><strong>{itemTitle(r)}</strong><div className="muted tiny">{r.uom||''}</div></>},
+  {key:'size',label:'Size'},{key:'uom',label:'UOM'},
+  {key:'current_stock',label:'Stock',render:r=>qty(r.current_stock??r.request_stock_snapshot??0)},
+  {key:'reorder_level',label:'Reorder',render:r=>qty(r.reorder_level??r.request_reorder_snapshot??0)},
+  {key:'max_stock',label:'Max',render:r=>qty(r.max_stock??r.request_max_stock_snapshot??0)},
+  {key:'required_qty',label:'Suggested',render:r=>qty(r.required_qty)},
+  {key:'adjusted_qty',label:'Approved Qty',render:r=>canReview?<input className="input stock-entry" defaultValue={r.adjusted_qty} onBlur={e=>setQty(r.id,e.target.value)}/>:qty(r.adjusted_qty)},
+  {key:'remaining_to_order',label:'Still To Order',render:r=><strong className="warn-text">{qty(r.remaining_to_order)}</strong>},
+  {key:'request_reason',label:'Reason',render:r=>r.request_reason?<Badge>{String(r.request_reason).replaceAll('_',' ')}</Badge>:(r.urgency_reason?<Badge>{String(r.urgency_reason).replaceAll('_',' ')}</Badge>:'—')},
+  {key:'special_requested_qty',label:'Customer / Special Qty',render:r=>r.special_requested_qty==null?'—':qty(r.special_requested_qty)},
+  {key:'priority',label:'Priority',render:r=><Badge>{r.priority}</Badge>},
+  {key:'urgency_reason',label:'Urgency',render:r=>r.urgency_reason?<><Badge>{r.urgency_reason}</Badge>{r.customer_paid&&<div className="muted tiny">customer paid</div>}</>:'—'},
+  {key:'approval_status',label:'Review',render:r=><Badge>{r.approval_status}</Badge>},
+  {key:'status',label:'Workflow',render:r=><Badge>{r.status}</Badge>}
+ ]
+ const cols=configuredColumns(fields,'requirements',defaults)
+
+ return <>
+  {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>} 
+  {canAdd&&<details className="card pad procurement-manual-add">
+   <summary className="procurement-manual-summary"><b>+ {t('requirements.manual_special','Manual / Special Purchase')}</b><span>{t('requirements.manual_special_hint','Use only when the item is not from a stock submission.')}</span></summary>
+   <div className="section procurement-manual-body"><div className="sectionhead"><div><h3>{t('requirements.manual_special','Manual / Special Purchase')}</h3><p>{t('requirements.normal_shortages_hint','Optional. Normal shortages arrive automatically from submitted stock counts.')}</p></div><div className="toolbar"><button className={'btn '+(addMode==='standard'?'primary':'')} onClick={()=>{setAddMode('standard');setSpecialItem(null)}}>{t('requirements.standard','Standard')}</button>{specialEnabled&&<button className={'btn '+(addMode==='special'?'primary':'')} onClick={()=>setAddMode('special')}>{t('requirements.special','Special Purchase')}</button>}</div></div>
+   <div className="field"><label>{t('requirements.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('requirements.find_placeholder','Search item, code, brand or size')}/></div>
+
+   {addMode==='standard'&&<div className="formgrid section"><div className="field"><label>{t('requirements.required_qty','Required quantity')}</label><input className="input" inputMode="decimal" value={manualQty} onChange={e=>setManualQty(e.target.value)}/></div><div className="field"><label>{t('requirements.note_optional','Note (optional)')}</label><input className="input" value={manualNote} onChange={e=>setManualNote(e.target.value)}/></div></div>}
+
+   {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addMode==='special'?chooseSpecial(i):addManual(i)}><div><strong>{itemTitle(i)}</strong><div className="muted tiny">{[i.item_code,i.uom,i.category].filter(Boolean).join(' · ')}</div>{addMode==='special'&&<div className="muted tiny">Stock {qty(i.book_stock??0)} · Reorder {qty(i.reorder_level)} · Max {qty(i.max_stock)}</div>}</div><span>{addMode==='special'?t('requirements.select','Select'):'+ '+t('requirements.add','Add')}</span></button>)}</div>}
+
+   {addMode==='special'&&specialItem&&<div className="special-request-builder section">
+    <div className="selected-item-box"><div><strong>{itemTitle(specialItem)}</strong><div className="muted tiny">{[specialItem.item_code,specialItem.uom,specialItem.category,specialItem.movement].filter(Boolean).join(' · ')}</div></div><button className="btn small" onClick={()=>setSpecialItem(null)}>{t('requirements.change','Change')}</button></div>
+    <div className="special-stock-context section"><div><span>Current Stock</span><b>{qty(specialItem.book_stock??0)}</b></div><div><span>Reorder</span><b>{qty(specialItem.reorder_level)}</b></div><div><span>Max Stock</span><b>{qty(specialItem.max_stock)}</b></div><div><span>Movement</span><b>{specialItem.movement}</b></div></div>
+    <div className="formgrid section">
+     <div className="field"><label>{t('requirements.why_extra','Why are we buying extra?')}</label><select className="select" value={special.reason} onChange={e=>setSpecial(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
+     {['customer_request','customer_paid'].includes(special.reason)&&<div className="field"><label>{t('requirements.customer_qty','Customer requested quantity')}</label><input className="input" inputMode="decimal" value={special.customer_qty} onChange={e=>setSpecial(x=>({...x,customer_qty:e.target.value}))}/></div>}
+     <div className="field"><label>{t('requirements.purchase_qty','Purchase quantity')}</label><input className="input" inputMode="decimal" value={special.purchase_qty} onChange={e=>setSpecial(x=>({...x,purchase_qty:e.target.value}))}/></div>
+     <div className="field"><label>{t('requirements.priority','Priority')}</label><select className="select" value={special.priority} onChange={e=>setSpecial(x=>({...x,priority:e.target.value}))}><option value="">Smart / automatic</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></div>
+     <div className="field"><label>{t('requirements.reference','Customer / project reference')}</label><input className="input" value={special.customer_reference} onChange={e=>setSpecial(x=>({...x,customer_reference:e.target.value}))}/></div>
+     <div className="field"><label>{t('requirements.note','Note')}</label><input className="input" value={special.notes} onChange={e=>setSpecial(x=>({...x,notes:e.target.value}))}/></div>
+    </div>
+    <div className="section"><b>{t('requirements.smart_suggestions','Smart quantity suggestions')}</b><div className="pillrow section">
+     {['customer_request','customer_paid'].includes(special.reason)&&<><button className="choice-pill" onClick={()=>smartQty('minimum_customer')}>Minimum to fulfil customer</button><button className="choice-pill" onClick={()=>smartQty('customer_plus_max')}>Fulfil + restore Max Stock</button></>}
+     <button className="choice-pill" onClick={()=>smartQty('top_up_max')}>Top up to Max</button>
+     <button className="choice-pill" onClick={()=>smartQty('one_max_extra')}>Buy 1× Max extra</button>
+     <button className="choice-pill" onClick={()=>smartQty('two_max_extra')}>Buy 2× Max extra</button>
+    </div><div className="muted tiny">Special Purchase bypasses the normal reorder test, but still goes to Admin/Procurement Review before supplier pricing.</div></div>
+    <button className="btn primary section" disabled={busy} onClick={addSpecial}>{busy?t('common.loading','Loading…'):t('requirements.create_special','Create Special Purchase Request')}</button>
+   </div>}
+   </div>
+  </details>}
+
+  <div className="card pad section">
+   <div className="sectionhead"><div><h3>{canReview?t('requirements.review_title','Procurement Review'):t('requirements.my_items','My Procurement Items')}</h3><p>{canReview?t('requirements.review_hint','Latest submitted stock shortages appear here. Select rows, adjust order quantities only when needed, approve, then choose suppliers.'):t('requirements.my_hint','Items you add or count appear here for Admin review.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   {canReview&&<div className="toolbar section"><button className={'btn '+(stage==='pending_review'?'primary':'')} onClick={()=>changeStage('pending_review')}>{t('requirements.needs_review','Needs Review')}</button><button className={'btn '+(stage==='approved'?'primary':'')} onClick={()=>changeStage('approved')}>{t('requirements.approved','Approved')}</button><button className={'btn '+(stage==='held'?'primary':'')} onClick={()=>changeStage('held')}>{t('requirements.held','Held')}</button><button className={'btn '+(stage==='all'?'primary':'')} onClick={()=>changeStage('all')}>{t('requirements.all_active','All Active')}</button></div>}
+   {canReview&&<div className="toolbar section procurement-bulk-actions"><button className="btn" onClick={()=>setSelected(new Set(rows.map(r=>r.id)))}>{t('requirements.select_all_visible','Select All Visible')}</button>{selected.size>0&&<><span className="muted tiny">{selected.size} {t('requirements.selected_count','selected')}</span>{stage==='pending_review'&&<button className="btn good" onClick={()=>review('approve')}>{t('requirements.approve_continue','Approve & Continue')}</button>}<button className="btn" onClick={()=>review('hold')}>{t('requirements.hold','Hold')}</button><button className="btn bad" onClick={()=>review('reject')}>{t('requirements.reject','Reject')}</button></>}</div>}
+   {rows.length?<><div className="desktop-table tablewrap section"><table className="table"><thead><tr>{canReview&&<th/>}{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id} className={selected.has(r.id)?'selected':''}>{canReview&&<td><input type="checkbox" checked={selected.has(r.id)} onChange={e=>setSelected(v=>{const n=new Set(v);e.target.checked?n.add(r.id):n.delete(r.id);return n})}/></td>}{cols.map(c=><td key={c.key}>{c.render?c.render(r):String(r[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
+    <div className="proc-review-mobile-list">{rows.map(r=>{const current=r.current_stock??r.request_stock_snapshot??0,reorder=r.reorder_level??r.request_reorder_snapshot??0,max=r.max_stock??r.request_max_stock_snapshot??0;return <div className={'proc-review-row '+(selected.has(r.id)?'selected-card':'')} key={r.id}><label className="proc-review-check"><input type="checkbox" checked={selected.has(r.id)} onChange={e=>setSelected(v=>{const n=new Set(v);e.target.checked?n.add(r.id):n.delete(r.id);return n})}/></label><div className="proc-review-main"><strong>{itemTitle(r)}</strong><small>Stock {qty(current)} · Reorder {qty(reorder)} · Max {qty(max)}{r.uom?' · '+r.uom:''}</small><small>{r.source_count_no?'From '+r.source_count_no+' · ':''}{r.request_reason?String(r.request_reason).replaceAll('_',' '):(r.urgency_reason?String(r.urgency_reason).replaceAll('_',' '):'stock shortage')}</small></div><div className="proc-review-order"><span>ORDER</span>{canReview?<input className="input" inputMode="decimal" defaultValue={r.adjusted_qty} onBlur={e=>setQty(r.id,e.target.value)}/>:<b>{qty(r.adjusted_qty)}</b>}</div><div className="proc-review-status"><Badge>{r.approval_status}</Badge>{r.priority&&<small>{String(r.priority).toUpperCase()}</small>}</div></div>})}</div></>:<Empty>{t('requirements.no_stage','No items in this stage.')}</Empty>}
+   <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>
+  </div>
+
+  {canReview&&stage==='approved'&&selected.size>0&&<div className="card pad section rfq-builder"><div className="sectionhead"><div><h3>{t('requirements.step4_suppliers','Step 4 · Review & Choose Suppliers')}</h3><p>{t('requirements.choose_suppliers_hint','Select suppliers for the approved items. The app groups the RFQ automatically.')} · {selected.size}</p></div><button className="btn primary" disabled={busy} onClick={create}>{busy?t('common.loading','Loading…'):t('requirements.create_rfq_continue','Create RFQ & Continue')}</button></div>
+   <div className="field"><label>{t('requirements.quote_due','Quotation due date')}</label><input className="input" type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
+   {suggestedSuppliers.length>0&&<div className="section"><div className="toolbar"><b>{t('requirements.suggested_suppliers','Suggested suppliers')}</b><button className="btn small" onClick={()=>setChosen(new Set(suggestedSuppliers.map(x=>x.supplier_id)))}>{t('requirements.select_suggested','Select Suggested')}</button></div><div className="pillrow">{suggestedSuppliers.map(x=><button type="button" className={'choice-pill '+(chosen.has(x.supplier_id)?'selected-choice':'')} key={x.supplier_id} onClick={()=>setChosen(v=>{const n=new Set(v);n.has(x.supplier_id)?n.delete(x.supplier_id):n.add(x.supplier_id);return n})}><b>{x.supplier_name}</b><span>{x.matched_items}/{x.selected_items}{x.unrestricted?' · general':''}</span></button>)}</div></div>}
+   <div className="pillrow section">{suppliers.map(s=><label className={'choice-pill '+(chosen.has(s.id)?'selected-choice':'')} key={s.id}><input type="checkbox" checked={chosen.has(s.id)} onChange={e=>setChosen(v=>{const n=new Set(v);e.target.checked?n.add(s.id):n.delete(s.id);return n})}/>{s.name}</label>)}</div>
+   {[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).length>0&&<div className="notice section"><b>{t('requirements.coverage_override','Supplier coverage override')}</b><p className="muted tiny">{t('requirements.coverage_override_hint','These suppliers do not match the configured coverage for the selected items. State why they should still receive the price request.')}</p><div className="stack">{[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).map(id=><div className="field" key={id}><label>{suppliers.find(s=>s.id===id)?.name||id}</label><input className="input" value={scopeOverrides[id]||''} onChange={e=>setScopeOverrides(v=>({...v,[id]:e.target.value}))} placeholder={t('requirements.override_reason','Required override reason')}/></div>)}</div></div>}
+  </div>}
+ </>
+}
+
+export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t=(k,f)=>f||k}){
+ const canAdd=can('suppliers.add')
+ const canEdit=can('suppliers.edit')
+ const smartEnabled=features.find(x=>x.feature_key==='suppliers.smart_suggestions')?.enabled!==false
+ const[rows,setRows]=useState([]),[q,setQ]=useState(''),[form,setForm]=useState({supplier_code:'',name:'',contact_person:'',phone:'',whatsapp:'',email:'',address:'',payment_terms:''}),[coverageSupplier,setCoverageSupplier]=useState(null),[scopes,setScopes]=useState([]),[categories,setCategories]=useState([]),[mainGroups,setMainGroups]=useState([]),[subgroups,setSubgroups]=useState([]),[scopeType,setScopeType]=useState('category'),[scopeValue,setScopeValue]=useState(''),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([])
+ const load=useCallback(async()=>{const r=await supabase.from('proc_suppliers').select('*').order('name');if(r.error)fail(r.error);else setRows(r.data||[])},[fail])
+ useEffect(()=>{load()},[load])
+ useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error){setCategories(r.data?.categories||[]);setMainGroups(r.data?.main_groups||[]);setSubgroups(r.data?.subgroups||[])}})()},[])
+ useEffect(()=>{
+  if(!coverageSupplier||scopeType!=='item'||itemSearch.trim().length<2){setItemResults([]);return}
+  const t=setTimeout(async()=>{
+   const term=itemSearch.trim()
+   const r=await supabase.from('proc_items').select('id,item_code,description,size,category').eq('active',true).or('description.ilike.%'+term+'%,item_code.ilike.%'+term+'%,size.ilike.%'+term+'%').order('description').limit(20)
+   if(r.error)return fail(r.error)
+   setItemResults(r.data||[])
+  },180)
+  return()=>clearTimeout(t)
+ },[coverageSupplier,scopeType,itemSearch,fail])
+ async function openCoverage(supplier){
+  setCoverageSupplier(supplier);setItemSearch('');setItemResults([])
+  const r=await supabase.from('proc_supplier_scopes').select('*,item:proc_items(item_code,description,size,category)').eq('supplier_id',supplier.id).order('created_at')
+  if(r.error)return fail(r.error)
+  setScopes(r.data||[])
+ }
+ async function addScope(item=null){
+  if(!coverageSupplier||!canEdit)return
+  const payload=item
+   ?{supplier_id:coverageSupplier.id,scope_type:'item',item_id:item.id,scope_value:null}
+   :{supplier_id:coverageSupplier.id,scope_type:scopeType,item_id:null,scope_value:scopeValue.trim()}
+  if(!item&&!payload.scope_value)return fail(new Error(t('suppliers.coverage_value','Choose or enter a supplier coverage value.')))
+  const r=await supabase.from('proc_supplier_scopes').insert(payload)
+  if(r.error)return fail(r.error)
+  flash(t('suppliers.coverage_updated','Supplier coverage updated.'));setScopeValue('');setItemSearch('');openCoverage(coverageSupplier)
+ }
+ async function removeScope(id){
+  if(!canEdit)return
+  const r=await supabase.from('proc_supplier_scopes').delete().eq('id',id)
+  if(r.error)return fail(r.error)
+  flash('Supplier coverage rule removed.');openCoverage(coverageSupplier)
+ }
+
+ async function add(){
+  if(!canAdd)return fail(new Error(t('suppliers.add_denied','You do not have permission to add suppliers.')))
+  if(!form.name.trim())return fail(new Error(t('suppliers.name_required','Supplier name is required.')))
+  const code=form.supplier_code.trim()||'S'+String(Math.max(rows.length+101,101)).padStart(3,'0')
+  const r=await supabase.from('proc_suppliers').insert({...form,name:form.name.trim(),supplier_code:code})
+  if(r.error)return fail(r.error)
+  flash(form.name+' added.');setForm({supplier_code:'',name:'',contact_person:'',phone:'',whatsapp:'',email:'',address:'',payment_terms:''});load()
+ }
+ async function toggle(s){if(!canEdit)return;const r=await supabase.from('proc_suppliers').update({active:!s.active}).eq('id',s.id);if(r.error)fail(r.error);else{flash(s.name+(s.active?' deactivated.':' activated.'));load()}}
+ const duplicateHints=useMemo(()=>{
+  if(!smartEnabled)return[]
+  const name=form.name.trim().toLowerCase(),phone=String(form.phone||'').replace(/\D/g,''),email=form.email.trim().toLowerCase()
+  return rows.filter(r=>
+   (name&&r.name?.trim().toLowerCase()===name)||
+   (phone&&String(r.phone||'').replace(/\D/g,'')===phone)||
+   (email&&String(r.email||'').trim().toLowerCase()===email)
+  ).slice(0,5)
+ },[rows,form.name,form.phone,form.email,smartEnabled])
+ const paymentSuggestions=useMemo(()=>[...new Set(rows.map(r=>r.payment_terms).filter(Boolean))].sort(),[rows])
+
+ const filtered=useMemo(()=>rows.filter(r=>(r.name+' '+r.supplier_code+' '+(r.phone||'')+' '+(r.contact_person||'')).toLowerCase().includes(q.toLowerCase())),[rows,q])
+ const defaults=[
+  {key:'supplier_code',label:'Code',render:s=><span className="mono">{s.supplier_code}</span>},
+  {key:'name',label:'Supplier',render:s=><><strong>{s.name}</strong>{s.email&&<div className="muted tiny">{s.email}</div>}</>},
+  {key:'contact_person',label:'Contact Person'},
+  {key:'phone',label:'Phone'},
+  {key:'whatsapp',label:'WhatsApp',render:s=>{const url=whatsappUrl(s.whatsapp);return url?<a className="good-text" target="_blank" rel="noreferrer" href={url}>Open</a>:'—'}},
+  {key:'email',label:'Email'},
+  {key:'address',label:'Address'},
+  {key:'payment_terms',label:'Payment Terms'},
+  {key:'status',label:'Status',render:s=><Badge>{s.active?'active':'inactive'}</Badge>}
+ ]
+ const cols=configuredColumns(fields,'suppliers',defaults)
+ const scopeLabel=sc=>sc.scope_type==='item'?[sc.item?.description,sc.item?.size].filter(Boolean).join(' · '):`${sc.scope_type.replace('_',' ')}: ${sc.scope_value}`
+ return <div className="split">
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><input className="input" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section"><DataTable columns={canEdit?[...cols,{key:'actions',label:'',render:s=><div className="toolbar">{fieldEnabled(fields,'suppliers','coverage')&&<button className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}<button className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button></div>}]:cols} rows={filtered} mobileCards/></div></div>
+  <div className="stack">
+   {canAdd&&<div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.add_title','Add Supplier')}</h3><p>{t('suppliers.add_hint','Supplier code is optional and can be generated automatically.')}</p></div></div><div className="formgrid">
+    {[
+     ['supplier_code','Supplier code'],['name','Supplier name'],['contact_person','Contact person'],['phone','Phone'],
+     ['whatsapp','WhatsApp'],['email','Email'],['address','Address'],['payment_terms','Payment terms']
+    ].filter(([k])=>!fields?.some(f=>f.module_key==='suppliers'&&f.field_key===k&&!f.enabled)).map(([k,l])=><div className="field" key={k}><label>{fields?.find(f=>f.module_key==='suppliers'&&f.field_key===k)?.label||l}</label><input className="input" list={k==='payment_terms'?'supplier-payment-terms':undefined} value={form[k]} onChange={e=>setForm(x=>k==='phone'&&smartEnabled&&!x.whatsapp?({...x,phone:e.target.value,whatsapp:e.target.value}):({...x,[k]:e.target.value}))}/></div>)}
+   </div>
+   <datalist id="supplier-payment-terms">{paymentSuggestions.map(x=><option value={x} key={x}/>)}</datalist>
+   {smartEnabled&&duplicateHints.length>0&&<div className="notice section"><b>Possible existing supplier</b><div className="muted tiny">{duplicateHints.map(x=>x.name+' · '+(x.phone||x.email||x.supplier_code)).join(' | ')}</div></div>}
+   {smartEnabled&&paymentSuggestions.length>0&&<div className="section"><div className="muted tiny">Smart payment-term suggestions</div><div className="pillrow section">{paymentSuggestions.slice(0,6).map(x=><button type="button" className="choice-pill" key={x} onClick={()=>setForm(v=>({...v,payment_terms:x}))}>{x}</button>)}</div></div>}
+   <button className="btn primary section" onClick={add}>{t('suppliers.save','Save Supplier')}</button></div>}
+   {coverageSupplier&&<div className="card pad supplier-coverage"><div className="sectionhead"><div><h3>{coverageSupplier.name} Coverage</h3><p>Rules limit which requirements this supplier is suggested for. No rules means a general supplier.</p></div><button className="btn small" onClick={()=>setCoverageSupplier(null)}>{t('common.close','Close')}</button></div>
+    <div className="pillrow">{scopes.length?scopes.map(sc=><span className="choice-pill selected-choice" key={sc.id}>{scopeLabel(sc)}{canEdit&&<button className="chip-x" onClick={()=>removeScope(sc.id)}>×</button>}</span>):<span className="badge info">General supplier · all items</span>}</div>
+    {canEdit&&<div className="section">
+     <div className="formgrid">
+      <div className="field"><label>{t('suppliers.coverage_type','Coverage type')}</label><select className="select" value={scopeType} onChange={e=>{setScopeType(e.target.value);setScopeValue('');setItemSearch('')}}><option value="category">Category</option><option value="main_group">Main Group</option><option value="subgroup">Subgroup</option><option value="item">Specific Item</option></select></div>
+      {scopeType==='category'&&<div className="field"><label>Category</label><select className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select category…</option>{categories.map(c=><option key={c}>{c}</option>)}</select></div>}
+      {scopeType==='main_group'&&<div className="field"><label>Main Group</label><select className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select main group…</option>{mainGroups.map(x=><option key={x}>{x}</option>)}</select></div>}
+      {scopeType==='subgroup'&&<div className="field"><label>Subgroup</label><select className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select subgroup…</option>{subgroups.map(x=><option key={x}>{x}</option>)}</select></div>}
+      {scopeType==='item'&&<div className="field"><label>Search item</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder="Type item, code or size"/></div>}
+     </div>
+     {scopeType!=='item'&&<button className="btn primary section" onClick={()=>addScope()}>{t('suppliers.add_coverage','Add Coverage Rule')}</button>}
+     {scopeType==='item'&&itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addScope(i)}><div><strong>{itemTitle(i)}</strong><div className="muted tiny">{[i.item_code,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
+    </div>}
+   </div>}
+  </div>
+ </div>
+}
+
+export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
+ const canEdit=can('procurement.rfq.manage')
+ const quoteCfg=features.find(x=>x.feature_key==='quotes.minimum_quotes')?.config||{}
+ const minQuotes=Math.max(1,Number(quoteCfg.minimum_quotes||2))
+ const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
+ const awardReviewEnabled=features.find(x=>x.feature_key==='quotes.award_review')?.enabled!==false
+
+ const[rfqs,setRfqs]=useState([]),[rfqTotal,setRfqTotal]=useState(0),[page,setPage]=useState(0),[summaries,setSummaries]=useState({}),[suppliers,setSuppliers]=useState([])
+ const[active,setActive]=useState(null),[items,setItems]=useState([]),[invite,setInvite]=useState([]),[comparison,setComparison]=useState([])
+ const[supplier,setSupplier]=useState(''),[quoteRef,setQuoteRef]=useState(''),[validUntil,setValidUntil]=useState(''),[prices,setPrices]=useState({}),[file,setFile]=useState(null),[quoteOcrBusy,setQuoteOcrBusy]=useState(false)
+ const[freight,setFreight]=useState('0'),[minOrder,setMinOrder]=useState('0'),[busy,setBusy]=useState(false)
+ const[awardOpen,setAwardOpen]=useState(false),[awardPlan,setAwardPlan]=useState([]),[quoteException,setQuoteException]=useState(''),[sendMenuId,setSendMenuId]=useState('')
+ const pageSize=100
+ const journeyStage=awardOpen?7:(active&&invite.length&&!invite.some(x=>['pending','prepared'].includes(x.status))?6:5)
+
+ const load=useCallback(async()=>{try{
+  const[a,b]=await Promise.all([
+   supabase.from('proc_rfqs').select('*',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1),
+   supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name')
+  ])
+  if(a.error)throw a.error;if(b.error)throw b.error
+  setRfqs(a.data||[]);setRfqTotal(a.count||0);setSuppliers(b.data||[])
+  const ids=(a.data||[]).map(x=>x.id)
+  if(!ids.length){setSummaries({});return}
+  const rs=await supabase.from('proc_rfq_suppliers').select('rfq_id,status,supplier_id,replied_at,sent_at').in('rfq_id',ids)
+  if(rs.error)throw rs.error
+  const map={}
+  for(const x of rs.data||[]){
+   const m=map[x.rfq_id]||(map[x.rfq_id]={total:0,quoted:0,waiting:0,declined:0})
+   m.total++
+   if(x.status==='quoted')m.quoted++
+   else if(x.status==='declined')m.declined++
+   else m.waiting++
+  }
+  setSummaries(map)
+ }catch(e){fail(e)}},[fail,page])
+ useEffect(()=>{load()},[load])
+
+ async function open(r){
+  setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setQuoteException(r.quote_exception_reason||'');setSendMenuId('')
+  const[a,b,c]=await Promise.all([
+   supabase.from('proc_rfq_items').select('*,requirement:proc_requirements(*,item:proc_items(*))').eq('rfq_id',r.id).order('id'),
+   supabase.from('proc_rfq_suppliers').select('*').eq('rfq_id',r.id),
+   supabase.from('proc_v_quote_comparison').select('*').eq('rfq_id',r.id).order('rfq_item_id').order('landed_unit_cost')
+  ])
+  if(a.error)return fail(a.error);if(b.error)return fail(b.error);if(c.error)return fail(c.error)
+  setItems(a.data||[]);setInvite(b.data||[]);setComparison(c.data||[])
+  const first=b.data?.[0]?.supplier_id||'';setSupplier(first)
+  if(first)await loadExistingQuote(r.id,first,a.data||[])
+ }
+
+ async function loadExistingQuote(rfqId,supplierId){
+  setSupplier(supplierId);setPrices({});setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0')
+  if(!supplierId)return
+  const q=await supabase.from('proc_quotes').select('id,quote_ref,valid_until,attachment_path,freight_total,minimum_order_value').eq('rfq_id',rfqId).eq('supplier_id',supplierId).maybeSingle()
+  if(q.error)return fail(q.error)
+  if(!q.data)return
+  setQuoteRef(q.data.quote_ref||'');setValidUntil(q.data.valid_until||'');setFreight(String(q.data.freight_total??0));setMinOrder(String(q.data.minimum_order_value??0))
+  const l=await supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id)
+  if(l.error)return fail(l.error)
+  const map={};(l.data||[]).forEach(x=>map[x.rfq_item_id]={
+   price:String(x.unit_price),available:String(x.available_qty??''),lead:String(x.lead_days??''),
+   discount:String(x.discount_percent??0),tax:String(x.tax_percent??0),moq:String(x.moq??0),multiple:String(x.order_multiple??1)
+  })
+  setPrices(map)
+ }
+
+ function quoteTokens(v){
+  return [...new Set(String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').split(/\s+/).filter(x=>x.length>1))]
+ }
+ function quoteMatch(item,row){
+  const master=item.requirement?.item||{}
+  const code=String(master.item_code||'').trim().toLowerCase()
+  const rowCode=String(row.external_code||'').trim().toLowerCase()
+  const itemSize=String(master.size||'').trim().toLowerCase().replace(/\s+/g,'')
+  const rowSize=String(row.size||'').trim().toLowerCase().replace(/\s+/g,'')
+  const target=quoteTokens([master.description,master.brand].filter(Boolean).join(' '))
+  const source=new Set(quoteTokens(row.description))
+  const common=target.filter(x=>source.has(x)).length
+  const ratio=common/Math.max(target.length,1)
+  const codeExact=!!(code&&rowCode&&code===rowCode)
+  const sizeConflict=!!(itemSize&&rowSize&&itemSize!==rowSize)
+  const sizeExact=!!(itemSize&&rowSize&&itemSize===rowSize)
+  const descriptionStrong=common>=2&&ratio>=0.6&&!sizeConflict
+  const descriptionWithSize=sizeExact&&common>=1&&ratio>=0.5&&!sizeConflict
+  return {score:(codeExact?2:0)+ratio+(sizeExact?0.2:0),acceptable:codeExact||descriptionStrong||descriptionWithSize}
+ }
+ async function readQuoteAutomatically(){
+  if(!file)return fail(new Error('Choose the supplier quotation PDF or image first.'))
+  setQuoteOcrBusy(true)
+  try{
+   const extracted=await extractPriceListFile(file,'cost')
+   const next={...prices}
+   const rows=extracted.rows||[]
+   const usedRows=new Set()
+   let matched=0
+   for(const item of items){
+    let best=null,bestScore=-1,bestIndex=-1
+    rows.forEach((row,index)=>{
+     if(usedRows.has(index))return
+     const price=row.cost??row.mrp
+     if(price===null||price===undefined||!Number.isFinite(Number(price)))return
+     const match=quoteMatch(item,row)
+     if(match.acceptable&&match.score>bestScore){bestScore=match.score;best=row;bestIndex=index}
+    })
+    if(best&&bestIndex>=0){
+     usedRows.add(bestIndex)
+     const current=next[item.id]||{}
+     next[item.id]={
+      ...current,
+      price:String(Number(best.cost??best.mrp)),
+      discount:current.discount??String(Number(best.discount_percent||0)),
+      tax:current.tax??String(Number(best.tax_percent||0)),
+      available:current.available??'',
+      lead:current.lead??'',
+      moq:current.moq??'0',
+      multiple:current.multiple??'1'
+     }
+     matched++
+    }
+   }
+   setPrices(next)
+   if(!matched)return fail(new Error('The quotation was read, but no RFQ items could be matched confidently. Enter the prices manually or use a clearer document.'))
+   flash(matched+' quotation line(s) matched automatically. Review the filled prices before saving.')
+  }catch(e){fail(e)}finally{setQuoteOcrBusy(false)}
+ }
+
+ async function saveQuote(){
+  if(!canEdit)return fail(new Error(t('validation.rfq_read_only','Your role has read-only supplier-price access.')))
+  if(!active||!supplier)return fail(new Error(t('validation.select_supplier','Select a supplier.')))
+  const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&prices[i.id]?.price!=='')
+  if(!quoted.length)return fail(new Error(t('validation.quote_one','Enter at least one quoted price.')))
+  const freightN=Number(freight||0),minN=Number(minOrder||0)
+  if(!Number.isFinite(freightN)||freightN<0||!Number.isFinite(minN)||minN<0)return fail(new Error(t('validation.freight_nonnegative','Freight and minimum order value must be zero or positive.')))
+  const invalid=quoted.some(i=>{
+   const v=prices[i.id]||{},p=Number(v.price),a=v.available===''?null:Number(v.available),l=v.lead===''?null:Number(v.lead),d=Number(v.discount||0),t=Number(v.tax||0),m=Number(v.moq||0),mult=Number(v.multiple||1)
+   return !Number.isFinite(p)||p<0||(a!==null&&(!Number.isFinite(a)||a<0))||(l!==null&&(!Number.isInteger(l)||l<0))||!Number.isFinite(d)||d<0||d>100||!Number.isFinite(t)||t<0||t>100||!Number.isFinite(m)||m<0||!Number.isFinite(mult)||mult<=0
+  })
+  if(invalid)return fail(new Error(t('validation.quote_fields','Check price, availability, lead days, discount/tax, MOQ and order multiple.')))
+  setBusy(true);let path=null
+  try{
+   if(file){
+    path='quotes/'+active.id+'/'+Date.now()+'-'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_')
+    const u=await supabase.storage.from('gh-procurement').upload(path,file);if(u.error)throw u.error
+   }
+   const lines=quoted.map(i=>({
+    rfq_item_id:i.id,unit_price:Number(prices[i.id].price),
+    available_qty:prices[i.id].available||null,lead_days:prices[i.id].lead||null,
+    discount_percent:prices[i.id].discount||0,tax_percent:prices[i.id].tax||0,
+    moq:prices[i.id].moq||0,order_multiple:prices[i.id].multiple||1
+   }))
+   const r=await supabase.rpc('proc_save_quote_v3',{
+    p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:quoteRef||null,p_lines:lines,
+    p_valid_until:validUntil||null,p_attachment_path:path,p_notes:null,
+    p_freight_total:freightN,p_minimum_order_value:minN
+   })
+   if(r.error)throw r.error
+   setFile(null)
+   flash('Supplier price saved. Compare price, availability and delivery time, then review the recommended award.')
+   await open({...active,status:r.data.status});load()
+  }catch(e){if(path)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
+ }
+
+ async function togglePoItem(i,on){
+  if(!canEdit)return
+  const r=await supabase.from('proc_rfq_items').update({selected_for_po:on}).eq('id',i.id)
+  if(r.error)return fail(r.error)
+  setItems(v=>v.map(x=>x.id===i.id?{...x,selected_for_po:on}:x))
+ }
+
+ function roundForMultiple(n,multiple){
+  const m=Math.max(Number(multiple||1),0.001)
+  return Math.ceil((Number(n||0)-1e-9)/m)*m
+ }
+ function buildAwardReview(){
+  if(!canEdit||!active)return
+  const selected=items.filter(i=>i.selected_for_po!==false)
+  if(!selected.length)return fail(new Error(t('validation.order_item','Select at least one item for the supplier order.')))
+  if(!comparison.length)return fail(new Error(t('validation.enter_prices','Enter supplier prices before reviewing awards.')))
+  const plan=[]
+  for(const item of selected){
+   const target=Math.min(Number(item.requested_qty||0),Math.max(Number(item.requirement?.adjusted_qty||0)-Number(item.requirement?.ordered_qty||0),0))
+   let remaining=target
+   const candidates=candidatesFor(item.id)
+   for(const cand of candidates){
+    if(remaining<=0)break
+    const available=cand.available_qty===null||cand.available_qty===undefined?Infinity:Number(cand.available_qty)
+    let allocation=Math.max(remaining,Number(cand.moq||0))
+    allocation=roundForMultiple(allocation,Number(cand.order_multiple||1))
+    if(Number.isFinite(available)&&allocation>available){
+     const possible=Math.floor((available+1e-9)/Math.max(Number(cand.order_multiple||1),0.001))*Math.max(Number(cand.order_multiple||1),0.001)
+     if(possible<Math.max(Number(cand.moq||0),0.001))continue
+     allocation=Math.min(possible,remaining)
+     allocation=roundForMultiple(allocation,Number(cand.order_multiple||1))
+     if(allocation>available)continue
+    }
+    if(allocation<=0)continue
+    plan.push({
+     id:(globalThis.crypto?.randomUUID?.()||Math.random().toString(36)),
+     rfq_item_id:item.id,quote_line_id:cand.quote_line_id,qty:String(allocation),
+     supplier_id:cand.supplier_id,supplier_name:cand.supplier_name,
+     landed_unit_cost:cand.landed_unit_cost,unit_price:cand.unit_price,lead_days:cand.lead_days,available_qty:cand.available_qty,
+     recommended:true,
+     override_reason:automaticAwardReason(item.id,cand,allocation,remaining)
+    })
+    remaining-=allocation
+   }
+   if(remaining>0)return fail(new Error(t('validation.quote_coverage_prefix','Quoted supplier availability/commercial terms do not fully cover')+' '+itemTitle(item.requirement?.item||{})+'. '+t('validation.quote_coverage_suffix','Add another quote or adjust supplier availability.')))
+  }
+  setAwardPlan(plan);setAwardOpen(true)
+ }
+
+ function itemNeedsSpeed(itemId){
+  const req=items.find(i=>i.id===itemId)?.requirement||{}
+  const priority=String(req.priority||'').toLowerCase()
+  return priority==='urgent'||priority==='high'||!!req.urgency_reason||!!req.customer_paid
+ }
+ function candidatesFor(itemId){
+  const urgent=itemNeedsSpeed(itemId)
+  return comparison.filter(x=>x.rfq_item_id===itemId).sort((a,b)=>{
+   if(urgent){
+    const al=a.lead_days===null||a.lead_days===undefined?Number.POSITIVE_INFINITY:Number(a.lead_days)
+    const bl=b.lead_days===null||b.lead_days===undefined?Number.POSITIVE_INFINITY:Number(b.lead_days)
+    if(al!==bl)return al-bl
+   }
+   const cost=Number(a.landed_unit_cost)-Number(b.landed_unit_cost)
+   if(cost!==0)return cost
+   return Number(a.lead_days??999999)-Number(b.lead_days??999999)
+  })
+ }
+ function recommendedQuoteLine(itemId){return candidatesFor(itemId)[0]?.quote_line_id||null}
+ function automaticAwardReason(itemId,cand,allocation=null,remaining=null){
+  const reasons=[]
+  if(Number(cand?.landed_rank)!==1){
+   if(itemNeedsSpeed(itemId)&&cand?.quote_line_id===recommendedQuoteLine(itemId))reasons.push('System recommendation: faster delivery for urgent/high-priority requirement.')
+   else reasons.push('System allocation: lower-cost suppliers could not fully cover the remaining quantity or commercial constraints.')
+  }
+  if(allocation!==null&&remaining!==null&&Number(allocation)>Number(remaining))reasons.push('Supplier MOQ/order multiple requires ordering above the requirement.')
+  return reasons.join(' ')
+ }
+ function updateAward(id,patch){setAwardPlan(v=>v.map(x=>x.id===id?{...x,...patch}:x))}
+ function changeAwardSupplier(row,quoteLineId){
+  const cand=candidatesFor(row.rfq_item_id).find(x=>x.quote_line_id===quoteLineId)
+  if(!cand)return
+  const recommended=cand.quote_line_id===recommendedQuoteLine(row.rfq_item_id)
+  updateAward(row.id,{
+   quote_line_id:cand.quote_line_id,supplier_id:cand.supplier_id,supplier_name:cand.supplier_name,
+   landed_unit_cost:cand.landed_unit_cost,unit_price:cand.unit_price,lead_days:cand.lead_days,available_qty:cand.available_qty,recommended,
+   override_reason:recommended?automaticAwardReason(row.rfq_item_id,cand):row.override_reason
+  })
+ }
+ function addAwardSplit(itemId){
+  const cand=candidatesFor(itemId)[0]
+  if(!cand)return
+  setAwardPlan(v=>[...v,{id:(globalThis.crypto?.randomUUID?.()||Math.random().toString(36)),rfq_item_id:itemId,quote_line_id:cand.quote_line_id,qty:'',supplier_id:cand.supplier_id,supplier_name:cand.supplier_name,landed_unit_cost:cand.landed_unit_cost,unit_price:cand.unit_price,lead_days:cand.lead_days,available_qty:cand.available_qty,recommended:true,override_reason:automaticAwardReason(itemId,cand)}])
+ }
+
+ async function finalizeAward(){
+  if(!active||!awardPlan.length)return
+  const invalid=awardPlan.some(x=>!Number.isFinite(Number(x.qty))||Number(x.qty)<=0||(!x.recommended&&!String(x.override_reason||'').trim()))
+  if(invalid)return fail(new Error(t('validation.award_allocation','Every award allocation needs a positive quantity; non-recommended suppliers require an override reason.')))
+  setBusy(true)
+  try{
+   if(quoteException.trim()){
+    const q=await supabase.from('proc_rfqs').update({quote_exception_reason:quoteException.trim(),updated_at:new Date().toISOString()}).eq('id',active.id)
+    if(q.error)throw q.error
+   }
+   const p=await supabase.rpc('proc_finalize_award_plan_v2',{p_rfq_id:active.id,p_allocations:awardPlan.map(x=>({
+    rfq_item_id:x.rfq_item_id,quote_line_id:x.quote_line_id,qty:Number(x.qty),override_reason:x.override_reason||null
+   }))})
+   if(p.error)throw p.error
+   const made=Array.isArray(p.data)?p.data:[]
+   flash(made.length+' reviewed purchase order'+(made.length===1?'':'s')+' created. Opening Orders.')
+   setActive(null);setItems([]);setComparison([]);setAwardPlan([]);setAwardOpen(false);load();navigate('po')
+  }catch(e){fail(e)}finally{setBusy(false)}
+ }
+
+ function downloadRequest(inv){
+  if(!active)return
+  const supplierRow=suppliers.find(x=>x.id===inv.supplier_id)
+  if(!supplierRow)return
+  exportSupplierPriceRequestPdf({rfq:active,items,supplier:supplierRow,company,footer})
+ }
+ function supplierRequestArgs(inv){
+  const supplierRow=suppliers.find(x=>x.id===inv.supplier_id)
+  return {rfq:active,items,supplier:supplierRow,company}
+ }
+ function sendRequest(inv){
+  if(!active)return
+  const s=suppliers.find(x=>x.id===inv.supplier_id)
+  if(!s)return
+  const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
+  const url=whatsappUrl(s.whatsapp||s.phone,msg)
+  if(url)window.open(url,'_blank','noopener,noreferrer')
+  else navigator.clipboard.writeText(msg).then(()=>flash('Reply-ready RFQ text copied. Send it to '+s.name+', then confirm Sent.')).catch(fail)
+ }
+ async function downloadPng(inv){
+  try{await downloadSupplierPriceRequestPng(supplierRequestArgs(inv));flash('RFQ PNG downloaded.')}
+  catch(e){fail(e)}
+ }
+ async function shareTextAndPng(inv){
+  const s=suppliers.find(x=>x.id===inv.supplier_id)
+  if(!s)return
+  try{
+   const result=await shareSupplierPriceRequestPng(supplierRequestArgs(inv))
+   if(result.shared){flash('Share sheet opened with RFQ text and PNG.');return}
+   const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
+   const url=whatsappUrl(s.whatsapp||s.phone,msg)
+   if(url)window.open(url,'_blank','noopener,noreferrer')
+   flash('RFQ PNG downloaded. Attach it in WhatsApp; the reply-ready text has been opened.')
+  }catch(e){
+   if(e?.name==='AbortError')return
+   fail(e)
+  }
+ }
+ function copyReplyText(inv){
+  const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
+  navigator.clipboard.writeText(msg).then(()=>flash('Supplier reply template copied.')).catch(fail)
+ }
+ async function confirmSent(inv){
+  if(!canEdit||!active)return
+  if(!confirm('Confirm that this RFQ was actually sent to '+supplierName(inv.supplier_id)+'?'))return
+  const r=await supabase.rpc('proc_mark_rfq_supplier_sent_v1',{p_rfq_id:active.id,p_supplier_id:inv.supplier_id})
+  if(r.error)return fail(r.error)
+  flash('Supplier request marked Sent.');await open({...active,status:'sent'});load()
+ }
+
+ function reminder(inv){
+  const s=suppliers.find(x=>x.id===inv.supplier_id)
+  if(!s)return
+  const msg='General Hardware — reminder for supplier price request '+active.rfq_no+(active.due_date?' due '+active.due_date:'')+'. Please send your quotation when possible.'
+  const url=whatsappUrl(s.whatsapp||s.phone,msg)
+  if(url)window.open(url,'_blank','noopener,noreferrer')
+  else navigator.clipboard.writeText(msg).then(()=>flash('Reminder copied.')).catch(fail)
+ }
+ async function markDeclined(inv){
+  if(!canEdit)return
+  const r=await supabase.from('proc_rfq_suppliers').update({status:'declined',replied_at:new Date().toISOString()}).eq('id',inv.id)
+  if(r.error)return fail(r.error)
+  flash(supplierName(inv.supplier_id)+' marked declined.');open(active);load()
+ }
+ async function extendDue(){
+  if(!canEdit||!active)return
+  const next=prompt(t('prompt.new_quote_due','New quotation due date (YYYY-MM-DD):'),active.due_date||'')
+  if(!next)return
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(next))return fail(new Error(t('validation.date_format','Enter the due date as YYYY-MM-DD.')))
+  const r=await supabase.from('proc_rfqs').update({due_date:next,updated_at:new Date().toISOString()}).eq('id',active.id).select('*').single()
+  if(r.error)return fail(r.error)
+  setActive(r.data);flash('Quotation due date extended.');load()
+ }
+
+ const supplierName=id=>suppliers.find(s=>s.id===id)?.name||id
+ const bestByItem=useMemo(()=>{const m={};comparison.forEach(x=>{if(Number(x.landed_rank)===1)m[x.rfq_item_id]=(m[x.rfq_item_id]||[]).concat(x)});return m},[comparison])
+ const show=k=>fieldEnabled(fields,'rfq',k),label=(k,v)=>fieldLabel(fields,'rfq',k,v)
+ const overdue=r=>r.due_date&&r.due_date<new Date().toISOString().slice(0,10)&&['sent','partially_quoted'].includes(r.status)
+
+ return <>
+  <ProcurementPath active={journeyStage} t={t}/>
+  <div className="split rfq-split">
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('buying.rfq_title','RFQs & Quotes')} <InfoButton topic="quotation_comparison" language={language}/></h3><p>{t('buying.rfq_hint',"Send the RFQ, enter each supplier price, availability and delivery time, then review the award before ordering.")}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
+   <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{rfqTotal?page*pageSize+1:0}–{Math.min((page+1)*pageSize,rfqTotal)} of {rfqTotal}</span><button className="btn" disabled={(page+1)*pageSize>=rfqTotal} onClick={()=>setPage(x=>x+1)}>Next</button></div>
+  </div>
+
+  <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
+   <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier prices received · preferred minimum {minQuotes}. Delivery time is included in the recommendation for urgent items, and every recommendation can be changed before ordering.</p></div><div className="toolbar">{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Awards</button>}</div></div>
+
+   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Recommended: Share Text + PNG. WhatsApp Text is best when the supplier wants to type rates directly.</div><div className="toolbar section"><button className="btn small primary" onClick={()=>shareTextAndPng(x)}>Share Text + PNG</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div></div>}</div>)}</div></div>}
+
+   <div className="formgrid">
+    <div className="field"><label>{label('supplier','Supplier')}</label><select className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
+    {show('quote_ref')&&<div className="field"><label>{label('quote_ref','Supplier Quote Reference')}</label><input className="input" disabled={!canEdit} value={quoteRef} onChange={e=>setQuoteRef(e.target.value)}/></div>}
+    {show('valid_until')&&<div className="field"><label>{label('valid_until','Valid Until')}</label><input className="input" disabled={!canEdit} type="date" value={validUntil} onChange={e=>setValidUntil(e.target.value)}/></div>}
+    {commercialEnabled&&show('freight_total')&&<div className="field"><label>{label('freight_total','Freight Total')}</label><input className="input" inputMode="decimal" disabled={!canEdit} value={freight} onChange={e=>setFreight(e.target.value)}/></div>}
+    {commercialEnabled&&show('minimum_order_value')&&<div className="field"><label>{label('minimum_order_value','Minimum Order Value')}</label><input className="input" inputMode="decimal" disabled={!canEdit} value={minOrder} onChange={e=>setMinOrder(e.target.value)}/></div>}
+    {show('attachment')&&canEdit&&<div className="field"><label>{label('attachment','Quote Attachment')}</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
+   </div>
+
+   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th>
+    {show('description')&&<th>{label('description','Item')}</th>}{show('requested_qty')&&<th>{label('requested_qty','Requested Qty')}</th>}{show('unit_price')&&<th>{label('unit_price','Unit Price')}</th>}{show('available_qty')&&<th>{label('available_qty','Available Qty')}</th>}{show('discount_percent')&&<th>{label('discount_percent','Discount %')}</th>}{show('tax_percent')&&<th>{label('tax_percent','Tax %')}</th>}{commercialEnabled&&show('moq')&&<th>{label('moq','MOQ')}</th>}{commercialEnabled&&show('order_multiple')&&<th>{label('order_multiple','Multiple')}</th>}{show('lead_days')&&<th>{label('lead_days','Lead Days')}</th>}{show('current_best')&&<th>{label('current_best','Lowest Landed')}</th>}
+   </tr></thead><tbody>{items.map(i=>{const v=prices[i.id]||{},best=bestByItem[i.id]?.[0];return <tr key={i.id}><td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
+    {show('description')&&<td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>}
+    {show('requested_qty')&&<td>{qty(i.requested_qty)}</td>}
+    {show('unit_price')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} value={v.price??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,price:e.target.value}}))}/></td>}
+    {show('available_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} value={v.available??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,available:e.target.value}}))}/></td>}
+    {show('discount_percent')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.discount??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,discount:e.target.value}}))}/></td>}
+    {show('tax_percent')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.tax??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,tax:e.target.value}}))}/></td>}
+    {commercialEnabled&&show('moq')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.moq??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,moq:e.target.value}}))}/></td>}
+    {commercialEnabled&&show('order_multiple')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.multiple??'1'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,multiple:e.target.value}}))}/></td>}
+    {show('lead_days')&&<td><input className="input short-entry" inputMode="numeric" disabled={!canEdit} value={v.lead??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,lead:e.target.value}}))}/></td>}
+    {show('current_best')&&<td>{best?<><strong>{money(best.landed_unit_cost)}</strong><div className="muted tiny">{best.supplier_name} · goods {money(best.effective_unit_price)}{Number(best.freight_unit_cost)>0?' · freight '+money(best.freight_unit_cost):''}</div>{(bestByItem[i.id]?.length||0)>1&&<Badge>tie</Badge>}</>:'—'}</td>}
+   </tr>})}</tbody></table></div>
+
+   <div className="mobile-card-list section">{items.map(i=>{const v=prices[i.id]||{},best=bestByItem[i.id]?.[0];return <div className="mobile-data-card" key={i.id}><div className="stock-card-title"><strong>{itemTitle(i.requirement?.item||{})}</strong><label className={'choice-pill '+(i.selected_for_po!==false?'selected-choice':'')}><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/>Order</label></div><div className="formgrid section">
+    {show('requested_qty')&&<div className="field"><label>Requested Qty</label><div className="read-box">{qty(i.requested_qty)}</div></div>}
+    {show('unit_price')&&<div className="field"><label>Unit Price</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.price??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,price:e.target.value}}))}/></div>}
+    {show('available_qty')&&<div className="field"><label>Available</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.available??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,available:e.target.value}}))}/></div>}
+    {commercialEnabled&&show('moq')&&<div className="field"><label>MOQ</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.moq??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,moq:e.target.value}}))}/></div>}
+    {commercialEnabled&&show('order_multiple')&&<div className="field"><label>Multiple</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.multiple??'1'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,multiple:e.target.value}}))}/></div>}
+    {show('discount_percent')&&<div className="field"><label>Discount %</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.discount??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,discount:e.target.value}}))}/></div>}
+    {show('tax_percent')&&<div className="field"><label>Tax %</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.tax??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,tax:e.target.value}}))}/></div>}
+    {show('lead_days')&&<div className="field"><label>Lead Days</label><input className="input" inputMode="numeric" disabled={!canEdit} value={v.lead??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,lead:e.target.value}}))}/></div>}
+   </div>{best&&show('current_best')&&<div className="notice section"><b>{best.supplier_name}</b> · landed {money(best.landed_unit_cost)} · delivery {best.lead_days==null?'not stated':best.lead_days+' day'+(Number(best.lead_days)===1?'':'s')}</div>}</div>})}</div>
+
+   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{comparison.length} comparison line(s).</span></div>
+
+   {awardOpen&&<div className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Award & Create Order')}</h3><p>{t('buying.award_hint','Review the recommended supplier for every line. You can change supplier, split quantity, or choose a faster delivery; overrides are permanently recorded.')}</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
+    <div className="field"><label>Quote exception reason <span className="muted">· only if deliberately overriding the item-level minimum</span></label><input className="input" value={quoteException} onChange={e=>setQuoteException(e.target.value)} placeholder="Optional; the database automatically adjusts the minimum when fewer eligible suppliers exist."/></div>
+    <div className="stack section">{items.filter(i=>i.selected_for_po!==false).map(item=>{const plans=awardPlan.filter(p=>p.rfq_item_id===item.id),speed=itemNeedsSpeed(item.id);return <div className="card pad award-item" key={item.id}><div className="sectionhead"><div><strong>{itemTitle(item.requirement?.item||{})}</strong><div className="muted tiny">Outstanding {qty(Math.min(Number(item.requested_qty||0),Math.max(Number(item.requirement?.adjusted_qty||0)-Number(item.requirement?.ordered_qty||0),0)))} · {speed?'Faster delivery preferred':'Lowest landed cost preferred'}{item.requirement?.priority?' · '+String(item.requirement.priority).toUpperCase():''}</div></div><button className="btn small" onClick={()=>addAwardSplit(item.id)}>+ Split</button></div>{plans.map(row=><div className="award-row section" key={row.id}><select className="select" value={row.quote_line_id} onChange={e=>changeAwardSupplier(row,e.target.value)}>{candidatesFor(item.id).map(x=><option value={x.quote_line_id} key={x.quote_line_id}>{x.supplier_name} · {money(x.landed_unit_cost)} · {x.lead_days==null?'delivery ?':x.lead_days+'d'} · available {x.available_qty==null?'?':qty(x.available_qty)} · MOQ {qty(x.moq)}</option>)}</select><input className="input stock-entry" inputMode="decimal" value={row.qty} onChange={e=>updateAward(row.id,{qty:e.target.value})}/><div><Badge>{row.recommended?'recommended':'override'}</Badge><div className="muted tiny">Landed {money(row.landed_unit_cost)} · {row.lead_days==null?'delivery not stated':row.lead_days+' day'+(Number(row.lead_days)===1?'':'s')}</div></div><input className="input" value={row.override_reason||''} onChange={e=>updateAward(row.id,{override_reason:e.target.value})} placeholder={row.recommended?'Reason only if needed':'Override reason required'}/><button className="btn small bad" onClick={()=>setAwardPlan(v=>v.filter(x=>x.id!==row.id))}>Remove</button></div>)}</div>})}</div>
+    <button className="btn primary section" disabled={busy} onClick={finalizeAward}>{busy?'Creating POs…':t('buying.create_orders','Step 7 · Create Supplier Orders')}</button>
+   </div>}
+  </>}</div>
+ </div>
+ </>
+}
+
