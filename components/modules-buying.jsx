@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {money,qty,stamp,itemTitle,whatsappUrl} from '@/lib/helpers'
+import {money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone} from '@/lib/helpers'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -230,7 +230,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const canAdd=can('suppliers.add')
  const canEdit=can('suppliers.edit')
  const smartEnabled=features.find(x=>x.feature_key==='suppliers.smart_suggestions')?.enabled!==false
- const[rows,setRows]=useState([]),[q,setQ]=useState(''),[form,setForm]=useState({supplier_code:'',name:'',contact_person:'',phone:'',whatsapp:'',email:'',address:'',payment_terms:''}),[coverageSupplier,setCoverageSupplier]=useState(null),[scopes,setScopes]=useState([]),[categories,setCategories]=useState([]),[mainGroups,setMainGroups]=useState([]),[subgroups,setSubgroups]=useState([]),[scopeType,setScopeType]=useState('category'),[scopeValue,setScopeValue]=useState(''),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([])
+ const[rows,setRows]=useState([]),[q,setQ]=useState(''),[form,setForm]=useState({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''}),[coverageSupplier,setCoverageSupplier]=useState(null),[scopes,setScopes]=useState([]),[categories,setCategories]=useState([]),[mainGroups,setMainGroups]=useState([]),[subgroups,setSubgroups]=useState([]),[scopeType,setScopeType]=useState('category'),[scopeValue,setScopeValue]=useState(''),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([])
  const load=useCallback(async()=>{const r=await supabase.from('proc_suppliers').select('*').order('name');if(r.error)fail(r.error);else setRows(r.data||[])},[fail])
  useEffect(()=>{load()},[load])
  useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error){setCategories(r.data?.categories||[]);setMainGroups(r.data?.main_groups||[]);setSubgroups(r.data?.subgroups||[])}})()},[])
@@ -270,18 +270,22 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  async function add(){
   if(!canAdd)return fail(new Error(t('suppliers.add_denied','You do not have permission to add suppliers.')))
   if(!form.name.trim())return fail(new Error(t('suppliers.name_required','Supplier name is required.')))
+  const phone=toSriLankaSupplierPhone(form.phone)
+  const whatsapp=toSriLankaSupplierPhone(form.whatsapp)
+  if(form.phone.trim()&&form.phone.trim()!=='+94'&&!phone)return fail(new Error('Supplier phone must be a valid Sri Lankan number starting with +94 (e.g. +94771234567).'))
+  if(form.whatsapp.trim()&&form.whatsapp.trim()!=='+94'&&!whatsapp)return fail(new Error('Supplier WhatsApp must be a valid Sri Lankan number starting with +94 (e.g. +94771234567).'))
   const code=form.supplier_code.trim()||'S'+String(Math.max(rows.length+101,101)).padStart(3,'0')
-  const r=await supabase.from('proc_suppliers').insert({...form,name:form.name.trim(),supplier_code:code})
+  const r=await supabase.from('proc_suppliers').insert({...form,name:form.name.trim(),supplier_code:code,phone:phone||null,whatsapp:whatsapp||phone||null})
   if(r.error)return fail(r.error)
-  flash(form.name+' added.');setForm({supplier_code:'',name:'',contact_person:'',phone:'',whatsapp:'',email:'',address:'',payment_terms:''});load()
+  flash(form.name+' added.');setForm({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''});load()
  }
  async function toggle(s){if(!canEdit)return;const r=await supabase.from('proc_suppliers').update({active:!s.active}).eq('id',s.id);if(r.error)fail(r.error);else{flash(s.name+(s.active?' deactivated.':' activated.'));load()}}
  const duplicateHints=useMemo(()=>{
   if(!smartEnabled)return[]
-  const name=form.name.trim().toLowerCase(),phone=String(form.phone||'').replace(/\D/g,''),email=form.email.trim().toLowerCase()
+  const name=form.name.trim().toLowerCase(),phone=toSriLankaSupplierPhone(form.phone),email=form.email.trim().toLowerCase()
   return rows.filter(r=>
    (name&&r.name?.trim().toLowerCase()===name)||
-   (phone&&String(r.phone||'').replace(/\D/g,'')===phone)||
+   (phone&&toSriLankaSupplierPhone(r.phone)===phone)||
    (email&&String(r.email||'').trim().toLowerCase()===email)
   ).slice(0,5)
  },[rows,form.name,form.phone,form.email,smartEnabled])
@@ -292,7 +296,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
   {key:'supplier_code',label:'Code',render:s=><span className="mono">{s.supplier_code}</span>},
   {key:'name',label:'Supplier',render:s=><><strong>{s.name}</strong>{s.email&&<div className="muted tiny">{s.email}</div>}</>},
   {key:'contact_person',label:'Contact Person'},
-  {key:'phone',label:'Phone'},
+  {key:'phone',label:'Phone',render:s=>toSriLankaSupplierPhone(s.phone)||s.phone||'—'},
   {key:'whatsapp',label:'WhatsApp',render:s=>{const url=whatsappUrl(s.whatsapp);return url?<a className="good-text" target="_blank" rel="noreferrer" href={url}>Open</a>:'—'}},
   {key:'email',label:'Email'},
   {key:'address',label:'Address'},
@@ -308,7 +312,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
     {[
      ['supplier_code','Supplier code'],['name','Supplier name'],['contact_person','Contact person'],['phone','Phone'],
      ['whatsapp','WhatsApp'],['email','Email'],['address','Address'],['payment_terms','Payment terms']
-    ].filter(([k])=>!fields?.some(f=>f.module_key==='suppliers'&&f.field_key===k&&!f.enabled)).map(([k,l])=><div className="field" key={k}><label>{fields?.find(f=>f.module_key==='suppliers'&&f.field_key===k)?.label||l}</label><input className="input" list={k==='payment_terms'?'supplier-payment-terms':undefined} value={form[k]} onChange={e=>setForm(x=>k==='phone'&&smartEnabled&&!x.whatsapp?({...x,phone:e.target.value,whatsapp:e.target.value}):({...x,[k]:e.target.value}))}/></div>)}
+    ].filter(([k])=>!fields?.some(f=>f.module_key==='suppliers'&&f.field_key===k&&!f.enabled)).map(([k,l])=><div className="field" key={k}><label>{fields?.find(f=>f.module_key==='suppliers'&&f.field_key===k)?.label||l}</label><input className="input" inputMode={k==='phone'||k==='whatsapp'?'tel':undefined} list={k==='payment_terms'?'supplier-payment-terms':undefined} value={form[k]} placeholder={k==='phone'||k==='whatsapp'?'+94 77 123 4567':undefined} onChange={e=>{const value=e.target.value;setForm(x=>{if(k==='phone'||k==='whatsapp'){const next=formatSriLankaSupplierPhoneInput(value);if(k==='phone'&&smartEnabled&&(!x.whatsapp||x.whatsapp==='+94'||x.whatsapp===x.phone))return {...x,phone:next,whatsapp:next};return {...x,[k]:next}}return {...x,[k]:value}})}}/></div>)}
    </div>
    <datalist id="supplier-payment-terms">{paymentSuggestions.map(x=><option value={x} key={x}/>)}</datalist>
    {smartEnabled&&duplicateHints.length>0&&<div className="notice section"><b>Possible existing supplier</b><div className="muted tiny">{duplicateHints.map(x=>x.name+' · '+(x.phone||x.email||x.supplier_code)).join(' | ')}</div></div>}
