@@ -132,11 +132,16 @@ test('invoice matching is PO + GRN + invoice and receiving requires rejection re
   assert.match(migration,/A rejection reason is required/)
 })
 
-test('health check reports commit and database readiness',()=>{
-  const route=read('app/api/health/route.ts')
-  assert.match(route,/VERCEL_GIT_COMMIT_SHA/)
-  assert.match(route,/proc_healthcheck_v1/)
-  assert.match(route,/schema_ready/)
+test('static export replaces server health with a browser connectivity page',()=>{
+  const config=read('next.config.ts')
+  const headers=read('public/_headers')
+  const health=read('app/health/page.tsx')
+  assert.match(config,/output:\s*['"]export['"]/)
+  assert.match(config,/trailingSlash:\s*true/)
+  assert.match(headers,/Content-Security-Policy:/)
+  assert.match(headers,/X-Frame-Options:\s*DENY/)
+  assert.match(health,/proc_healthcheck_v1/)
+  assert.throws(()=>read('app/api/health/route.ts'),/ENOENT/)
 })
 
 test('automation exceptions remain durable for non-routine failures',()=>{
