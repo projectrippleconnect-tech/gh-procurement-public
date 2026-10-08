@@ -1,0 +1,51 @@
+name: GH Procurement Android companion APK
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'android-companion/**'
+      - 'components/modules-buying.jsx'
+      - 'tests/contracts.test.mjs'
+      - '.github/workflows/android-companion-apk.yml'
+  push:
+    branches:
+      - feature/android-direct-supplier-share-20261009
+    paths:
+      - 'android-companion/**'
+      - '.github/workflows/android-companion-apk.yml'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: android-companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # GitHub's ubuntu runner already includes Android SDK command-line tools.
+      # setup-android@v3 attempts to install the removed legacy "tools" package,
+      # which fails before Gradle begins. Use the runner SDK directly instead.
+      - name: Install Android SDK 35
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMGR="$(find "$SDK_ROOT/cmdline-tools" -maxdepth 3 -type f -name sdkmanager | head -1)"
+          test -n "$SDKMGR" || { echo "sdkmanager not found under $SDK_ROOT"; exit 1; }
+          yes | "$SDKMGR" --licenses >/dev/null || true
+          "$SDKMGR" 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build and unit test
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gh-procurement-android-companion-test-apk
+          path: android-companion/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
