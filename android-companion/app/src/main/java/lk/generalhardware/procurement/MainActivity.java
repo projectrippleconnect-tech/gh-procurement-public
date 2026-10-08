@@ -1,7 +1,6 @@
 package lk.generalhardware.procurement;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
@@ -135,16 +134,9 @@ public final class MainActivity extends Activity {
                 final String number = normalized;
                 final String caption = text;
                 final String image = imageDataUrl.substring("data:image/png;base64,".length());
-                // Explicit verification before passing to WhatsApp (undocumented recipient hint).
-                String recipient = (supplier == null || supplier.trim().isEmpty()) ? number
-                        : supplier.trim() + " (" + number + ")";
-                new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Review WhatsApp supplier")
-                    .setMessage("Open WhatsApp for " + recipient + " with this RFQ PNG and text?\n\nVerify the recipient again before tapping WhatsApp Send.")
-                    .setNegativeButton("Cancel", (d, w) -> {})
-                    .setPositiveButton("Continue", (d, w) -> {
-                        new Thread(() -> prepareAndLaunch(number, caption, image)).start();
-                    }).show();
+                // No additional in-app contact picker or confirmation: WhatsApp itself
+                // still requires the user to verify the recipient and tap Send.
+                new Thread(() -> prepareAndLaunch(number, caption, image)).start();
             });
         }
     }
