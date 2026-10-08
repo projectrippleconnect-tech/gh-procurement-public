@@ -2,3 +2,4 @@ Manual production deployment approved 2026-10-09.
 Release: GH Procurement Android supplier-specific RFQ sharing.
 Source: pull request #1, integrated at c022a1cfcba0beac2fc652b49d0212dafd0a7237.
 This file is intentionally used by Railway watchPatterns so unrelated pushes do not trigger deployment.
+Second manual attempt approved 2026-10-09: correct escaped Android-sharing contract assertion; deployment retry.
