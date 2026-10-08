@@ -1,0 +1,63 @@
+name: Procurement Static Export Proof (No Deploy)
+on:
+  push:
+    branches:
+      - test/cloudflare-static-20261009
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'next.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/static-export-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gh-procurement-static-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-export-proof:
+    name: Typecheck, contract tests, and static export (no deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Type-check
+        run: npm run lint
+      - name: Contract tests
+        run: npm test
+      - name: Static export build
+        run: npm run build
+      - name: Inspect Cloudflare Pages output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s out/index.html
+          test -s out/health/index.html
+          test -s out/_headers
+          test -s out/manifest.webmanifest
+          test -s out/pdf.worker.min.mjs
+          test -s out/tesseract/worker.min.js
+          file_count="$(find out -type f | wc -l)"
+          max_bytes="$(find out -type f -printf '%s\n' | sort -nr | head -1)"
+          echo "Exported files: $file_count"
+          echo "Largest file bytes: $max_bytes"
+          echo "Largest ten exported files:"
+          find out -type f -printf '%s %p\n' | sort -nr | head -10
+          test "$file_count" -le 20000
+          test "$max_bytes" -le 26214400
+          echo "Static Cloudflare Pages output is within file-count and per-file limits."
