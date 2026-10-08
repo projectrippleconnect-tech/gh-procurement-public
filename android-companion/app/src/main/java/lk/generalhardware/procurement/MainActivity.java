@@ -1,11 +1,15 @@
 package lk.generalhardware.procurement;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Base64;
@@ -17,11 +21,17 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
 import android.widget.Toast;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.EditText;
+import android.view.inputmethod.InputMethodManager;
+import android.text.InputType;
 import android.widget.ProgressBar;
 import android.widget.FrameLayout;
 import android.view.ViewGroup;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.UUID;
 
 /**
@@ -58,7 +68,19 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams bar = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 6);
         root.addView(progress, bar);
-        setContentView(root);
+        // Diagnostic remains available without changing Railway's live website.
+        // This lets the owner first test direct-recipient behavior with THEIR OWN number.
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        Button testShare = new Button(this);
+        testShare.setText("TEST WHATSAPP (MY NUMBER)");
+        testShare.setAllCaps(false);
+        column.addView(testShare, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        column.addView(root, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        testShare.setOnClickListener(v -> runShareDiagnostic());
+        setContentView(column);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -112,6 +134,59 @@ public final class MainActivity extends Activity {
             pendingFiles.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data));
             pendingFiles = null;
         }
+    }
+
+    private int dp(int d) {
+        return Math.round(d * getResources().getDisplayMetrics().density);
+    }
+
+    /** Uses a generated sample PNG to test normal WhatsApp without any RFQ or supplier data. */
+    private void runShareDiagnostic() {
+        EditText numberBox = new EditText(this);
+        numberBox.setSingleLine(true);
+        numberBox.setHint("Your own WhatsApp number, e.g. 0771234567");
+        numberBox.setInputType(InputType.TYPE_CLASS_PHONE);
+        numberBox.setPadding(dp(24), dp(12), dp(24), dp(12));
+        new AlertDialog.Builder(this)
+            .setTitle("Test direct WhatsApp sharing")
+            .setMessage("Enter YOUR OWN WhatsApp number. The test will attempt to open that chat with a sample PNG and text. Do not send to a supplier.")
+            .setView(numberBox)
+            .setNegativeButton("Cancel", (d, w) -> {})
+            .setPositiveButton("Prepare test", (d, w) -> {
+                String phone = PhoneNumbers.normalize(numberBox.getText().toString());
+                if (phone == null) {
+                    Toast.makeText(this, "Enter a valid WhatsApp number", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                new Thread(() -> {
+                    try {
+                        Bitmap sample = Bitmap.createBitmap(900, 420, Bitmap.Config.ARGB_8888);
+                        Canvas canvas = new Canvas(sample);
+                        canvas.drawColor(Color.WHITE);
+                        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                        paint.setColor(Color.rgb(20, 36, 63));
+                        paint.setTextSize(46f);
+                        paint.setFakeBoldText(true);
+                        canvas.drawText("GH PROCUREMENT", 60, 100, paint);
+                        paint.setTextSize(34f);
+                        canvas.drawText("WHATSAPP SHARE TEST", 60, 180, paint);
+                        paint.setFakeBoldText(false);
+                        paint.setTextSize(28f);
+                        canvas.drawText("Sample image only - not an actual RFQ", 60, 270, paint);
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        if (!sample.compress(Bitmap.CompressFormat.PNG, 100, out))
+                            throw new IllegalStateException("PNG generation failed");
+                        sample.recycle();
+                        String base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                        prepareAndLaunch(phone,
+                            "GH Procurement WhatsApp TEST - sample image and message. No supplier order.",
+                            base64);
+                    } catch (Exception e) {
+                        runOnUiThread(() -> Toast.makeText(this, "Test preparation failed: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show());
+                    }
+                }).start();
+            }).show();
     }
 
     final class SupplierShareBridge {
