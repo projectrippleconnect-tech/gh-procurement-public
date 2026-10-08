@@ -1,8 +1,10 @@
+import {createRequire} from 'node:module'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 
+const require=createRequire(import.meta.url)
 const root=process.cwd()
 const read=p=>readFileSync(join(root,p),'utf8')
 
@@ -257,4 +259,37 @@ test('Android companion RFQ sharing uses the selected supplier, PNG and text wit
  assert.match(buying,/phone,buildSupplierQuoteReplyText\(args\),String\(imageDataUrl\),s\.name/)
  assert.match(buying,/Do not mark Sent here/)
  assert.match(buying,/Android companion:/)
+})
+
+test('supplier phone entry prefixes and stores valid Sri Lankan +94 numbers',()=>{
+  const ts = require('typescript')
+  const moduleSource = read('lib/helpers.ts')
+  const moduleObj = {exports:{}}
+  const code = ts.transpileModule(moduleSource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+  new Function('module','exports',code)(moduleObj,moduleObj.exports)
+  const {formatSriLankaSupplierPhoneInput:input,toSriLankaSupplierPhone:save,whatsappUrl}=moduleObj.exports
+  assert.equal(input(''),'+94')
+  assert.equal(input('+94'),'+94')
+  assert.equal(input('0771234567'),'+94771234567')
+  assert.equal(input('771234567'),'+94771234567')
+  assert.equal(input('+94 077 123 4567'),'+94771234567')
+  assert.equal(input('0094771234567'),'+94771234567')
+  assert.equal(input('+94771234567'),'+94771234567')
+  assert.equal(save('0771234567'),'+94771234567')
+  assert.equal(save('771234567'),'+94771234567')
+  assert.equal(save('+94771234567'),'+94771234567')
+  assert.equal(save('+940771234567'),'+94771234567')
+  assert.equal(save('+94'),'')
+  assert.equal(save('07712'),'')
+  assert.equal(save('+966556094835'),'')
+  assert.equal(save('not a number'),'')
+  assert.equal(whatsappUrl(save('0771234567')),'https://wa.me/94771234567')
+
+  const buying=read('components/modules-buying.jsx')
+  assert.match(buying,/phone:'\+94',whatsapp:'\+94'/)
+  assert.match(buying,/formatSriLankaSupplierPhoneInput\(value\)/)
+  assert.match(buying,/toSriLankaSupplierPhone\(form\.phone\)/)
+  assert.match(buying,/toSriLankaSupplierPhone\(form\.whatsapp\)/)
+  assert.match(buying,/phone:phone\|\|null,whatsapp:whatsapp\|\|phone\|\|null/)
+  assert.match(buying,/Supplier WhatsApp must be a valid Sri Lankan number starting with \+94/)
 })
