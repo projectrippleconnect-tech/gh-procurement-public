@@ -231,11 +231,11 @@ test('RFQ sharing offers reply-ready text, PNG sharing and aligned supplier quot
 
 test('Android companion RFQ sharing uses the selected supplier, PNG and text without false sent confirmation',()=>{
  const buying=read('components/modules-buying.jsx')
- assert.match(buying,/GHProcurementAndroid\\?\\.shareRfqToSupplier/)
- assert.match(buying,/window\\.GHProcurementAndroid\\.shareRfqToSupplier/)
- assert.match(buying,/createSupplierPriceRequestPng\\(args\\)/)
- assert.match(buying,/reader\\.readAsDataURL\\(png\\.blob\\)/)
- assert.match(buying,/phone,buildSupplierQuoteReplyText\\(args\\),String\\(imageDataUrl\\),s\\.name/)
+ assert.match(buying,/GHProcurementAndroid\?\.shareRfqToSupplier/)
+ assert.match(buying,/window\.GHProcurementAndroid\.shareRfqToSupplier/)
+ assert.match(buying,/createSupplierPriceRequestPng\(args\)/)
+ assert.match(buying,/reader\.readAsDataURL\(png\.blob\)/)
+ assert.match(buying,/phone,buildSupplierQuoteReplyText\(args\),String\(imageDataUrl\),s\.name/)
  assert.match(buying,/Do not mark Sent here/)
  assert.match(buying,/Android companion app/)
 })
