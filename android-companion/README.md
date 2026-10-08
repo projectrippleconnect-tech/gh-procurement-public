@@ -6,12 +6,12 @@ An Android WebView wrapper for the GH Procurement Railway deployment. It uses th
 
 ## Use
 
-1. Install the test APK (built by GitHub Actions) on your Android device.
-2. Open **GH Procurement** from the installed companion app, not Chrome.
-3. Sign in to your usual GH Procurement account.
-4. Open RFQs -> Send Request -> **Send PNG + Text (Android)**.
-5. Confirm the intended supplier and actual image attachment in WhatsApp; tap Send.
-6. If WhatsApp opens a contact picker, the WhatsApp build does not accept this recipient hint. Do not assume it will be fixed by relaunching. Report the result.
+1. Install the test APK from GitHub Actions on your Android phone.
+2. Tap **TEST WHATSAPP (MY NUMBER)** at the top of the APK and enter YOUR OWN WhatsApp number.
+3. The APK generates a sample PNG plus text and attempts to open that WhatsApp chat. Check whether it opens your own conversation directly or still shows **Send to...**. You may send the sample to yourself.
+4. If WhatsApp still shows its contact picker, the experimental recipient hint is not supported on your installation. Do not deploy this feature as a guaranteed supplier-direct shortcut.
+5. **Only after a successful test** should the Railway RFQ integration branch be merged and intentionally deployed. Until then, the APK's main RFQ button still uses the current live website's older sharing behavior.
+6. After intentional Railway deployment, open GH Procurement inside this APK, sign in, and use RFQs -> Send Request -> **Send PNG + Text (Android)**. Verify the supplier and real PNG in WhatsApp, then tap Send.
 
 There is no automatic transmission and no programmatic confirmation of delivery; mark RFQ Sent only once actually sent.
 
