@@ -75,3 +75,10 @@ jobs:
             sleep 1
           done
           node scripts/static-browser-proof.mjs
+      - name: Save validated Cloudflare static bundle (no deployment)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gh-procurement-cloudflare-static-${{ github.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
