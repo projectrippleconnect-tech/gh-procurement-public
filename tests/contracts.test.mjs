@@ -20,7 +20,7 @@ test('stock entry is atomic, user-scoped, review-first and not capped at 500 ite
 
 test('stock submission history preserves prior counts and can be expanded',()=>{
   const stock=read('components/modules-stock.jsx')
-  const migration=read('../supabase/migrations/049_procurement_four_step_flow.sql')
+  const migration=read('supabase/migrations/049_procurement_four_step_flow.sql')
   const i18n=read('lib/i18n.js')
   assert.match(stock,/Stock Submission History/)
   assert.match(stock,/proc_stock_submission_history_v1/)
@@ -33,7 +33,7 @@ test('stock submission history preserves prior counts and can be expanded',()=>{
 
 test('routine shortages stop at buyer review instead of auto-awarding',()=>{
   const buying=read('components/modules-buying.jsx')
-  const migration=read('../supabase/migrations/049_procurement_four_step_flow.sql')
+  const migration=read('supabase/migrations/049_procurement_four_step_flow.sql')
   assert.match(migration,/procurement\.straight_through/)
   assert.match(migration,/enabled=false/)
   assert.match(migration,/manual_review_required/)
@@ -70,7 +70,7 @@ test('guided procurement path continues numbering after stock entry',()=>{
 
 test('RFQs are prepared until actual transmission is confirmed',()=>{
   const buying=read('components/modules-buying.jsx')
-  const migration=read('../supabase/migrations/048_procurement_complete_hardening.sql')
+  const migration=read('supabase/migrations/048_procurement_complete_hardening.sql')
   assert.match(buying,/proc_create_rfq_v4/)
   assert.match(buying,/proc_mark_rfq_supplier_sent_v1/)
   assert.match(buying,/Confirm Sent/)
@@ -98,8 +98,8 @@ test('quote OCR cannot reuse one supplier row and no size-only match is accepted
 
 test('award review is delivery-aware for urgent items and still supports audited overrides',()=>{
   const buying=read('components/modules-buying.jsx')
-  const awardMigration=read('../supabase/migrations/043_procurement_quote_award_hardening.sql')
-  const hardening=read('../supabase/migrations/048_procurement_complete_hardening.sql')
+  const awardMigration=read('supabase/migrations/043_procurement_quote_award_hardening.sql')
+  const hardening=read('supabase/migrations/048_procurement_complete_hardening.sql')
   assert.match(buying,/function itemNeedsSpeed/)
   assert.match(buying,/priority==='urgent'\|\|priority==='high'/)
   assert.match(buying,/Faster delivery preferred/)
@@ -115,14 +115,14 @@ test('award review is delivery-aware for urgent items and still supports audited
 })
 
 test('landed-cost comparison cannot be diluted by declared availability',()=>{
-  const migration=read('../supabase/migrations/048_procurement_complete_hardening.sql')
+  const migration=read('supabase/migrations/048_procurement_complete_hardening.sql')
   assert.match(migration,/least\(coalesce\(ql\.available_qty,qi\.requested_qty\),qi\.requested_qty\)/)
   assert.doesNotMatch(migration,/sum\(COALESCE\(ql\.available_qty, qi\.requested_qty\)\)/)
 })
 
 test('invoice matching is PO + GRN + invoice and receiving requires rejection reasons',()=>{
   const docs=read('components/modules-documents.jsx')
-  const migration=read('../supabase/migrations/048_procurement_complete_hardening.sql')
+  const migration=read('supabase/migrations/048_procurement_complete_hardening.sql')
   assert.match(docs,/proc_create_invoice_v4/)
   assert.match(docs,/Already Invoiced/)
   assert.match(docs,/Invoiceable/)
@@ -141,7 +141,7 @@ test('health check reports commit and database readiness',()=>{
 
 test('automation exceptions remain durable for non-routine failures',()=>{
   const urgent=read('components/modules-urgent.jsx')
-  const migration=read('../supabase/migrations/048_procurement_complete_hardening.sql')
+  const migration=read('supabase/migrations/048_procurement_complete_hardening.sql')
   assert.match(migration,/create table if not exists public\.proc_automation_jobs/)
   assert.match(urgent,/Automation Exceptions/)
   assert.match(urgent,/proc_retry_automation_job_v1/)
