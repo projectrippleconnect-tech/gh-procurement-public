@@ -234,6 +234,20 @@ test('RFQ sharing offers reply-ready text, PNG sharing and aligned supplier quot
 })
 
 
+test('browser shares pre-rendered PNG and full RFQ text while Android keeps direct recipient bridge',()=>{
+  const buying=read('components/modules-buying.jsx')
+  const share=read('lib/rfq-share.js')
+  assert.match(buying,/createSupplierPriceRequestPng\(\{rfq:active,items,supplier:supplierRow,company\}\)/)
+  assert.match(buying,/shareSupplierPriceRequestPng\(args,shareDraft\.prepared\)/)
+  assert.match(buying,/GHProcurementAndroid\?\.shareRfqToSupplier/)
+  assert.match(buying,/window\.GHProcurementAndroid\.shareRfqToSupplier/)
+  assert.match(buying,/buildSupplierQuoteReplyText\(args\)/)
+  assert.match(share,/export async function shareSupplierPriceRequestPng\(args,prepared=null\)/)
+  assert.match(share,/const out=prepared\|\|await createSupplierPriceRequestPng\(args\)/)
+  assert.match(share,/const text=buildSupplierQuoteReplyText\(args\)/)
+  assert.match(share,/navigator\.share\(\{title:.*text,files:\[file\]\}\)/)
+})
+
 test('Android companion RFQ sharing uses the selected supplier, PNG and text without false sent confirmation',()=>{
  const buying=read('components/modules-buying.jsx')
  assert.match(buying,/GHProcurementAndroid\?\.shareRfqToSupplier/)
