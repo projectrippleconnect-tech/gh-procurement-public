@@ -30,6 +30,36 @@ export const itemTitle = (item: {description?: string | null; size?: string | nu
 }
 
 
+
+/**
+ * Supplier contact input: default to +94 and remove the domestic trunk zero.
+ * The +94 stays visible while typing, including after selecting/clearing input.
+ * A clearly different international prefix is left unchanged for validation
+ * rather than silently turning a foreign number into a Sri Lankan one.
+ */
+export const formatSriLankaSupplierPhoneInput = (value: string | null | undefined) => {
+  const raw = String(value ?? '').trim()
+  let digits = raw.replace(/\D/g, '')
+  if (!digits || digits === '94') return '+94'
+  if ((raw.startsWith('+') && !raw.startsWith('+94')) ||
+      (digits.startsWith('00') && !digits.startsWith('0094'))) return raw
+
+  if (digits.startsWith('0094')) digits = digits.slice(4)
+  else if (digits.startsWith('94')) digits = digits.slice(2)
+  else if (digits.startsWith('0')) digits = digits.slice(1)
+  return '+94' + digits.replace(/^0+/, '')
+}
+
+/** Normalize and validate a full Sri Lankan supplier contact before saving. */
+export const toSriLankaSupplierPhone = (value: string | null | undefined) => {
+  const raw = String(value ?? '').trim()
+  if (!raw || raw === '+94') return ''
+  if ((raw.startsWith('+') && !raw.startsWith('+94')) ||
+      (raw.startsWith('00') && !raw.startsWith('0094'))) return ''
+  const formatted = formatSriLankaSupplierPhoneInput(raw)
+  return /^\+94[1-9]\d{8}$/.test(formatted) ? formatted : ''
+}
+
 export const normalizeWhatsAppNumber = (
   value: string | number | null | undefined,
   defaultCountryCode = '94'
