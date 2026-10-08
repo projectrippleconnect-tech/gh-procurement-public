@@ -1,6 +1,13 @@
 name: GH Procurement Android companion APK
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'android-companion/**'
+      - 'components/modules-buying.jsx'
+      - 'tests/contracts.test.mjs'
+      - '.github/workflows/android-companion-apk.yml'
   push:
     branches:
       - feature/android-direct-supplier-share-20261009
