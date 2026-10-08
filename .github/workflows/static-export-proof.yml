@@ -27,7 +27,7 @@ jobs:
   static-export-proof:
     name: Typecheck, contract tests, and static export (no deploy)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,3 +61,17 @@ jobs:
           test "$file_count" -le 20000
           test "$max_bytes" -le 26214400
           echo "Static Cloudflare Pages output is within file-count and per-file limits."
+      - name: Install browser smoke tools
+        run: npm install --no-save --no-package-lock --ignore-scripts playwright@1.55.0
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Read-only mobile browser smoke (localhost; no deployment)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4173 --directory out > /tmp/gh-static-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/ -o /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/static-browser-proof.mjs
