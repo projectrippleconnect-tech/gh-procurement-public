@@ -20,7 +20,7 @@ try {
   await page.waitForFunction(() => {
     const text = document.body.innerText
     return text.includes('Check status: healthy') || text.includes('Check status: unavailable')
-  }, { timeout: 20000 })
+  }, null, { timeout: 20000 })
   const healthText = await page.locator('body').innerText()
   console.log('PASS: browser health page executed Supabase connectivity check; result:', healthText.includes('Check status: healthy') ? 'healthy' : 'unavailable')
 
