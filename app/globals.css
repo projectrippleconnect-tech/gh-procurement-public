@@ -314,6 +314,10 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .award-item{padding:8px!important}.award-row{grid-template-columns:1fr!important;gap:5px!important}
 }
 
+/* Let document tables scroll within their cards on tablet screens. */
+.split > .card{min-width:0}
+@media(max-width:1200px){.split,.document-split,.rfq-split{grid-template-columns:minmax(0,1fr)}}
+
 
 /* Manual production release trigger · guided 1–7 procurement path · 2026-10-07 */
 
