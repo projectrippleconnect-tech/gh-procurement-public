@@ -13,7 +13,7 @@ function gatewayConfig(){
  const raw=process.env.WAHA_BASE_URL||''
  const key=process.env.WAHA_API_KEY||''
  const session=process.env.WAHA_SESSION||'default'
- if(process.env.WAHA_SENDING_ENABLED!=='true'||!raw||!key||!process.env.SUPABASE_SERVICE_ROLE_KEY)return null
+ if(!raw||!key||!process.env.SUPABASE_SERVICE_ROLE_KEY)return null
  try{
   const url=new URL(raw)
   if(!['http:','https:'].includes(url.protocol)||!(/\.railway\.internal$/.test(url.hostname)||['localhost','127.0.0.1'].includes(url.hostname)))return null
@@ -53,7 +53,7 @@ export async function GET(request:Request){
  const access=await authorize(request)
  if(access.error)return access.error
  const config=gatewayConfig()
- if(!config)return reply({ok:true,configured:false,connected:false,dispatches:[]})
+ if(!config)return reply({ok:true,configured:false,connected:false,sendingEnabled:false,dispatches:[]})
  const queryId=new URL(request.url).searchParams.get('rfqId')
  if(queryId&&!UUID.test(queryId))return error('Invalid RFQ identifier.',400)
  let dispatches:unknown[]=[]
@@ -66,14 +66,14 @@ export async function GET(request:Request){
  }
  let connected=false
  try{connected=(await gatewaySession(config)).connected}catch{}
- return reply({ok:true,configured:true,connected,dispatches})
+ return reply({ok:true,configured:true,connected,sendingEnabled:process.env.WAHA_SENDING_ENABLED==='true',dispatches})
 }
 
 export async function POST(request:Request){
  const access=await authorize(request)
  if(access.error)return access.error
  const config=gatewayConfig()
- if(!config)return error('WhatsApp gateway is disabled or missing its private configuration.',503)
+ if(!config||process.env.WAHA_SENDING_ENABLED!=='true')return error('WhatsApp sending is disabled or missing its private configuration.',503)
  const size=Number(request.headers.get('content-length')||0)
  if(size>6_500_000)return error('RFQ PNG exceeds the allowed size.',413)
  let payload
