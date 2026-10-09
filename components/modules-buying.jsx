@@ -289,7 +289,12 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const load=useCallback(async()=>{
   const [r,p,d]=await Promise.all([supabase.from('proc_suppliers').select('*').order('name'),supabase.from('proc_v_supplier_performance_v2').select('*'),supabase.from('proc_v_supplier_delivery_evidence_v1').select('*')])
   if(r.error)fail(r.error);else setRows(r.data||[])
-  if(!p.error)setPerformance(Object.fromEntries((p.data||[]).map(x=>[x.supplier_id,{...x,...(d.error?{}:((d.data||[]).find(z=>z.supplier_id===x.supplier_id)||{}))}])))
+  if(p.error)fail(p.error)
+  else {
+   const delivery=new Map((d.data||[]).map(x=>[x.supplier_id,x]))
+   setPerformance(Object.fromEntries((p.data||[]).map(x=>[x.supplier_id,{...x,...(d.error?{}:(delivery.get(x.supplier_id)||{}))}])))
+  }
+  if(d.error)fail(d.error)
  },[fail])
  useEffect(()=>{load()},[load])
  useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error){setCategories(r.data?.categories||[]);setMainGroups(r.data?.main_groups||[]);setSubgroups(r.data?.subgroups||[])}})()},[])
