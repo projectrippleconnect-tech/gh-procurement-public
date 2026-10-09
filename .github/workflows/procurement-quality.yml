@@ -18,6 +18,13 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Verify public Supabase build configuration
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$NEXT_PUBLIC_SUPABASE_URL" || { echo 'Missing NEXT_PUBLIC_SUPABASE_URL secret'; exit 1; }
+          test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || { echo 'Missing NEXT_PUBLIC_SUPABASE_ANON_KEY secret'; exit 1; }
       - name: TypeScript validation
         run: npm run lint
       - name: Contract tests
