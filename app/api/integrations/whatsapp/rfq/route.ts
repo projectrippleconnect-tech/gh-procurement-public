@@ -13,7 +13,7 @@ function gatewayConfig(){
  const raw=process.env.WAHA_BASE_URL||''
  const key=process.env.WAHA_API_KEY||''
  const session=process.env.WAHA_SESSION||'default'
- if(!raw||!key||!process.env.SUPABASE_SERVICE_ROLE_KEY)return null
+ if(!raw||!key)return null
  try{
   const url=new URL(raw)
   if(!['http:','https:'].includes(url.protocol)||!(/\.railway\.internal$/.test(url.hostname)||['localhost','127.0.0.1'].includes(url.hostname)))return null
@@ -26,13 +26,11 @@ async function authorize(request:Request){
  const token=(request.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i)?.[1]
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL
  const key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
- const secret=process.env.SUPABASE_SERVICE_ROLE_KEY
  if(!token||!url||!key)return {error:error('Sign in to GH Procurement before sending.',401)}
- if(!secret)return {error:error('WhatsApp gateway is not configured by the administrator.',503)}
  const authClient=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}})
  const {data:{user},error:userError}=await authClient.auth.getUser(token)
  if(userError||!user)return {error:error('Your login session has expired. Sign in again.',401)}
- const db=createClient(url,secret,{auth:{persistSession:false,autoRefreshToken:false}})
+ const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:'Bearer '+token}}})
  const {data:profile, error:profileError}=await db.from('proc_profiles').select('id,role,active').eq('id',user.id).maybeSingle()
  if(profileError)return {error:error('Could not verify your procurement role.',503)}
  if(!profile?.active||!['admin','procurement'].includes(profile.role))return {error:error('You do not have permission to send supplier requests.',403)}
@@ -116,10 +114,10 @@ export async function POST(request:Request){
  if(!connected)return error('WhatsApp gateway is not linked or is offline. Use the manual PNG fallback.',503)
  // Atomically claim exactly one attempt per RFQ/supplier BEFORE contacting the gateway.
  // Unique constraint stops double taps and concurrent requests from sending duplicates.
- const {data:attempt,error:claimError}=await db.from('proc_whatsapp_rfq_dispatches').insert({
-  rfq_id:rfqId,supplier_id:supplierId,sent_by:user.id,gateway_session:config.session,
-  status:'sending',image_sha256:createHash('sha256').update(png).digest('hex'),caption
- }).select('id').single()
+ const {data:attemptId,error:claimError}=await db.rpc('proc_whatsapp_claim_dispatch',{
+  p_rfq_id:rfqId,p_supplier_id:supplierId,p_session:config.session,
+  p_image_sha256:createHash('sha256').update(png).digest('hex'),p_caption:caption
+ })
  if(claimError){
   if(claimError.code==='23505')return error('This RFQ already has a gateway send attempt for this supplier. Review its status; duplicate sending is blocked.',409)
   return error('Could not record send attempt. Sending was blocked to prevent untracked messages.',503)
@@ -145,11 +143,11 @@ export async function POST(request:Request){
   status='unknown'
   lastError='Gateway response was interrupted. Check WhatsApp before attempting any manual resend.'
  }
- const {error:writeError}=await db.from('proc_whatsapp_rfq_dispatches').update({
-  status,message_id:messageId,last_error:lastError,updated_at:new Date().toISOString()
- }).eq('id',attempt.id)
- if(writeError)return error('Gateway was contacted but the audit update failed. Inspect WhatsApp and dispatch records before doing anything else.',503)
+ const {data:updated,error:writeError}=await db.rpc('proc_whatsapp_finish_dispatch',{
+  p_id:attemptId,p_status:status,p_message_id:messageId,p_error:lastError
+ })
+ if(writeError||!updated)return error('Gateway was contacted but the audit update failed. Inspect WhatsApp and dispatch records before doing anything else.',503)
  if(status!=='accepted')return error(lastError||'Gateway status unknown. Verify whether WhatsApp received the image.',responseStatus)
  // API acceptance is NOT proof of delivery or reading. The manual Confirm Sent remains.
- return reply({ok:true,status:'accepted',messageId,dispatchId:attempt.id,recipient:supplier.name})
+ return reply({ok:true,status:'accepted',messageId,dispatchId:attemptId,recipient:supplier.name})
 }
