@@ -649,6 +649,24 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   setAwardPlan(v=>[...v,{id:(globalThis.crypto?.randomUUID?.()||Math.random().toString(36)),rfq_item_id:itemId,quote_line_id:cand.quote_line_id,qty:'',supplier_id:cand.supplier_id,supplier_name:cand.supplier_name,landed_unit_cost:cand.landed_unit_cost,unit_price:cand.unit_price,lead_days:cand.lead_days,available_qty:cand.available_qty,recommended:true,override_reason:automaticAwardReason(itemId,cand)}])
  }
 
+ async function createFollowUpRfq(){
+  if(!active||!canEdit)return
+  const pending=items.filter(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))
+  const supplierIds=[...new Set(invite.map(x=>x.supplier_id).filter(Boolean))]
+  if(!pending.length)return fail(new Error('No outstanding requirements remain in this RFQ.'))
+  if(!supplierIds.length)return fail(new Error('Add a supplier before preparing a follow-up RFQ.'))
+  if(!window.confirm('Prepare a NEW follow-up RFQ for '+pending.length+' outstanding item(s), using '+supplierIds.length+' existing supplier(s)? This does not resend WhatsApp messages or create purchase orders.'))return
+  setBusy(true)
+  try{
+   const ids=[...new Set(pending.map(i=>i.requirement_id))]
+   const result=await supabase.rpc('proc_create_rfq_v4',{p_requirement_ids:ids,p_supplier_ids:supplierIds,p_due_date:null,p_notes:'Follow-up to '+active.rfq_no+' for remaining requirements',p_scope_overrides:{}})
+   if(result.error)throw result.error
+   flash('Follow-up RFQ '+result.data.rfq_no+' prepared. Check supplier coverage and quantities before sending.')
+   await load()
+   setActive(null);setAwardOpen(false)
+  }catch(e){fail(e)}finally{setBusy(false)}
+ }
+
  async function finalizeAward(){
   if(!active||!awardPlan.length)return
   const invalid=awardPlan.some(x=>!Number.isFinite(Number(x.qty))||Number(x.qty)<=0||(!x.recommended&&!String(x.override_reason||'').trim()))
@@ -897,7 +915,12 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
     {selectedUnpriced.length>0&&<><button className="btn small" disabled={busy} onClick={selectOnlyPricedItems}>Select Priced Items Only ({pricedCount})</button><span className="muted tiny">{selectedUnpriced.length} unpriced item(s) are still selected. You can untick them individually or use this button before reviewing.</span></>}
    </div>
 
-   {awardOpen&&<div className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
+   {active?.status==='awarded'&&items.some(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))&&<div className="section" style={{padding:12,border:'1px solid var(--border, #334155)',borderRadius:12}}>
+   <strong>Outstanding items need a follow-up RFQ</strong>
+   <p className="muted tiny">The original RFQ and purchase orders stay unchanged. Prepare a new RFQ for outstanding requirements, then review its suppliers and quantities before sending.</p>
+   <button className="btn primary" disabled={busy||!canEdit} onClick={createFollowUpRfq}>Prepare Follow-up RFQ</button>
+  </div>}
+  {awardOpen&&<div className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
     <div className="section" style={{padding:'10px 12px',border:'1px solid var(--border, #334155)',borderRadius:12}}>
      <strong>Order summary</strong>
      <div className="muted tiny" style={{marginTop:4}}>{awardPlan.length} allocations · {awardSuppliers.length} supplier(s) · {awardUnselected.length} items not selected</div>
