@@ -287,9 +287,9 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const[rows,setRows]=useState([]),[q,setQ]=useState(''),[form,setForm]=useState({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''}),[coverageSupplier,setCoverageSupplier]=useState(null),[scopes,setScopes]=useState([]),[categories,setCategories]=useState([]),[mainGroups,setMainGroups]=useState([]),[subgroups,setSubgroups]=useState([]),[scopeType,setScopeType]=useState('category'),[scopeValue,setScopeValue]=useState(''),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([])
  const[performance,setPerformance]=useState({})
  const load=useCallback(async()=>{
-  const [r,p]=await Promise.all([supabase.from('proc_suppliers').select('*').order('name'),supabase.from('proc_v_supplier_performance_v2').select('*')])
+  const [r,p,d]=await Promise.all([supabase.from('proc_suppliers').select('*').order('name'),supabase.from('proc_v_supplier_performance_v2').select('*'),supabase.from('proc_v_supplier_delivery_evidence_v1').select('*')])
   if(r.error)fail(r.error);else setRows(r.data||[])
-  if(!p.error)setPerformance(Object.fromEntries((p.data||[]).map(x=>[x.supplier_id,x])))
+  if(!p.error)setPerformance(Object.fromEntries((p.data||[]).map(x=>[x.supplier_id,{...x,...(d.error?{}:((d.data||[]).find(z=>z.supplier_id===x.supplier_id)||{}))}])))
  },[fail])
  useEffect(()=>{load()},[load])
  useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error){setCategories(r.data?.categories||[]);setMainGroups(r.data?.main_groups||[]);setSubgroups(r.data?.subgroups||[])}})()},[])
@@ -354,7 +354,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const defaults=[
   {key:'supplier_code',label:'Code',render:s=><span className="mono">{s.supplier_code}</span>},
   {key:'name',label:'Supplier',render:s=><><strong>{s.name}</strong>{s.email&&<div className="muted tiny">{s.email}</div>}</>},
-  {key:'performance',label:'Performance',render:s=>{const p=performance[s.id];if(!p||p.evidence_status==='insufficient_data')return <span className="muted tiny">Insufficient data{p?.po_count?' · '+p.po_count+' POs':''}</span>;return <span title="Fulfilment measures accepted quantity against ordered quantity; on-time delivery requires verified receipt timestamps."><strong>{p.fulfilment_pct??'—'}%</strong><div className="muted tiny">Fulfilment · {p.po_count} POs</div></span>}},
+  {key:'performance',label:'Performance',render:s=>{const p=performance[s.id];if(!p||p.evidence_status==='insufficient_data')return <span className="muted tiny">Insufficient data{p?.po_count?' · '+p.po_count+' POs':''}</span>;return <span title="Fulfilment is accepted quantity divided by ordered quantity; on-time delivery uses posted receipt dates when at least three dated receipts exist."><strong>{p.fulfilment_pct??'—'}%</strong><div className="muted tiny">Fulfilment · {p.po_count} POs</div><div className="muted tiny">On-time: {p.on_time_pct==null?'Insufficient dated receipts':p.on_time_pct+'%'}</div></span>}},
   {key:'contact_person',label:'Contact Person'},
   {key:'phone',label:'Phone',render:s=>toSriLankaSupplierPhone(s.phone)||s.phone||'—'},
   {key:'whatsapp',label:'WhatsApp',render:s=>{const url=whatsappUrl(s.whatsapp);return url?<a className="good-text" target="_blank" rel="noreferrer" href={url}>Open</a>:'—'}},
