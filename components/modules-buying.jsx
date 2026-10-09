@@ -47,7 +47,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   if(stage==='delivery')q=q.gt('ordered_not_received',0)
   if(stage==='uncovered')q=q.eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false)
   if(controlFilter==='urgent')q=q.eq('priority','urgent')
-  if(controlFilter==='partial')q=q.gt('ordered_qty',0).gt('remaining_to_order',0)
+  if(controlFilter==='partial')q=q.gt('ordered_qty',0).gt('remaining_to_order',0).eq('approval_status','approved')
   const tasks=[q]
   if(canReview){
    tasks.push(supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name'))
