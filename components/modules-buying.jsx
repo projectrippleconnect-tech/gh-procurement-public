@@ -350,7 +350,8 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
  const[freight,setFreight]=useState('0'),[minOrder,setMinOrder]=useState('0'),[busy,setBusy]=useState(false)
  const[awardOpen,setAwardOpen]=useState(false),[awardPlan,setAwardPlan]=useState([]),[quoteException,setQuoteException]=useState(''),[sendMenuId,setSendMenuId]=useState('')
  const[browserRfqReady,setBrowserRfqReady]=useState(null),[browserRfqPreparing,setBrowserRfqPreparing]=useState('')
- const[gateway,setGateway]=useState({configured:false,connected:false,dispatches:[]}),[gatewayBusy,setGatewayBusy]=useState('')
+ const[gateway,setGateway]=useState({configured:false,connected:false,sendingEnabled:false,dispatches:[]}),[gatewayBusy,setGatewayBusy]=useState('')
+ const[pairState,setPairState]=useState({status:'NOT_CONFIGURED',qr:null,code:null}),[pairPhone,setPairPhone]=useState('+94'),[pairBusy,setPairBusy]=useState(false)
  const pageSize=100
  const journeyStage=awardOpen?7:(active&&invite.length&&!invite.some(x=>['pending','prepared'].includes(x.status))?6:5)
 
@@ -378,7 +379,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
  useEffect(()=>{load()},[load])
 
  async function open(r){
-  setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setQuoteException(r.quote_exception_reason||'');setSendMenuId('');setBrowserRfqReady(null);setGateway({configured:false,connected:false,dispatches:[]});void refreshGatewayStatus(r.id)
+  setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setQuoteException(r.quote_exception_reason||'');setSendMenuId('');setBrowserRfqReady(null);setGateway({configured:false,connected:false,sendingEnabled:false,dispatches:[]});void refreshGatewayStatus(r.id);if(profile?.role==='admin')void loadPairStatus()
   const[a,b,c]=await Promise.all([
    supabase.from('proc_rfq_items').select('*,requirement:proc_requirements(*,item:proc_items(*))').eq('rfq_id',r.id).order('id'),
    supabase.from('proc_rfq_suppliers').select('*').eq('rfq_id',r.id),
@@ -667,6 +668,37 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   try{await downloadSupplierPriceRequestPng(supplierRequestArgs(inv));flash('RFQ PNG downloaded.')}
   catch(e){fail(e)}
  }
+ async function loadPairStatus(){
+  if(profile?.role!=='admin')return
+  try{
+   const {data:{session}}=await supabase.auth.getSession()
+   if(!session?.access_token)return
+   const response=await fetch('/api/integrations/whatsapp/pair',{
+    headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'
+   })
+   const payload=await response.json()
+   setPairState(prev=>({...prev,status:payload.status||'OFFLINE',qr:payload.qr||null,code:null}))
+   if(active?.id)void refreshGatewayStatus(active.id)
+  }catch{setPairState(prev=>({...prev,status:'OFFLINE',qr:null,code:null}))}
+ }
+ async function pairAction(action){
+  if(profile?.role!=='admin'||pairBusy)return
+  if(action==='code'&&!window.confirm('Request a WhatsApp linking code for '+pairPhone+'? Only pair a dedicated number you control. Unofficial WhatsApp clients can risk account restriction.'))return
+  setPairBusy(true)
+  try{
+   const {data:{session}}=await supabase.auth.getSession()
+   if(!session?.access_token)throw new Error('Please sign in again.')
+   const response=await fetch('/api/integrations/whatsapp/pair',{
+    method:'POST',
+    headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},
+    body:JSON.stringify({action,phoneNumber:pairPhone})
+   })
+   const payload=await response.json()
+   if(!response.ok)throw new Error(payload.error||'Unable to request WhatsApp pairing.')
+   if(action==='code')setPairState(prev=>({...prev,code:payload.code||null}))
+   else flash('Gateway session started. Refresh status for QR or request a pairing code.')
+  }catch(e){fail(e)}finally{setPairBusy(false)}
+ }
  async function refreshGatewayStatus(rfqId){
   if(!rfqId||!canEdit)return
   try{
@@ -676,8 +708,8 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
     headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'
    })
    const data=await response.json()
-   setGateway(response.ok?data:{configured:false,connected:false,dispatches:[]})
-  }catch{setGateway({configured:false,connected:false,dispatches:[]})}
+   setGateway(response.ok?data:{configured:false,connected:false,sendingEnabled:false,dispatches:[]})
+  }catch{setGateway({configured:false,connected:false,sendingEnabled:false,dispatches:[]})}
  }
  async function sendAttachedPngViaGateway(inv){
   if(!active||!canEdit||gatewayBusy)return
@@ -787,9 +819,11 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   </div>
 
   <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
+   {profile?.role==='admin'&&<details className="section"><summary><strong>WhatsApp Gateway Setup (Administrator)</strong></summary><div className="notice section"><p className="muted tiny">Unregulated third-party WhatsApp Web automation may restrict your account. Use a separate procurement number. Pairing is optional; no messages are sent merely by connecting.</p><div className="toolbar"><span>Session: <strong>{pairState.status}</strong></span><button className="btn small" disabled={pairBusy} onClick={()=>loadPairStatus()}>Refresh Pairing Status</button><button className="btn small" disabled={pairBusy||pairState.status==='WORKING'} onClick={()=>pairAction('start')}>Start Session</button></div>{pairState.status!=='WORKING'&&<div className="formgrid section"><div className="field"><label>Dedicated WhatsApp number</label><input className="input" inputMode="tel" autoComplete="off" value={pairPhone} onChange={e=>setPairPhone(e.target.value)} placeholder="+94771234567"/></div><div className="field"><label>Link with phone number</label><button className="btn" disabled={pairBusy||pairState.status==='NOT_CONFIGURED'||pairState.status==='OFFLINE'} onClick={()=>pairAction('code')}>Request Pairing Code</button></div></div>}{pairState.code&&<p><strong>WhatsApp pairing code: {pairState.code}</strong><span className="muted tiny"> · Enter it using WhatsApp → Linked Devices. Do not share this code.</span></p>}{pairState.qr&&<div className="section"><p className="muted tiny">Alternative: scan this QR using WhatsApp → Linked Devices on a separate device. Refresh if it expires.</p><img src={pairState.qr} alt="WhatsApp linked-device pairing QR" width="240" height="240" style={{maxWidth:'100%',height:'auto'}}/></div>}{pairState.status==='WORKING'&&<p className="muted tiny">WhatsApp session linked. Sending can be enabled by the owner after a private test and migration check.</p>}</div></details>}
+
    <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier prices received · preferred minimum {minQuotes}. Delivery time is included in the recommendation for urgent items, and every recommendation can be changed before ordering.</p></div><div className="toolbar">{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Awards</button>}</div></div>
 
-   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Send a real attached PNG and caption through the private gateway (once configured and linked). Gateway acceptance is not proof of delivery. Check WhatsApp before confirming Sent; never retry unknown attempts blindly. The browser-only manual fallback remains available.</div><div className="toolbar section"><span className="muted tiny">WhatsApp gateway: {gateway.connected?'Connected':gateway.configured?'Not linked / offline':'Not configured'}</span><button className="btn small" onClick={()=>refreshGatewayStatus(active.id)}>Refresh Status</button></div><div className="toolbar section"><button className="btn small primary" disabled={!canEdit||!gateway.connected||Boolean(gatewayBusy)||Boolean(gateway.dispatches?.some(d=>d.supplier_id===x.supplier_id))} onClick={()=>sendAttachedPngViaGateway(x)}>{gatewayBusy===x.id?'Sending PNG…':'Send Attached PNG + Caption'}</button>{gateway.dispatches?.filter(d=>d.supplier_id===x.supplier_id).map(d=><span key={d.id} className="muted tiny">Gateway: {d.status} · {new Date(d.created_at).toLocaleString()} {d.status==='unknown'?'— check WhatsApp before any resend':''}</span>)}</div><div className="muted tiny section">Manual fallback (no gateway): Download the image, open this supplier's chat, and attach it from Downloads.</div><div className="toolbar section"><button className="btn small primary" disabled={browserRfqPreparing===x.id} onClick={()=>prepareBrowserRfq(x)}>{browserRfqPreparing===x.id?'Preparing PNG…':'1 · Download PNG for WhatsApp'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text Only</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG Only</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div>{browserRfqReady?.invitationId===x.id&&<div className="section"><div className="muted tiny">PNG download started: <strong>{browserRfqReady.filename}</strong>. Option A: open WhatsApp with the RFQ text ready, send the text and then attach the PNG from Downloads. Both messages go to this supplier.</div><div className="toolbar section"><a className="btn small primary" href={browserSupplierWhatsappUrl(x,true)} target="_blank" rel="noopener noreferrer">2 · Open WhatsApp + Text · {supplierName(x.supplier_id)}</a></div><div className="muted tiny section">Option B (one image with a caption): copy the RFQ message, open the same supplier chat without prefilled text, attach the saved PNG, paste the copied message as its caption and send.</div><div className="toolbar section"><button className="btn small" onClick={()=>copyBrowserRfqCaption(x)}>Copy PNG Caption</button><a className="btn small" href={browserSupplierWhatsappUrl(x,false)} target="_blank" rel="noopener noreferrer">Open Supplier Chat for Caption</a></div></div>}</div>}</div>)}</div></div>}
+   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Send a real attached PNG and caption through the private gateway (once configured and linked). Gateway acceptance is not proof of delivery. Check WhatsApp before confirming Sent; never retry unknown attempts blindly. The browser-only manual fallback remains available.</div><div className="toolbar section"><span className="muted tiny">WhatsApp gateway: {gateway.connected?'Connected':gateway.configured?'Not linked / offline':'Not configured'}</span><button className="btn small" onClick={()=>refreshGatewayStatus(active.id)}>Refresh Status</button></div><div className="toolbar section"><button className="btn small primary" disabled={!canEdit||!gateway.connected||!gateway.sendingEnabled||Boolean(gatewayBusy)||Boolean(gateway.dispatches?.some(d=>d.supplier_id===x.supplier_id))} onClick={()=>sendAttachedPngViaGateway(x)}>{gatewayBusy===x.id?'Sending PNG…':'Send Attached PNG + Caption'}</button>{gateway.dispatches?.filter(d=>d.supplier_id===x.supplier_id).map(d=><span key={d.id} className="muted tiny">Gateway: {d.status} · {new Date(d.created_at).toLocaleString()} {d.status==='unknown'?'— check WhatsApp before any resend':''}</span>)}</div><div className="muted tiny section">Manual fallback (no gateway): Download the image, open this supplier's chat, and attach it from Downloads.</div><div className="toolbar section"><button className="btn small primary" disabled={browserRfqPreparing===x.id} onClick={()=>prepareBrowserRfq(x)}>{browserRfqPreparing===x.id?'Preparing PNG…':'1 · Download PNG for WhatsApp'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text Only</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG Only</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div>{browserRfqReady?.invitationId===x.id&&<div className="section"><div className="muted tiny">PNG download started: <strong>{browserRfqReady.filename}</strong>. Option A: open WhatsApp with the RFQ text ready, send the text and then attach the PNG from Downloads. Both messages go to this supplier.</div><div className="toolbar section"><a className="btn small primary" href={browserSupplierWhatsappUrl(x,true)} target="_blank" rel="noopener noreferrer">2 · Open WhatsApp + Text · {supplierName(x.supplier_id)}</a></div><div className="muted tiny section">Option B (one image with a caption): copy the RFQ message, open the same supplier chat without prefilled text, attach the saved PNG, paste the copied message as its caption and send.</div><div className="toolbar section"><button className="btn small" onClick={()=>copyBrowserRfqCaption(x)}>Copy PNG Caption</button><a className="btn small" href={browserSupplierWhatsappUrl(x,false)} target="_blank" rel="noopener noreferrer">Open Supplier Chat for Caption</a></div></div>}</div>}</div>)}</div></div>}
 
    <div className="formgrid">
     <div className="field"><label>{label('supplier','Supplier')}</label><select className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
