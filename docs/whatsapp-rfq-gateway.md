@@ -43,3 +43,10 @@ This optional integration sends a **real PNG attachment with a caption to the RF
 - Admin-only pairing screen is included in source code; it cannot be used until the app and gateway are deployed with server-side secrets configured.
 - Required Supabase migration `050_procurement_whatsapp_rfq_gateway.sql` has not been applied to production. It must be applied before enabling sends.
 - Do **not** generate a Railway public domain for WAHA. Use GH Procurement's authenticated pairing proxy only.
+
+## Reconciliation checkpoint — 2026-10-09
+- A concurrent setup was already merged into `main` as `d3475474a503c245471a4f3bf0ea10ea70c092c8`. It provides an admin-only phone code and QR pairing interface. The overlapping PR #6 was closed without merging.
+- Keep **one gateway only**: staged service `gh-procurement-waha` (GOWS) with private endpoint `gh-procurement-waha-gows.railway.internal:3000` and volume `waha-session-storage` (500 MB). The GH Procurement staged `WAHA_BASE_URL` has been corrected to this endpoint.
+- An earlier duplicate NOWEB service was unstaged. Its old 500 MB volume was deleted but remains visible in Railway's pending changes as a soft-deleted/staged volume. **Review and discard only this specific duplicate volume pending change in the Railway canvas before applying the changeset**. Do not discard the GOWS service, its volume, or the shared API-key settings.
+- `SUPABASE_SERVICE_ROLE_KEY` is **not configured** in GH Procurement; set it through Railway's protected variable settings before activating the admin pairing API. Do not paste service-role secrets into GitHub or chat.
+- Pending changes must remain staged until explicit approval for deployment and any resulting hosting costs. Apply migration 050 to the existing GH NEXUS Supabase database only in the approved rollout. `WAHA_SENDING_ENABLED` must remain `false` until a linked-number test confirms actual PNG + caption delivery.
