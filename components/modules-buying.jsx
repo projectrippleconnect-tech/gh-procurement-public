@@ -176,9 +176,30 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   {key:'approval_status',label:'Review',render:r=><Badge>{r.approval_status}</Badge>},
   {key:'status',label:'Workflow',render:r=><Badge>{r.status}</Badge>}
  ]
+ const attention=rows.filter(r=>r.approval_status==='approved'&&Number(r.remaining_to_order)>0)
+ const overdue=attention.filter(r=>Date.now()-new Date(r.created_at).getTime()>=10*86400000)
+ const uncovered=attention.filter(r=>!r.has_active_rfq)
+ const waitingDelivery=rows.filter(r=>Number(r.ordered_not_received)>0)
+ const ageing=(r)=>Math.max(0,Math.floor((Date.now()-new Date(r.created_at).getTime())/86400000))
+ const urgent=[...attention].sort((a,b)=>ageing(b)-ageing(a)).slice(0,5)
  const cols=configuredColumns(fields,'requirements',defaults)
 
  return <>
+  {canReview&&<section className="card pad section" aria-label="Procurement control summary">
+   <div className="sectionhead"><div><h3>Procurement Control</h3><p>Open requirements and next actions. Counts below cover the current loaded page; use the full requirements list for all records.</p></div></div>
+   <div className="formgrid">
+    <button type="button" className="btn" onClick={()=>changeStage('all')}><strong>{attention.length}</strong> Still to order</button>
+    <button type="button" className="btn" onClick={()=>{changeStage('all');setOldestFirst(true);setPage(0)}}><strong>{overdue.length}</strong> Waiting 10+ days</button>
+    <button type="button" className="btn" onClick={()=>changeStage('approved')}><strong>{uncovered.length}</strong> No active RFQ</button>
+    <button type="button" className="btn" onClick={()=>navigate('po')}><strong>{waitingDelivery.length}</strong> Awaiting receipt</button>
+   </div>
+   {urgent.length>0&&<details><summary><strong>Oldest outstanding items</strong> — view priority list</summary>
+    <div className="stack section">{urgent.map(r=><div className="row wrap" key={r.id} style={{justifyContent:'space-between',gap:8}}>
+     <div><strong>{itemTitle(r)}</strong><div className="muted tiny">{qty(r.remaining_to_order)} {r.uom||''} still to order · {ageing(r)} days waiting</div></div>
+     <button type="button" className="btn small" onClick={()=>{changeStage('all');setOldestFirst(true);setPage(0)}}>View requirements</button>
+    </div>)}</div>
+   </details>}
+  </section>}
   {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>}
   <div className="row wrap" style={{gap:8,alignItems:'center'}}><button type="button" className="btn small" aria-pressed={oldestFirst} onClick={()=>{setPage(0);setOldestFirst(v=>!v)}}>{oldestFirst?'✓ Oldest requirements first':'Sort: newest activity'}</button><span className="muted tiny">Waiting age is measured from the requirement creation date; outstanding quantities remain visible.</span></div> 
   {canAdd&&<details className="card pad procurement-manual-add">
