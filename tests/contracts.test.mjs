@@ -372,3 +372,27 @@ test('private WAHA route is authenticated, supplier-scoped, audited, and fails c
  assert.match(buying,/browserSupplierWhatsappUrl/)
  assert.match(buying,/Check WhatsApp before confirming Sent/)
 })
+
+
+test('WhatsApp gateway pairing is restricted to admin and uses private backend only',()=>{
+ const pair=read('app/api/integrations/whatsapp/pair/route.ts')
+ const ui=read('components/modules-buying.jsx')
+ assert.match(pair,/auth\.getUser\(match\[1\]\)/)
+ assert.match(pair,/profile\.role!=='admin'/)
+ assert.match(pair,/\\.railway\\.internal/)
+ assert.match(pair,/WAHA_API_KEY/)
+ assert.match(pair,/SUPABASE_SERVICE_ROLE_KEY/)
+ assert.match(pair,/api\/sessions/)
+ assert.match(pair,/auth\/request-code/)
+ assert.match(pair,/auth\/qr/)
+ assert.match(pair,/phoneNumber:number/)
+ assert.match(pair,/status:'PAIRING',code:data\.code/)
+ assert.match(pair,/cache:'no-store'/)
+ assert.match(ui,/WhatsApp Gateway Setup \(Admin\)/)
+ assert.match(ui,/profile\?\.role==='admin'/)
+ assert.match(ui,/Get Pairing Code \(Same Phone\)/)
+ assert.match(ui,/Show QR \(Other Screen\)/)
+ assert.match(ui,/waPair\.code/)
+ assert.match(ui,/waPair\.qr/)
+ assert.match(ui,/No message is sent during pairing/)
+});
