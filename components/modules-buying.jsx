@@ -22,6 +22,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const[special,setSpecial]=useState({reason:'customer_request',customer_qty:'',purchase_qty:'',customer_reference:'',notes:'',priority:''})
  const[stage,setStage]=useState(canReview?'pending_review':'all')
  const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
+ const[controlCounts,setControlCounts]=useState({outstanding:null,overdue:null,uncovered:null,delivery:null})
  const changeStage=next=>{setSelected(new Set());setStage(next)}
 
  const reasonLabels={
@@ -47,6 +48,10 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted']))
    tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).eq('status','quoted'))
    tasks.push(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['pending_approval','approved','sent','partially_received']))
+   tasks.push(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true}).eq('approval_status','approved').gt('remaining_to_order',0))
+   tasks.push(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true}).eq('approval_status','approved').gt('remaining_to_order',0).lt('created_at',new Date(Date.now()-10*86400000).toISOString()))
+   tasks.push(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true}).eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false))
+   tasks.push(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true}).gt('ordered_not_received',0))
   }
   const results=await Promise.all(tasks)
   const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0)
@@ -54,6 +59,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    const b=results[1];if(b.error)throw b.error;setSuppliers(b.data||[])
    for(const x of results.slice(2))if(x.error)throw x.error
    setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
+   setControlCounts({outstanding:results[6].count||0,overdue:results[7].count||0,uncovered:results[8].count||0,delivery:results[9].count||0})
   }
  }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst])
  useEffect(()=>{load()},[load])
@@ -186,12 +192,12 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
 
  return <>
   {canReview&&<section className="card pad section" aria-label="Procurement control summary">
-   <div className="sectionhead"><div><h3>Procurement Control</h3><p>Open requirements and next actions. Counts below cover the current loaded page; use the full requirements list for all records.</p></div></div>
+   <div className="sectionhead"><div><h3>Procurement Control</h3><p>Open requirements and next actions. Counts cover all matching requirements; the oldest-item preview shows the current page.</p></div></div>
    <div className="formgrid">
-    <button type="button" className="btn" onClick={()=>changeStage('all')}><strong>{attention.length}</strong> Still to order</button>
-    <button type="button" className="btn" onClick={()=>{changeStage('all');setOldestFirst(true);setPage(0)}}><strong>{overdue.length}</strong> Waiting 10+ days</button>
-    <button type="button" className="btn" onClick={()=>changeStage('approved')}><strong>{uncovered.length}</strong> No active RFQ</button>
-    <button type="button" className="btn" onClick={()=>navigate('po')}><strong>{waitingDelivery.length}</strong> Awaiting receipt</button>
+    <button type="button" className="btn" onClick={()=>changeStage('all')}><strong>{controlCounts.outstanding??'…'}</strong> Still to order</button>
+    <button type="button" className="btn" onClick={()=>{changeStage('all');setOldestFirst(true);setPage(0)}}><strong>{controlCounts.overdue??'…'}</strong> Waiting 10+ days</button>
+    <button type="button" className="btn" onClick={()=>changeStage('approved')}><strong>{controlCounts.uncovered??'…'}</strong> No active RFQ</button>
+    <button type="button" className="btn" onClick={()=>navigate('po')}><strong>{controlCounts.delivery??'…'}</strong> Awaiting receipt</button>
    </div>
    {urgent.length>0&&<details><summary><strong>Oldest outstanding items</strong> — view priority list</summary>
     <div className="stack section">{urgent.map(r=><div className="row wrap" key={r.id} style={{justifyContent:'space-between',gap:8}}>
