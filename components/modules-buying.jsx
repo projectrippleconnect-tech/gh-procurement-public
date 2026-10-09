@@ -2,7 +2,8 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone} from '@/lib/helpers'
+import {money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
+import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -396,9 +397,9 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   setQuoteRef(q.data.quote_ref||'');setValidUntil(q.data.valid_until||'');setFreight(String(q.data.freight_total??0));setMinOrder(String(q.data.minimum_order_value??0))
   const l=await supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id)
   if(l.error)return fail(l.error)
-  const map={};(l.data||[]).forEach(x=>map[x.rfq_item_id]={
-   price:String(x.unit_price),available:String(x.available_qty??''),lead:String(x.lead_days??''),
-   discount:String(x.discount_percent??0),tax:String(x.tax_percent??0),moq:String(x.moq??0),multiple:String(x.order_multiple??1)
+  const map={};(l.data||[]).forEach(x=>{
+   const details=decodeSupplierQuoteNotes(x.notes)
+   map[x.rfq_item_id]={price:String(x.unit_price),remarks:details.remarks,variants:details.variants}
   })
   setPrices(map)
  }
@@ -444,16 +445,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
     if(best&&bestIndex>=0){
      usedRows.add(bestIndex)
      const current=next[item.id]||{}
-     next[item.id]={
-      ...current,
-      price:String(Number(best.cost??best.mrp)),
-      discount:current.discount??String(Number(best.discount_percent||0)),
-      tax:current.tax??String(Number(best.tax_percent||0)),
-      available:current.available??'',
-      lead:current.lead??'',
-      moq:current.moq??'0',
-      multiple:current.multiple??'1'
-     }
+     next[item.id]={...current,price:String(Number(best.cost??best.mrp))}
      matched++
     }
    }
@@ -463,18 +455,55 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   }catch(e){fail(e)}finally{setQuoteOcrBusy(false)}
  }
 
+ function editPrice(itemId,change){
+  setPrices(current=>({...current,[itemId]:{...(current[itemId]||{}),...change}}))
+ }
+ function addSizeAlternative(itemId){
+  setPrices(current=>{
+   const row=current[itemId]||{},variants=row.variants||[]
+   if(variants.length>=12){flash('Maximum 12 size alternatives per item.');return current}
+   return {...current,[itemId]:{...row,variants:[...variants,{id:'alt-'+Date.now()+'-'+Math.random().toString(36).slice(2),size:'',price:'',remarks:''}]}}
+  })
+ }
+ function editSizeAlternative(itemId,id,change){
+  setPrices(current=>{
+   const row=current[itemId]||{}
+   return {...current,[itemId]:{...row,variants:(row.variants||[]).map(v=>v.id===id?{...v,...change}:v)}}
+  })
+ }
+ function removeSizeAlternative(itemId,id){
+  setPrices(current=>{
+   const row=current[itemId]||{}
+   return {...current,[itemId]:{...row,variants:(row.variants||[]).filter(v=>v.id!==id)}}
+  })
+ }
+ function sizeAlternativesEditor(itemId,value){
+  return <div className="stack">
+   {(value.variants||[]).map(v=><div className="formgrid" key={v.id}>
+    <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
+    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
+    <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
+    {canEdit&&<button type="button" className="btn small bad" onClick={()=>removeSizeAlternative(itemId,v.id)}>Remove size</button>}
+   </div>)}
+   {canEdit&&<button type="button" className="btn small" onClick={()=>addSizeAlternative(itemId)}>+ Add size variation</button>}
+  </div>
+ }
+
  async function saveQuote(){
   if(!canEdit)return fail(new Error(t('validation.rfq_read_only','Your role has read-only supplier-price access.')))
   if(!active||!supplier)return fail(new Error(t('validation.select_supplier','Select a supplier.')))
-  const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&prices[i.id]?.price!=='')
-  if(!quoted.length)return fail(new Error(t('validation.quote_one','Enter at least one quoted price.')))
-  const freightN=Number(freight||0),minN=Number(minOrder||0)
-  if(!Number.isFinite(freightN)||freightN<0||!Number.isFinite(minN)||minN<0)return fail(new Error(t('validation.freight_nonnegative','Freight and minimum order value must be zero or positive.')))
-  const invalid=quoted.some(i=>{
-   const v=prices[i.id]||{},p=Number(v.price),a=v.available===''?null:Number(v.available),l=v.lead===''?null:Number(v.lead),d=Number(v.discount||0),t=Number(v.tax||0),m=Number(v.moq||0),mult=Number(v.multiple||1)
-   return !Number.isFinite(p)||p<0||(a!==null&&(!Number.isFinite(a)||a<0))||(l!==null&&(!Number.isInteger(l)||l<0))||!Number.isFinite(d)||d<0||d>100||!Number.isFinite(t)||t<0||t>100||!Number.isFinite(m)||m<0||!Number.isFinite(mult)||mult<=0
+  const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&String(prices[i.id].price).trim()!=='')
+  if(!quoted.length)return fail(new Error('Enter at least one quoted unit price for the requested item size.'))
+  const variantsWithoutMain=items.some(i=>{
+   const v=prices[i.id]||{}
+   return (v.price===undefined||String(v.price).trim()==='')&&(v.variants||[]).some(x=>String(x.size||x.price||'').trim())
   })
-  if(invalid)return fail(new Error(t('validation.quote_fields','Check price, availability, lead days, discount/tax, MOQ and order multiple.')))
+  if(variantsWithoutMain)return fail(new Error('Enter the requested-size price before adding alternative sizes, or remove that item’s alternatives.'))
+  const invalid=quoted.some(i=>{
+   const v=prices[i.id]||{},p=Number(v.price)
+   return !Number.isFinite(p)||p<0||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500
+  })
+  if(invalid)return fail(new Error('Check unit prices and alternatives: each added size must have a valid price.'))
   setBusy(true);let path=null
   try{
    if(file){
@@ -483,18 +512,18 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
    }
    const lines=quoted.map(i=>({
     rfq_item_id:i.id,unit_price:Number(prices[i.id].price),
-    available_qty:prices[i.id].available||null,lead_days:prices[i.id].lead||null,
-    discount_percent:prices[i.id].discount||0,tax_percent:prices[i.id].tax||0,
-    moq:prices[i.id].moq||0,order_multiple:prices[i.id].multiple||1
+    available_qty:null,lead_days:null,
+    discount_percent:0,tax_percent:0,moq:0,order_multiple:1,
+    notes:encodeSupplierQuoteNotes(prices[i.id])
    }))
    const r=await supabase.rpc('proc_save_quote_v3',{
-    p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:quoteRef||null,p_lines:lines,
-    p_valid_until:validUntil||null,p_attachment_path:path,p_notes:null,
-    p_freight_total:freightN,p_minimum_order_value:minN
+    p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:null,p_lines:lines,
+    p_valid_until:null,p_attachment_path:path,p_notes:null,
+    p_freight_total:0,p_minimum_order_value:0
    })
    if(r.error)throw r.error
    setFile(null)
-   flash('Supplier price saved. Compare price, availability and delivery time, then review the recommended award.')
+   flash('Supplier prices saved. Size alternatives and remarks are retained for reference. Only the requested-item unit price participates in awards.')
    await open({...active,status:r.data.status});load()
   }catch(e){if(path)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
  }
@@ -638,37 +667,29 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
  }
  async function shareTextAndPng(inv){
   const s=suppliers.find(x=>x.id===inv.supplier_id)
-  if(!s)return
+  if(!s)return fail(new Error('The selected supplier could not be found.'))
+  const number=normalizeWhatsAppNumber(s.whatsapp||s.phone)
+  if(!number)return fail(new Error('Add a valid WhatsApp number for '+s.name+' in the Supplier Directory.'))
+  // Generic Android browser shares cannot specify the supplier contact. Do not
+  // open a generic "Send to..." picker for a supplier-directed button.
+  if(typeof window==='undefined'||typeof window.GHProcurementAndroid?.shareRfqToSupplier!=='function'){
+   return fail(new Error('To share the RFQ PNG and text directly to '+s.name+', open GH Procurement in the installed Android companion APK. Browser and PWA sharing cannot select a supplier.'))
+  }
   const args=supplierRequestArgs(inv)
-  const phone=s.whatsapp||s.phone
-  // In the Android companion app, pass the exact supplier number, actual image,
-  // and full RFQ text to a native Intent. Android's share sheet is bypassed.
-  // WhatsApp's recipient "jid" hint is undocumented and may still show a picker.
-  if(typeof window!=='undefined' && typeof window.GHProcurementAndroid?.shareRfqToSupplier==='function'){
-   if(!phone)return fail(new Error('Enter a WhatsApp number for '+s.name+' before sending.'))
-   try{
-    const png=await createSupplierPriceRequestPng(args)
-    const imageDataUrl=await new Promise((resolve,reject)=>{
-     const reader=new FileReader()
-     reader.onload=()=>resolve(reader.result)
-     reader.onerror=()=>reject(new Error('Could not read RFQ PNG.'))
-     reader.readAsDataURL(png.blob)
-    })
-    window.GHProcurementAndroid.shareRfqToSupplier(
-     phone,buildSupplierQuoteReplyText(args),String(imageDataUrl),s.name
-    )
-    // Do not mark Sent here: the recipient must press WhatsApp's Send button.
-    return
-   }catch(e){return fail(e)}
-  }
   try{
-   const result=await shareSupplierPriceRequestPng(args)
-   if(result.shared){flash('Choose WhatsApp and the supplier from Android Share. For direct supplier selection, open GH Procurement in its Android companion app.');return}
-   flash('PNG downloaded. Your browser cannot share it to a specific WhatsApp chat automatically.')
-  }catch(e){
-   if(e?.name==='AbortError')return
-   fail(e)
-  }
+   const png=await createSupplierPriceRequestPng(args)
+   const imageDataUrl=await new Promise((resolve,reject)=>{
+    const reader=new FileReader()
+    reader.onload=()=>resolve(reader.result)
+    reader.onerror=()=>reject(new Error('RFQ image could not be read.'))
+    reader.readAsDataURL(png.blob)
+   })
+   // This invitation's supplier number is sent to native WhatsApp sharing.
+   window.GHProcurementAndroid.shareRfqToSupplier(
+    number,buildSupplierQuoteReplyText(args),String(imageDataUrl),s.name
+   )
+   // Do not mark Sent here; WhatsApp still requires the final Send tap.
+  }catch(e){if(e?.name!=='AbortError')fail(e)}
  }
  function copyReplyText(inv){
   const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
@@ -722,42 +743,32 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
    <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier prices received · preferred minimum {minQuotes}. Delivery time is included in the recommendation for urgent items, and every recommendation can be changed before ordering.</p></div><div className="toolbar">{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Awards</button>}</div></div>
 
-   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Android companion app: attempt to open this supplier directly with the RFQ PNG and text. WhatsApp may ignore the recipient hint; verify the supplier before sending. In Chrome, Share Text + PNG still uses a contact picker.</div><div className="toolbar section"><button className="btn small primary" onClick={()=>shareTextAndPng(x)}>{typeof window!=='undefined'&&window.GHProcurementAndroid?.shareRfqToSupplier?'Send PNG + Text (Android)':'Share Text + PNG'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div></div>}</div>)}</div></div>}
+   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Direct supplier sharing needs the GH Procurement Android companion app. Browser/PWA access no longer opens the generic WhatsApp contact picker.</div><div className="toolbar section"><button className="btn small primary" onClick={()=>shareTextAndPng(x)}>Send PNG + Text · Direct Supplier</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div></div>}</div>)}</div></div>}
 
    <div className="formgrid">
     <div className="field"><label>{label('supplier','Supplier')}</label><select className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
-    {show('quote_ref')&&<div className="field"><label>{label('quote_ref','Supplier Quote Reference')}</label><input className="input" disabled={!canEdit} value={quoteRef} onChange={e=>setQuoteRef(e.target.value)}/></div>}
-    {show('valid_until')&&<div className="field"><label>{label('valid_until','Valid Until')}</label><input className="input" disabled={!canEdit} type="date" value={validUntil} onChange={e=>setValidUntil(e.target.value)}/></div>}
-    {commercialEnabled&&show('freight_total')&&<div className="field"><label>{label('freight_total','Freight Total')}</label><input className="input" inputMode="decimal" disabled={!canEdit} value={freight} onChange={e=>setFreight(e.target.value)}/></div>}
-    {commercialEnabled&&show('minimum_order_value')&&<div className="field"><label>{label('minimum_order_value','Minimum Order Value')}</label><input className="input" inputMode="decimal" disabled={!canEdit} value={minOrder} onChange={e=>setMinOrder(e.target.value)}/></div>}
-    {show('attachment')&&canEdit&&<div className="field"><label>{label('attachment','Quote Attachment')}</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
+    {show('attachment')&&canEdit&&<div className="field"><label>Supplier quotation attachment (optional)</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
    </div>
-
-   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th>
-    {show('description')&&<th>{label('description','Item')}</th>}{show('requested_qty')&&<th>{label('requested_qty','Requested Qty')}</th>}{show('unit_price')&&<th>{label('unit_price','Unit Price')}</th>}{show('available_qty')&&<th>{label('available_qty','Available Qty')}</th>}{show('discount_percent')&&<th>{label('discount_percent','Discount %')}</th>}{show('tax_percent')&&<th>{label('tax_percent','Tax %')}</th>}{commercialEnabled&&show('moq')&&<th>{label('moq','MOQ')}</th>}{commercialEnabled&&show('order_multiple')&&<th>{label('order_multiple','Multiple')}</th>}{show('lead_days')&&<th>{label('lead_days','Lead Days')}</th>}{show('current_best')&&<th>{label('current_best','Lowest Landed')}</th>}
-   </tr></thead><tbody>{items.map(i=>{const v=prices[i.id]||{},best=bestByItem[i.id]?.[0];return <tr key={i.id}><td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
-    {show('description')&&<td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>}
-    {show('requested_qty')&&<td>{qty(i.requested_qty)}</td>}
-    {show('unit_price')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} value={v.price??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,price:e.target.value}}))}/></td>}
-    {show('available_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} value={v.available??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,available:e.target.value}}))}/></td>}
-    {show('discount_percent')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.discount??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,discount:e.target.value}}))}/></td>}
-    {show('tax_percent')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.tax??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,tax:e.target.value}}))}/></td>}
-    {commercialEnabled&&show('moq')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.moq??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,moq:e.target.value}}))}/></td>}
-    {commercialEnabled&&show('order_multiple')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.multiple??'1'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,multiple:e.target.value}}))}/></td>}
-    {show('lead_days')&&<td><input className="input short-entry" inputMode="numeric" disabled={!canEdit} value={v.lead??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,lead:e.target.value}}))}/></td>}
-    {show('current_best')&&<td>{best?<><strong>{money(best.landed_unit_cost)}</strong><div className="muted tiny">{best.supplier_name} · goods {money(best.effective_unit_price)}{Number(best.freight_unit_cost)>0?' · freight '+money(best.freight_unit_cost):''}</div>{(bestByItem[i.id]?.length||0)>1&&<Badge>tie</Badge>}</>:'—'}</td>}
+   <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
+   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
+   <tbody>{items.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
+    <td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
+    <td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>
+    <td>{qty(i.requested_qty)}</td>
+    <td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></td>
+    <td><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></td>
+    <td>{sizeAlternativesEditor(i.id,v)}</td>
    </tr>})}</tbody></table></div>
 
-   <div className="mobile-card-list section">{items.map(i=>{const v=prices[i.id]||{},best=bestByItem[i.id]?.[0];return <div className="mobile-data-card" key={i.id}><div className="stock-card-title"><strong>{itemTitle(i.requirement?.item||{})}</strong><label className={'choice-pill '+(i.selected_for_po!==false?'selected-choice':'')}><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/>Order</label></div><div className="formgrid section">
-    {show('requested_qty')&&<div className="field"><label>Requested Qty</label><div className="read-box">{qty(i.requested_qty)}</div></div>}
-    {show('unit_price')&&<div className="field"><label>Unit Price</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.price??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,price:e.target.value}}))}/></div>}
-    {show('available_qty')&&<div className="field"><label>Available</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.available??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,available:e.target.value}}))}/></div>}
-    {commercialEnabled&&show('moq')&&<div className="field"><label>MOQ</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.moq??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,moq:e.target.value}}))}/></div>}
-    {commercialEnabled&&show('order_multiple')&&<div className="field"><label>Multiple</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.multiple??'1'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,multiple:e.target.value}}))}/></div>}
-    {show('discount_percent')&&<div className="field"><label>Discount %</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.discount??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,discount:e.target.value}}))}/></div>}
-    {show('tax_percent')&&<div className="field"><label>Tax %</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.tax??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,tax:e.target.value}}))}/></div>}
-    {show('lead_days')&&<div className="field"><label>Lead Days</label><input className="input" inputMode="numeric" disabled={!canEdit} value={v.lead??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,lead:e.target.value}}))}/></div>}
-   </div>{best&&show('current_best')&&<div className="notice section"><b>{best.supplier_name}</b> · landed {money(best.landed_unit_cost)} · delivery {best.lead_days==null?'not stated':best.lead_days+' day'+(Number(best.lead_days)===1?'':'s')}</div>}</div>})}</div>
+   <div className="mobile-card-list section">{items.map(i=>{const v=prices[i.id]||{};return <div className="mobile-data-card" key={i.id}>
+    <div className="stock-card-title"><strong>{itemTitle(i.requirement?.item||{})}</strong><label className={'choice-pill '+(i.selected_for_po!==false?'selected-choice':'')}><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/>Order</label></div>
+    <div className="muted tiny">Requested {qty(i.requested_qty)} {i.requirement?.item?.uom||''}</div>
+    <div className="formgrid section">
+     <div className="field"><label>Supplier unit price (Rs.)</label><input className="input" inputMode="decimal" disabled={!canEdit} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></div>
+     <div className="field"><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
+    </div>
+    <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
+   </div>})}</div>
 
    <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{comparison.length} comparison line(s).</span></div>
 
