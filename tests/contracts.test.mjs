@@ -293,7 +293,7 @@ test('browser-only direct supplier path does not use a generic share sheet or cl
  assert.doesNotMatch(browser,/navigator\.share\(/)
  assert.doesNotMatch(browser,/shareRfqToSupplier/)
  assert.doesNotMatch(browser,/window\.open\(/)
- assert.match(buying,/add it from Downloads before sending/)
+ assert.match(buying,/attach it from Downloads/)
  assert.match(buying,/target="_blank" rel="noopener noreferrer"/)
 })
 
