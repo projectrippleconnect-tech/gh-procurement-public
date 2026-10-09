@@ -56,7 +56,7 @@ export async function GET(request:Request){
  if(!config)return reply({ok:true,configured:false,connected:false,dispatches:[]})
  const queryId=new URL(request.url).searchParams.get('rfqId')
  if(queryId&&!UUID.test(queryId))return error('Invalid RFQ identifier.',400)
- let dispatches=[]
+ let dispatches:unknown[]=[]
  if(queryId){
   const {data, error:dbError}=await access.db.from('proc_whatsapp_rfq_dispatches')
    .select('id,rfq_id,supplier_id,status,message_id,created_at,updated_at,last_error')
