@@ -206,7 +206,7 @@ test('RFQ sharing offers reply-ready text, PNG sharing and aligned supplier quot
   const share=read('lib/rfq-share.js')
   const pdf=read('lib/pdf.js')
 
-  assert.match(buying,/Share Text \+ PNG/)
+  assert.match(buying,/Send PNG \+ Text · Direct Supplier/)
   assert.match(buying,/WhatsApp Text/)
   assert.match(buying,/Download PNG/)
   assert.match(buying,/Copy Reply Text/)
@@ -216,9 +216,9 @@ test('RFQ sharing offers reply-ready text, PNG sharing and aligned supplier quot
 
   assert.match(share,/export function buildSupplierQuoteReplyText/)
   assert.match(share,/Rate: Rs\. ______/)
-  assert.match(share,/Availability: ______/)
-  assert.match(share,/Delivery \/ Lead Time: ______/)
-  assert.match(share,/Payment Terms: ______/)
+  assert.match(share,/Optional size variations: ______/)
+  assert.match(share,/Remarks \(if needed\): ______/)
+  assert.doesNotMatch(share,/Payment Terms: ______/)
   assert.match(share,/export async function createSupplierPriceRequestPng/)
   assert.match(share,/label:'QTY'/)
   assert.match(share,/label:'UNIT RATE'/)
@@ -274,4 +274,46 @@ test('supplier phone entry prefixes and stores valid Sri Lankan +94 numbers',()=
   assert.match(buying,/toSriLankaSupplierPhone\(form\.whatsapp\)/)
   assert.match(buying,/phone:phone\|\|null,whatsapp:whatsapp\|\|phone\|\|null/)
   assert.match(buying,/Supplier WhatsApp must be a valid Sri Lankan number starting with \+94/)
+})
+
+
+test('supplier-specific PNG never falls back to Android generic share sheet',()=>{
+ const buying=read('components/modules-buying.jsx')
+ const share=buying.slice(buying.indexOf(' async function shareTextAndPng(inv){'),buying.indexOf(' function copyReplyText(inv){'))
+ assert.match(share,/const s=suppliers.find\(x=>x.id===inv.supplier_id\)/)
+ assert.match(share,/normalizeWhatsAppNumber\(s.whatsapp\|\|s.phone\)/)
+ assert.match(share,/GHProcurementAndroid\?\.shareRfqToSupplier/)
+ assert.match(share,/window\.GHProcurementAndroid\.shareRfqToSupplier/)
+ assert.match(share,/open GH Procurement in the installed Android companion APK/)
+ assert.doesNotMatch(share,/navigator\.share/)
+ assert.doesNotMatch(share,/shareSupplierPriceRequestPng\(/)
+ assert.doesNotMatch(share,/window\.open\(/)
+})
+
+test('supplier quotation accepts only prices plus optional remarks and alternative sizes',async()=>{
+ const buying=read('components/modules-buying.jsx')
+ const notes=await import('../lib/quote-line-notes.js')
+ const saved=notes.encodeSupplierQuoteNotes({
+  remarks:'Quoted brass finish',
+  variants:[{size:'1 inch',price:'300',remarks:'In stock'},{size:'1.5 inch',price:'450',remarks:''}]
+ })
+ const decoded=notes.decodeSupplierQuoteNotes(saved)
+ assert.equal(decoded.remarks,'Quoted brass finish')
+ assert.equal(decoded.variants.length,2)
+ assert.equal(decoded.variants[0].size,'1 inch')
+ assert.equal(decoded.variants[1].price,'450')
+ assert.deepEqual(notes.decodeSupplierQuoteNotes('Legacy supplier note'),{remarks:'Legacy supplier note',variants:[]})
+ assert.equal(notes.encodeSupplierQuoteNotes({remarks:'',variants:[]}),null)
+ assert.equal(notes.validateSupplierQuoteVariants([{size:'2 inch',price:'750'}]),true)
+ assert.equal(notes.validateSupplierQuoteVariants([{size:'2 inch',price:''}]),false)
+ assert.equal(notes.validateSupplierQuoteVariants([{size:'',price:'200'}]),false)
+ assert.equal(notes.validateSupplierQuoteVariants([{size:'1 inch',price:'-2'}]),false)
+ assert.match(buying,/notes:encodeSupplierQuoteNotes\(prices\[i.id\]\)/)
+ assert.match(buying,/decodeSupplierQuoteNotes\(x.notes\)/)
+ assert.match(buying,/\+ Add size variation/)
+ assert.match(buying,/Supplier unit price \(Rs\.\)/)
+ assert.match(buying,/p_freight_total:0,p_minimum_order_value:0/)
+ assert.match(buying,/discount_percent:0,tax_percent:0,moq:0,order_multiple:1/)
+ const quoteEditor=buying.slice(buying.indexOf('   <div className="formgrid">\n    <div className="field"><label>{label(\'supplier\',\'Supplier\')}</label>'),buying.indexOf('   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}'))
+ for(const term of ['Discount %','Tax %','Lead Days','Freight Total','MOQ','Minimum Order Value'])assert.doesNotMatch(quoteEditor,new RegExp(term))
 })
