@@ -40,7 +40,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const load=useCallback(async()=>{try{
   let q=supabase.from('proc_v_requirements').select('*',{count:'exact'}).in('status',['open','quoting','partially_ordered','ordered','partially_received']).order(oldestFirst?'created_at':'source_activity_at',{ascending:!oldestFirst}).range(page*pageSize,page*pageSize+pageSize-1)
   if(stage==='pending_review')q=q.eq('approval_status','pending_review')
-  if(stage==='approved')q=q.eq('approval_status','approved').eq('has_active_rfq',false)
+  if(stage==='approved')q=q.eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false)
   if(stage==='held')q=q.eq('approval_status','held')
   if(stage==='attention')q=q.eq('approval_status','approved').gt('remaining_to_order',0)
   if(stage==='overdue')q=q.eq('approval_status','approved').gt('remaining_to_order',0).lt('created_at',new Date(Date.now()-10*86400000).toISOString())
