@@ -7,7 +7,7 @@ const json=(data:object,status=200)=>Response.json(data,{status,headers:{'cache-
 function privateGateway(){
  const raw=process.env.WAHA_BASE_URL||''
  const key=process.env.WAHA_API_KEY||''
- if(!raw||!key||!process.env.SUPABASE_SERVICE_ROLE_KEY)return null
+ if(!raw||!key)return null
  try{
   const url=new URL(raw)
   if(url.protocol!=='http:'||!url.hostname.endsWith('.railway.internal')||url.username||url.password||url.pathname!=='/'||url.search)return null
@@ -21,12 +21,11 @@ async function adminAccess(request:Request){
  if(!match)return {error:json({ok:false,error:'Please sign in.'},401)}
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL
  const anon=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
- const secret=process.env.SUPABASE_SERVICE_ROLE_KEY
- if(!url||!anon||!secret)return {error:json({ok:false,error:'Admin pairing is not configured.'},503)}
+ if(!url||!anon)return {error:json({ok:false,error:'Admin pairing is not configured.'},503)}
  const auth=createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false}})
  const {data:{user},error}=await auth.auth.getUser(match[1])
  if(error||!user)return {error:json({ok:false,error:'Session expired. Sign in again.'},401)}
- const db=createClient(url,secret,{auth:{persistSession:false,autoRefreshToken:false}})
+ const db=createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:'Bearer '+match[1]}}})
  const {data:profile,error:dbError}=await db.from('proc_profiles').select('role,active').eq('id',user.id).maybeSingle()
  if(dbError)return {error:json({ok:false,error:'Unable to verify administrator access.'},503)}
  if(profile?.role!=='admin'||!profile.active)return {error:json({ok:false,error:'Only active administrators can pair a WhatsApp device.'},403)}
