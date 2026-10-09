@@ -212,6 +212,16 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
     </div>)}</div>
    </details>}
   </section>}
+  <nav aria-label="Procurement quick actions" className="card pad section">
+   <div className="muted tiny">QUICK PROCUREMENT FLOW</div>
+   <div className="row wrap" style={{gap:8}}>
+    <button type="button" className="btn small" onClick={()=>navigate('stock')}>1 · Check stock</button>
+    <button type="button" className="btn small" onClick={()=>{changeStage('approved');setControlFilter('all')}}>2 · Request prices</button>
+    <button type="button" className="btn small" onClick={()=>navigate('rfq')}>3 · Compare & order</button>
+    <button type="button" className="btn small" onClick={()=>navigate('receiving')}>4 · Receive & complete</button>
+   </div>
+   <div className="muted tiny">Approvals, quotations and purchase-order controls remain in their existing screens.</div>
+  </nav>
   {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>}
   <div className="row wrap" style={{gap:8,alignItems:'center'}}>
    <label className="muted tiny" htmlFor="proc-attention-filter">Focus</label>
