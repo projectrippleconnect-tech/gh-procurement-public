@@ -6,8 +6,8 @@ export const runtime='nodejs'
 export const dynamic='force-dynamic'
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const error=(message,status)=>Response.json({ok:false,error:message},{status,headers:{'cache-control':'no-store'}})
-const reply=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}})
+const error=(message:string,status:number)=>Response.json({ok:false,error:message},{status,headers:{'cache-control':'no-store'}})
+const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}})
 
 function gatewayConfig(){
  const raw=process.env.WAHA_BASE_URL||''
@@ -22,7 +22,7 @@ function gatewayConfig(){
  }catch{return null}
 }
 
-async function authorize(request){
+async function authorize(request:Request){
  const token=(request.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i)?.[1]
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL
  const key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
@@ -39,7 +39,7 @@ async function authorize(request){
  return {db,user}
 }
 
-async function gatewaySession(config){
+async function gatewaySession(config:{base:string;key:string;session:string}){
  const response=await fetch(config.base+'/api/sessions/'+encodeURIComponent(config.session),{
   headers:{'X-Api-Key':config.key,Accept:'application/json'},
   signal:AbortSignal.timeout(5000),cache:'no-store'
@@ -49,7 +49,7 @@ async function gatewaySession(config){
  return {connected:session?.status==='WORKING'}
 }
 
-export async function GET(request){
+export async function GET(request:Request){
  const access=await authorize(request)
  if(access.error)return access.error
  const config=gatewayConfig()
@@ -69,7 +69,7 @@ export async function GET(request){
  return reply({ok:true,configured:true,connected,dispatches})
 }
 
-export async function POST(request){
+export async function POST(request:Request){
  const access=await authorize(request)
  if(access.error)return access.error
  const config=gatewayConfig()
@@ -85,7 +85,7 @@ export async function POST(request){
  const rfqId=String(payload?.rfqId||''),supplierId=String(payload?.supplierId||'')
  if(!UUID.test(rfqId)||!UUID.test(supplierId))return error('Invalid RFQ or supplier identifier.',400)
  let png
- try{png=verifyPng(payload?.pngBase64)}catch(e){return error(e.message,400)}
+ try{png=verifyPng(payload?.pngBase64)}catch(e){return error(e instanceof Error?e.message:'Invalid PNG.',400)}
  const {db,user}=access
  const [{data:rfq,error:rfqError},{data:supplier,error:supplierError},{data:invite,error:inviteError}]=await Promise.all([
   db.from('proc_rfqs').select('id,rfq_no,due_date,status').eq('id',rfqId).maybeSingle(),
@@ -110,7 +110,7 @@ export async function POST(request){
    filename:String(rfq.rfq_no||'RFQ')+'-'+String(supplier.name||'Supplier')+'.png',
    base64:payload.pngBase64,caption
   })
- }catch(e){return error(e.message,400)}
+ }catch(e){return error(e instanceof Error?e.message:'Invalid supplier number.',400)}
  let connected=false
  try{connected=(await gatewaySession(config)).connected}catch{}
  if(!connected)return error('WhatsApp gateway is not linked or is offline. Use the manual PNG fallback.',503)
