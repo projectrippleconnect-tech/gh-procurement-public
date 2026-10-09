@@ -979,7 +979,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     <div className="toolbar section"><button className="btn primary" disabled={addingSupplier||busy||!addSupplierId} onClick={addSupplierToRfq}>{addingSupplier?'Adding supplier…':'Add to RFQ'}</button><button className="btn small" disabled={addingSupplier} onClick={load}>Refresh Suppliers</button></div>
    </div>}
    <div className="formgrid">
-    <div className="field"><label>{label('supplier','Supplier')}</label><select className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
+    <div className="field"><label htmlFor="rfq-quote-supplier">{label('supplier','Supplier')}</label><select id="rfq-quote-supplier" className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
     {show('attachment')&&canEdit&&<div className="field"><label>Supplier quotation attachment (optional)</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
    </div>
    <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>

@@ -125,8 +125,8 @@ try{
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
     const newSelect=page.getByLabel('New supplier',{exact:true})
-    const quoteSelect=page.locator('select').filter({has:page.locator('option[value="'+supplier.id+'"]')}).filter({visible:true}).last()
-    await quoteSelect.waitFor({state:'visible'})
+    const quoteSelect=page.getByLabel('Supplier',{exact:true})
+    await quoteSelect.locator('option[value="'+supplier.id+'"]').waitFor({state:'attached'})
     assert.equal(await quoteSelect.locator('option').count(),1,'Directory suppliers are not implicitly invited')
     directory=[supplier,newSupplier]
     await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
