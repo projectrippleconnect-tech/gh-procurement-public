@@ -237,7 +237,7 @@ test('Android companion RFQ sharing uses the selected supplier, PNG and text wit
  assert.match(buying,/window\.GHProcurementAndroid\.shareRfqToSupplier/)
  assert.match(buying,/createSupplierPriceRequestPng\(args\)/)
  assert.match(buying,/reader\.readAsDataURL\(png\.blob\)/)
- assert.match(buying,/phone,buildSupplierQuoteReplyText\(args\),String\(imageDataUrl\),s\.name/)
+ assert.match(buying,/number,buildSupplierQuoteReplyText\(args\),String\(imageDataUrl\),s\.name/)
  assert.match(buying,/Do not mark Sent here/)
  assert.match(buying,/Android companion app/)
 })
