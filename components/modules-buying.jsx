@@ -542,6 +542,20 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   setItems(v=>v.map(x=>x.id===i.id?{...x,selected_for_po:on}:x))
  }
 
+ async function selectOnlyPricedItems(){
+  if(!canEdit||!active||!pricedCount)return
+  if(!window.confirm('Select the '+pricedCount+' priced item(s) for the current order review and untick the '+unpricedCount+' unpriced item(s)? This changes the current RFQ order selection; it does not delete their stock requirements or quotations.'))return
+  setBusy(true)
+  try{
+   const ids=items.filter(i=>!pricedItemIds.has(i.id)&&i.selected_for_po!==false).map(i=>i.id)
+   const enable=items.filter(i=>pricedItemIds.has(i.id)&&i.selected_for_po===false).map(i=>i.id)
+   if(ids.length){const x=await supabase.from('proc_rfq_items').update({selected_for_po:false}).in('id',ids).eq('rfq_id',active.id);if(x.error)throw x.error}
+   if(enable.length){const x=await supabase.from('proc_rfq_items').update({selected_for_po:true}).in('id',enable).eq('rfq_id',active.id);if(x.error)throw x.error}
+   setItems(v=>v.map(i=>({...i,selected_for_po:pricedItemIds.has(i.id)})))
+   flash('Only items with received supplier prices are selected. Review the selections before creating orders.')
+  }catch(e){fail(e);await open(active)}finally{setBusy(false)}
+ }
+
  function roundForMultiple(n,multiple){
   const m=Math.max(Number(multiple||1),0.001)
   return Math.ceil((Number(n||0)-1e-9)/m)*m
@@ -872,7 +886,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
    <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{pricedCount} priced · {unpricedCount} awaiting price · Saving does not create an order.</span></div>
    {comparison.length>0&&<div className="section" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
     <button className="btn good" type="button" disabled={busy} onClick={buildAwardReview}>Next: Review Quoted Items →</button>
-    {selectedUnpriced.length>0&&<span className="muted tiny">{selectedUnpriced.length} unpriced item(s) still ticked for Order. Untick them above before reviewing; they will not be priced automatically.</span>}
+    {selectedUnpriced.length>0&&<><button className="btn small" disabled={busy} onClick={selectOnlyPricedItems}>Select Priced Items Only ({pricedCount})</button><span className="muted tiny">{selectedUnpriced.length} unpriced item(s) are still selected. You can untick them individually or use this button before reviewing.</span></>}
    </div>
 
    {awardOpen&&<div className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>{t('buying.award_hint','Review the recommended supplier for every line. You can change supplier, split quantity, or choose a faster delivery; overrides are permanently recorded.')}</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
