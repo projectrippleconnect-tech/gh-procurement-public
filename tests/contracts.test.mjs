@@ -293,3 +293,48 @@ test('supplier phone entry prefixes and stores valid Sri Lankan +94 numbers',()=
   assert.match(buying,/phone:phone\|\|null,whatsapp:whatsapp\|\|phone\|\|null/)
   assert.match(buying,/Supplier WhatsApp must be a valid Sri Lankan number starting with \+94/)
 })
+
+
+test('native sharing sends a PNG File and complete supplier-specific RFQ text',async()=>{
+  // Exercises the actual production helper with a pre-rendered PNG; no WhatsApp
+  // or network request, and no supplier data are sent.
+  const source=read('lib/rfq-share.js')
+  const url='data:text/javascript;base64,'+Buffer.from(source).toString('base64')
+  const {shareSupplierPriceRequestPng}=await import(url)
+  const args={
+    rfq:{rfq_no:'RFQ-UNIT-TEST',due_date:'2026-12-31'},
+    company:{name:'General Hardware'},
+    supplier:{name:'Supplier One'},
+    items:[{requested_qty:12,requirement:{item:{description:'PVC Pipe',size:'2 inch',uom:'PCS'}}}]
+  }
+  const prepared={blob:new Blob(['sample-image'],{type:'image/png'}),filename:'supplier-one.png'}
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'navigator')
+  let payload=null
+  try{
+    Object.defineProperty(globalThis,'navigator',{
+      configurable:true,
+      value:{
+        canShare:({files})=>files.length===1&&files[0].type==='image/png',
+        share:async value=>{payload=value}
+      }
+    })
+    const result=await shareSupplierPriceRequestPng(args,prepared)
+    assert.equal(result.shared,true)
+    assert.equal(result.blob,prepared.blob)
+    assert.ok(payload,'Browser share API must be called')
+    assert.equal(payload.files.length,1)
+    assert.equal(payload.files[0].name,'supplier-one.png')
+    assert.equal(payload.files[0].type,'image/png')
+    assert.match(payload.text,/RFQ-UNIT-TEST/)
+    assert.match(payload.text,/Supplier One/)
+    assert.match(payload.text,/12 PCS/)
+    assert.match(payload.text,/PVC Pipe/)
+    assert.match(payload.text,/2 inch/)
+    assert.match(payload.text,/Rate: Rs\. ______/)
+    assert.match(payload.text,/Delivery \/ Lead Time: ______/)
+    assert.equal(payload.text.includes('Please see the attached RFQ image'),false)
+  }finally{
+    if(previous)Object.defineProperty(globalThis,'navigator',previous)
+    else delete globalThis.navigator
+  }
+})
