@@ -9,7 +9,7 @@ declare
  admin_id uuid; a uuid:=gen_random_uuid(); b uuid:=gen_random_uuid();
  sa uuid:=gen_random_uuid(); sb uuid:=gen_random_uuid(); result jsonb;
  count_id uuid; ra uuid; rb uuid; test_rfq_id uuid; ria uuid; rib uuid;
- qa uuid; qb uuid; test_po_id uuid; line_id uuid; receipt_key uuid; replay jsonb;
+ qa uuid; qb uuid; test_po_id uuid; line_id uuid; receipt_key uuid; replay jsonb; dispatch_id uuid;
  test_item_id uuid; accepted numeric; req_qty numeric; failure text; row_po record;
 begin
  select id into strict admin_id from public.proc_profiles where active and role='admin' limit 1;
@@ -41,6 +41,14 @@ begin
  if result->>'status'<>'prepared' then raise exception 'RFQ prematurely sent'; end if;
  select id into strict ria from public.proc_rfq_items where rfq_id=test_rfq_id and requirement_id=ra;
  select id into strict rib from public.proc_rfq_items where rfq_id=test_rfq_id and requirement_id=rb;
+ dispatch_id:=public.proc_whatsapp_claim_dispatch(test_rfq_id,sa,'default',repeat('a',64),'Certification fixture; no gateway called');
+ failure:=null;
+ begin perform public.proc_whatsapp_claim_dispatch(test_rfq_id,sa,'default',repeat('a',64),'Duplicate fixture');
+ exception when unique_violation then failure:=sqlerrm; end;
+ if failure is null then raise exception 'Duplicate dispatch claim allowed'; end if;
+ if not public.proc_whatsapp_finish_dispatch(dispatch_id,'accepted','fixture-message',null) then raise exception 'Dispatch audit did not finish'; end if;
+ if public.proc_whatsapp_finish_dispatch(dispatch_id,'accepted','fixture-message',null) then raise exception 'Completed dispatch overwritten'; end if;
+ insert into certification_results values('security: atomic dispatch claim, duplicate block and immutable completion',true);
  perform public.proc_mark_rfq_supplier_sent_v1(test_rfq_id,sa);
  perform public.proc_mark_rfq_supplier_sent_v1(test_rfq_id,sb);
  insert into certification_results values('2: approval, prepared RFQ and explicit sent confirmation',true);
