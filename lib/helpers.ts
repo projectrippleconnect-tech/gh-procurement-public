@@ -13,7 +13,12 @@ export const stamp = () => {
 export const downloadCsv = (filename: string, rows: Record<string, unknown>[]) => {
   if (!rows.length) return
   const headers = Object.keys(rows[0])
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  // Spreadsheet programs execute formula-like strings even inside CSV quotes.
+  const esc = (v: unknown) => {
+    const text = String(v ?? '')
+    const safe = typeof v === 'string' && /^[\s]*[=+@\-\t\r\n]/.test(text) ? "'" + text : text
+    return `"${safe.replace(/"/g, '""')}"`
+  }
   const csv = [headers.map(esc).join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))].join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)

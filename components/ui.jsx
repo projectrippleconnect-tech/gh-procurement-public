@@ -65,7 +65,7 @@ export function DataTable({columns,rows,rowKey='id',mobileCards=false}){
     <tbody>{rows.map((r,i)=><tr key={r[rowKey]||i}>{columns.map(c=><td key={c.key}>{c.render?c.render(r):c.key==='status'?<Badge>{r[c.key]}</Badge>:String(r[c.key]??'—')}</td>)}</tr>)}</tbody>
    </table>
   </div>
-  {mobileCards&&<div className="mobile-card-list" style={{display:'block'}}>{rows.map((r,i)=>{
+  {mobileCards&&<div className="mobile-card-list">{rows.map((r,i)=>{
    const visible=columns.filter(c=>!c.mobileHidden)
    const headline=visible.slice(0,2)
    const actions=visible.filter(c=>/^(actions?|manage|select)$/i.test(c.key)&&!headline.includes(c))

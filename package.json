@@ -8,22 +8,24 @@
     "start": "next start",
     "lint": "tsc --noEmit",
     "postinstall": "node scripts/copy-pdf-worker.mjs",
-    "test": "node --test tests/contracts.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "node tests/ui-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
-    "next": "16.3.8",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
     "jspdf": "4.2.1",
     "jspdf-autotable": "5.0.8",
+    "next": "16.3.8",
     "pdfjs-dist": "6.3.289",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",
+    "playwright": "1.62.1",
     "typescript": "5.7.2"
   },
   "engines": {

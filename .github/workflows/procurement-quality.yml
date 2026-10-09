@@ -10,6 +10,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Publishable client configuration, already public in lib/supabase.ts.
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,12 +23,11 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Verify public Supabase build configuration
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: |
           test -n "$NEXT_PUBLIC_SUPABASE_URL" || { echo 'Missing NEXT_PUBLIC_SUPABASE_URL secret'; exit 1; }
-          test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || { echo 'Missing NEXT_PUBLIC_SUPABASE_ANON_KEY secret'; exit 1; }
+          test -n "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" || { echo 'Missing NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'; exit 1; }
+      - name: Dependency security audit
+        run: npm audit --audit-level=high
       - name: TypeScript validation
         run: npm run lint
       - name: Contract tests
@@ -32,6 +35,15 @@ jobs:
       - name: Production build
         env:
           NEXT_TELEMETRY_DISABLED: '1'
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: npm run build
+      - name: Install isolated UI test browser
+        run: npx playwright install --with-deps chromium
+      - name: Verify four-stage layouts at mobile, tablet and desktop widths
+        run: npm run test:ui
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procurement-ui-evidence
+          path: test-results/
+          if-no-files-found: ignore

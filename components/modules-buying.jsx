@@ -958,7 +958,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
     <td>{sizeAlternativesEditor(i.id,v)}</td>
    </tr>})}</tbody></table></div>
 
-   <div className="mobile-card-list section" style={{display:'block'}}>
+   <div className="mobile-card-list section">
     <div className="muted tiny" style={{marginBottom:8}}>Quick price entry · tap Details only for remarks or alternative sizes</div>
     {items.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8}}>
@@ -977,7 +977,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
    {comparison.length>0&&<div className="section" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
     <button className="btn good" type="button" disabled={busy} onClick={buildAwardReview}>Next: Review Quoted Items →</button>
     {selectedUnpriced.length>0&&<><button className="btn small" disabled={busy} onClick={selectOnlyPricedItems}>Select Priced Items Only ({pricedCount})</button><span className="muted tiny">{selectedUnpriced.length} unpriced item(s) are still selected. You can untick them individually or use this button before reviewing.</span></>}
-   </div>
+   </div>}
 
    {active?.status==='awarded'&&items.some(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))&&<div className="section" style={{padding:12,border:'1px solid var(--border, #334155)',borderRadius:12}}>
    <strong>Outstanding items need a follow-up RFQ</strong>

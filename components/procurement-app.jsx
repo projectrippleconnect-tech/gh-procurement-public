@@ -24,11 +24,11 @@ export default function ProcurementApp(){
  const ensure=useCallback(async s=>{
   const x=await supabase.from('proc_profiles').select('*').eq('id',s.user.id).maybeSingle()
   if(x.error)throw x.error
-  if(x.data){if(!x.data.active)throw new Error('Your GH Procurement access is disabled.');setProfile(x.data);const accepted=await supabase.rpc('proc_mark_own_invite_accepted');if(accepted.error)console.warn('Invite acceptance status not updated',accepted.error);return x.data}
+  if(x.data){if(!x.data.active)throw new Error('Your GH Procurement access is disabled.');const accepted=await supabase.rpc('proc_mark_own_invite_accepted');if(accepted.error)console.warn('Invite acceptance status not updated',accepted.error);return x.data}
   const r=await supabase.rpc('proc_ensure_profile')
   if(r.error)throw r.error
   const p=Array.isArray(r.data)?r.data[0]:r.data
-  setProfile(p);const accepted=await supabase.rpc('proc_mark_own_invite_accepted');if(accepted.error)console.warn('Invite acceptance status not updated',accepted.error);return p
+  if(!p?.active)throw new Error('Your GH Procurement access is disabled.');const accepted=await supabase.rpc('proc_mark_own_invite_accepted');if(accepted.error)console.warn('Invite acceptance status not updated',accepted.error);return p
  },[])
 
  const loadPermissions=useCallback(async()=>{
@@ -50,19 +50,30 @@ export default function ProcurementApp(){
 
  useEffect(()=>{
   if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recovery')==='1')setRecovery(true)
-  supabase.auth.getSession().then(async({data})=>{
-   setSession(data.session)
-   if(data.session)try{await ensure(data.session);await Promise.all([loadConfig(),loadPermissions()])}catch(e){setError(e.message)}
-   setBoot(false)
-  })
-  const{data}=supabase.auth.onAuthStateChange(async(event,s)=>{
+  // Keep this callback synchronous: Supabase holds its auth lock while it runs.
+  const{data}=supabase.auth.onAuthStateChange((event,s)=>{
    if(event==='PASSWORD_RECOVERY')setRecovery(true)
    setSession(s)
-   if(event==='SIGNED_OUT'){setProfile(null);setModules([]);setFields([]);setFeatures([]);setPermissions(new Set());setPermissionsLoaded(false);return}
-   if(s&&!recovery)try{await ensure(s);await Promise.all([loadConfig(),loadPermissions()])}catch(e){setError(e.message)}
+   if(!s){setProfile(null);setModules([]);setFields([]);setFeatures([]);setPermissions(new Set());setPermissionsLoaded(false);setBoot(false)}
   })
   return()=>data.subscription.unsubscribe()
- },[ensure,loadConfig,loadPermissions,recovery])
+ },[])
+
+ useEffect(()=>{
+  if(!session||recovery)return
+  let cancelled=false
+  setBoot(true);setProfile(null);setPermissions(new Set());setPermissionsLoaded(false)
+  async function hydrate(){
+   try{
+    const next=await ensure(session)
+    await Promise.all([loadConfig(),loadPermissions()])
+    if(!cancelled){setProfile(next);setError('')}
+   }catch(e){if(!cancelled)setError(e.message)}
+   finally{if(!cancelled)setBoot(false)}
+  }
+  hydrate()
+  return()=>{cancelled=true}
+ },[session,recovery,ensure,loadConfig,loadPermissions])
 
  useEffect(()=>{
   if(!session||!profile)return
