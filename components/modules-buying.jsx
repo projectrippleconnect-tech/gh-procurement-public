@@ -41,6 +41,9 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   if(stage==='pending_review')q=q.eq('approval_status','pending_review')
   if(stage==='approved')q=q.eq('approval_status','approved').eq('has_active_rfq',false)
   if(stage==='held')q=q.eq('approval_status','held')
+  if(stage==='attention')q=q.eq('approval_status','approved').gt('remaining_to_order',0)
+  if(stage==='overdue')q=q.eq('approval_status','approved').gt('remaining_to_order',0).lt('created_at',new Date(Date.now()-10*86400000).toISOString())
+  if(stage==='delivery')q=q.gt('ordered_not_received',0)
   const tasks=[q]
   if(canReview){
    tasks.push(supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name'))
@@ -194,10 +197,10 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   {canReview&&<section className="card pad section" aria-label="Procurement control summary">
    <div className="sectionhead"><div><h3>Procurement Control</h3><p>Open requirements and next actions. Counts cover all matching requirements; the oldest-item preview shows the current page.</p></div></div>
    <div className="formgrid">
-    <button type="button" className="btn" onClick={()=>changeStage('all')}><strong>{controlCounts.outstanding??'…'}</strong> Still to order</button>
-    <button type="button" className="btn" onClick={()=>{changeStage('all');setOldestFirst(true);setPage(0)}}><strong>{controlCounts.overdue??'…'}</strong> Waiting 10+ days</button>
+    <button type="button" className="btn" onClick={()=>changeStage('attention')}><strong>{controlCounts.outstanding??'…'}</strong> Still to order</button>
+    <button type="button" className="btn" onClick={()=>{changeStage('overdue');setOldestFirst(true);setPage(0)}}><strong>{controlCounts.overdue??'…'}</strong> Waiting 10+ days</button>
     <button type="button" className="btn" onClick={()=>changeStage('approved')}><strong>{controlCounts.uncovered??'…'}</strong> No active RFQ</button>
-    <button type="button" className="btn" onClick={()=>navigate('po')}><strong>{controlCounts.delivery??'…'}</strong> Awaiting receipt</button>
+    <button type="button" className="btn" onClick={()=>changeStage('delivery')}><strong>{controlCounts.delivery??'…'}</strong> Awaiting receipt</button>
    </div>
    {urgent.length>0&&<details><summary><strong>Oldest outstanding items</strong> — view priority list</summary>
     <div className="stack section">{urgent.map(r=><div className="row wrap" key={r.id} style={{justifyContent:'space-between',gap:8}}>
