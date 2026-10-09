@@ -102,11 +102,14 @@ export async function POST(request:Request){
   rfq.due_date?'Due: '+rfq.due_date:null,
   'Please check the attached RFQ image and reply with your unit rates. Add alternative sizes or remarks only when needed.'
  ].filter(Boolean).join('\n')
+ const customCaption=payload?.caption
+ if(customCaption!==undefined&&(typeof customCaption!=='string'||!customCaption.trim()||customCaption.length>2000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(customCaption)))return error('Caption must contain 1–2000 valid characters.',400)
+ const finalCaption=customCaption===undefined?caption:customCaption.trim()
  try{
   chatPayload=wahaImagePayload({
    session:config.session,phone,
    filename:String(rfq.rfq_no||'RFQ')+'-'+String(supplier.name||'Supplier')+'.png',
-   base64:payload.pngBase64,caption
+   base64:payload.pngBase64,caption:finalCaption
   })
  }catch(e){return error(e instanceof Error?e.message:'Invalid supplier number.',400)}
  let connected=false
@@ -116,7 +119,7 @@ export async function POST(request:Request){
  // Unique constraint stops double taps and concurrent requests from sending duplicates.
  const {data:attemptId,error:claimError}=await db.rpc('proc_whatsapp_claim_dispatch',{
   p_rfq_id:rfqId,p_supplier_id:supplierId,p_session:config.session,
-  p_image_sha256:createHash('sha256').update(png).digest('hex'),p_caption:caption
+  p_image_sha256:createHash('sha256').update(png).digest('hex'),p_caption:finalCaption
  })
  if(claimError){
   if(claimError.code==='23505')return error('This RFQ already has a gateway send attempt for this supplier. Review its status; duplicate sending is blocked.',409)
