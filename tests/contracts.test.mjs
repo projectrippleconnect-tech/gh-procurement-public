@@ -177,7 +177,8 @@ test('dependency install scripts are explicitly denied and unreviewed scripts fa
   const npmrc=read('.npmrc')
   assert.equal(pkg.allowScripts?.['tesseract.js'],false)
   assert.equal(pkg.allowScripts?.['core-js'],false)
-  assert.match(npmrc,/^strict-allow-scripts=true\s*$/)
+  assert.match(npmrc,/^ignore-scripts=true\s*$/)
+  assert.match(pkg.scripts.build,/^node scripts\/copy-pdf-worker\.mjs && next build$/)
 })
 
 
