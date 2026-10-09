@@ -4,3 +4,4 @@ Source: pull request #1, integrated at c022a1cfcba0beac2fc652b49d0212dafd0a7237.
 This file is intentionally used by Railway watchPatterns so unrelated pushes do not trigger deployment.
 Second manual attempt approved 2026-10-09: correct escaped Android-sharing contract assertion; deployment retry.
 Third manual release approved 2026-10-09: include supplier +94 phone and WhatsApp normalization from cab755f42a413d661fcb9ac44d1c914d5392cafa. Trigger Railway build, contract tests and production health checks. Keep unrelated pushes non-deploying.
+Fourth manual production release approved 2026-10-09: publish commit 2a1084b5b00380afa0af3b77fa2d0655c35a1777 (supplier-specific Android WhatsApp PNG+text, simple unit-price quotations, optional remarks and size alternatives). Run Railway npm ci, npm test, npm run build and /api/health. Do not enable automatic deployment; unrelated pushes remain non-deploying.
