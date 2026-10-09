@@ -848,15 +848,20 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
     <td>{sizeAlternativesEditor(i.id,v)}</td>
    </tr>})}</tbody></table></div>
 
-   <div className="mobile-card-list section">{items.map(i=>{const v=prices[i.id]||{};return <div className="mobile-data-card" key={i.id}>
-    <div className="stock-card-title"><strong>{itemTitle(i.requirement?.item||{})}</strong><label className={'choice-pill '+(i.selected_for_po!==false?'selected-choice':'')}><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/>Order</label></div>
-    <div className="muted tiny">Requested {qty(i.requested_qty)} {i.requirement?.item?.uom||''}</div>
-    <div className="formgrid section">
-     <div className="field"><label>Supplier unit price (Rs.)</label><input className="input" inputMode="decimal" disabled={!canEdit} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></div>
-     <div className="field"><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
-    </div>
-    <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
-   </div>})}</div>
+   <div className="mobile-card-list section" style={{display:'block'}}>
+    <div className="muted tiny" style={{marginBottom:8}}>Quick price entry · tap Details only for remarks or alternative sizes</div>
+    {items.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
+     <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8}}>
+      <div style={{minWidth:0}}><strong style={{fontSize:14,lineHeight:1.3,display:'block',overflowWrap:'anywhere'}}>{itemTitle(i.requirement?.item||{})}</strong><span className="muted tiny">{qty(i.requested_qty)} {i.requirement?.item?.uom||''}</span></div>
+      <input aria-label={'Unit price for '+itemTitle(i.requirement?.item||{})} className="input stock-entry" style={{width:'100%',minWidth:0,padding:'9px 7px'}} inputMode="decimal" disabled={!canEdit} placeholder="Rs." value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/>
+      <label title="Include in order" style={{display:'flex',alignItems:'center',justifyContent:'center'}}><input aria-label={'Order '+itemTitle(i.requirement?.item||{})} type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></label>
+     </div>
+     <details style={{marginTop:3}}><summary className="muted tiny" style={{cursor:'pointer',padding:'5px 0'}}>Details / remarks / sizes {(v.remarks||(v.variants||[]).length)?'●':''}</summary>
+      <div className="field" style={{marginTop:8}}><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
+      <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
+     </details>
+    </div>})}
+   </div>
 
    <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{comparison.length} comparison line(s).</span></div>
 
