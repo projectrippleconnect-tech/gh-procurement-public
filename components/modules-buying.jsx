@@ -357,6 +357,10 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
  const pricedCount=items.filter(i=>pricedItemIds.has(i.id)).length
  const unpricedCount=items.length-pricedCount
  const selectedUnpriced=items.filter(i=>i.selected_for_po!==false&&!pricedItemIds.has(i.id))
+ const awardSuppliers=[...new Set(awardPlan.map(x=>x.supplier_id))]
+ const awardEstimate=awardPlan.reduce((sum,x)=>sum+(Number(x.qty)||0)*(Number(x.landed_unit_cost)||0),0)
+ const awardProblems=awardPlan.filter(x=>!Number.isFinite(Number(x.qty))||Number(x.qty)<=0||(!x.recommended&&!String(x.override_reason||'').trim()))
+ const awardUnselected=items.filter(i=>i.selected_for_po===false)
  const journeyStage=awardOpen?7:(active&&invite.length&&!invite.some(x=>['pending','prepared'].includes(x.status))?6:5)
 
  const load=useCallback(async()=>{try{
@@ -649,6 +653,10 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   if(!active||!awardPlan.length)return
   const invalid=awardPlan.some(x=>!Number.isFinite(Number(x.qty))||Number(x.qty)<=0||(!x.recommended&&!String(x.override_reason||'').trim()))
   if(invalid)return fail(new Error(t('validation.award_allocation','Every award allocation needs a positive quantity; non-recommended suppliers require an override reason.')))
+  if(!awardPlan.length||awardProblems.length)return fail(new Error('Resolve invalid quantities and missing supplier-change reasons before creating orders.'))
+  const supplierLines=awardSuppliers.map(id=>{const rows=awardPlan.filter(x=>x.supplier_id===id);return (rows[0]?.supplier_name||'Supplier')+': '+rows.length+' allocation(s)'}).join('\\n')
+  const remaining=awardUnselected.length
+  if(!window.confirm('FINAL PURCHASE ORDER CONFIRMATION\\n\\n'+awardPlan.length+' allocation(s) for '+awardSuppliers.length+' supplier(s).\\n'+supplierLines+'\\nEstimated landed goods value: '+money(awardEstimate)+'\\n\\n'+(remaining?remaining+' unselected item(s) will NOT be ordered. The current RFQ will be marked awarded; create a new RFQ later for outstanding requirements.\\n\\n':'')+'Proceed to create purchase orders?'))return
   setBusy(true)
   try{
    if(quoteException.trim()){
@@ -890,6 +898,15 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
    </div>
 
    {awardOpen&&<div className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
+    <div className="section" style={{padding:'10px 12px',border:'1px solid var(--border, #334155)',borderRadius:12}}>
+     <strong>Order summary</strong>
+     <div className="muted tiny" style={{marginTop:4}}>{awardPlan.length} allocations · {awardSuppliers.length} supplier(s) · {awardUnselected.length} items not selected</div>
+     <div style={{marginTop:6}}><strong>Estimated landed goods: {money(awardEstimate)}</strong></div>
+     {awardSuppliers.map(id=>{const rows=awardPlan.filter(x=>x.supplier_id===id);return <div key={id} className="muted tiny" style={{marginTop:4}}>{rows[0]?.supplier_name||'Supplier'} · {rows.length} allocation(s) · {money(rows.reduce((v,x)=>v+(Number(x.qty)||0)*(Number(x.landed_unit_cost)||0),0))}</div>})}
+     {awardProblems.length>0&&<div role="alert" style={{marginTop:8}}>Check {awardProblems.length} invalid allocation(s) before ordering.</div>}
+     {awardUnselected.length>0&&<div className="muted tiny" style={{marginTop:8}}>Unselected items remain outstanding in stock requirements. This RFQ will close when orders are created; request new quotations for remaining items through a new RFQ.</div>}
+     <div className="muted tiny" style={{marginTop:5}}>Estimated landed goods excludes possible supplier-level freight adjustments. Confirm final PO totals in Orders.</div>
+    </div>
     <details className="section"><summary className="muted tiny" style={{cursor:'pointer'}}>Advanced: quotation minimum exception</summary><div className="field" style={{marginTop:8}}><label>Reason for proceeding without enough supplier quotations</label><input className="input" value={quoteException} onChange={e=>setQuoteException(e.target.value)} placeholder="Enter a reason only when making an exception."/></div></details>
     <div className="section" style={{display:'grid',gap:6}}>{items.filter(i=>i.selected_for_po!==false).map(item=>{const plans=awardPlan.filter(p=>p.rfq_item_id===item.id),speed=itemNeedsSpeed(item.id);return <div key={item.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0',minWidth:0}}>
      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:8,flexWrap:'wrap'}}><strong style={{fontSize:14,overflowWrap:'anywhere'}}>{itemTitle(item.requirement?.item||{})}</strong><span className="muted tiny">Outstanding {qty(Math.min(Number(item.requested_qty||0),Math.max(Number(item.requirement?.adjusted_qty||0)-Number(item.requirement?.ordered_qty||0),0)))}{speed?' · Urgent':''}</span></div>
