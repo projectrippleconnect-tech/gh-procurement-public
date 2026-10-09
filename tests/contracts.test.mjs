@@ -206,11 +206,15 @@ test('RFQ sharing offers reply-ready text, PNG sharing and aligned supplier quot
   const share=read('lib/rfq-share.js')
   const pdf=read('lib/pdf.js')
 
-  assert.match(buying,/Send PNG \+ Text · Direct Supplier/)
+  assert.match(buying,/1 · Download PNG for WhatsApp/)
+  assert.match(buying,/2 · Open WhatsApp \+ Text/)
+  assert.match(buying,/Copy PNG Caption/)
+  assert.match(buying,/Open Supplier Chat for Caption/)
   assert.match(buying,/WhatsApp Text/)
   assert.match(buying,/Download PNG/)
   assert.match(buying,/Copy Reply Text/)
-  assert.match(buying,/shareSupplierPriceRequestPng/)
+  assert.match(buying,/buildSupplierPngShareText/)
+  assert.match(buying,/prepareBrowserRfq/)
   assert.match(buying,/downloadSupplierPriceRequestPng/)
   assert.match(buying,/buildSupplierQuoteReplyText/)
 
@@ -231,17 +235,19 @@ test('RFQ sharing offers reply-ready text, PNG sharing and aligned supplier quot
 })
 
 
-test('Android companion RFQ sharing uses the selected supplier, PNG and text without false sent confirmation',()=>{
+test('RFQ browser sharing downloads PNG before opening a specific supplier chat, with no APK',()=>{
  const buying=read('components/modules-buying.jsx')
- assert.match(buying,/GHProcurementAndroid\?\.shareRfqToSupplier/)
- assert.match(buying,/window\.GHProcurementAndroid\.shareRfqToSupplier/)
- assert.match(buying,/createSupplierPriceRequestPng\(args\)/)
- assert.match(buying,/reader\.readAsDataURL\(png\.blob\)/)
- assert.match(buying,/number,buildSupplierQuoteReplyText\(args\),String\(imageDataUrl\),s\.name/)
- assert.match(buying,/Do not mark Sent here/)
- assert.match(buying,/Android companion app/)
+ assert.match(buying,/async function prepareBrowserRfq\(inv\)/)
+ assert.match(buying,/downloadSupplierPriceRequestPng\(supplierRequestArgs\(inv\)\)/)
+ assert.match(buying,/setBrowserRfqReady\(\{invitationId:inv.id,number,filename:out.filename\}\)/)
+ assert.match(buying,/function browserSupplierWhatsappUrl\(inv,withText=true\)/)
+ assert.match(buying,/whatsappUrl\(s.whatsapp\|\|s.phone,withText\?buildSupplierPngShareText/)
+ assert.match(buying,/browserRfqReady\?\.invitationId===x.id/)
+ assert.match(buying,/Copy PNG Caption/)
+ assert.match(buying,/navigator.clipboard.writeText\(buildSupplierPngShareText/)
+ assert.match(buying,/Do not confirm Sent until you have actually sent it/)
+ assert.doesNotMatch(buying,/GHProcurementAndroid/)
 })
-
 
 test('supplier phone entry prefixes and stores valid Sri Lankan +94 numbers',()=>{
   const ts = require('typescript')
@@ -277,17 +283,18 @@ test('supplier phone entry prefixes and stores valid Sri Lankan +94 numbers',()=
 })
 
 
-test('supplier-specific PNG never falls back to Android generic share sheet',()=>{
+test('browser-only direct supplier path does not use a generic share sheet or claim auto attachment',()=>{
  const buying=read('components/modules-buying.jsx')
- const share=buying.slice(buying.indexOf(' async function shareTextAndPng(inv){'),buying.indexOf(' function copyReplyText(inv){'))
- assert.match(share,/const s=suppliers.find\(x=>x.id===inv.supplier_id\)/)
- assert.match(share,/normalizeWhatsAppNumber\(s.whatsapp\|\|s.phone\)/)
- assert.match(share,/GHProcurementAndroid\?\.shareRfqToSupplier/)
- assert.match(share,/window\.GHProcurementAndroid\.shareRfqToSupplier/)
- assert.match(share,/open GH Procurement in the installed Android companion APK/)
- assert.doesNotMatch(share,/navigator\.share/)
- assert.doesNotMatch(share,/shareSupplierPriceRequestPng\(/)
- assert.doesNotMatch(share,/window\.open\(/)
+ const browser=buying.slice(buying.indexOf(' async function prepareBrowserRfq(inv){'),buying.indexOf(' function copyReplyText(inv){'))
+ assert.match(browser,/const s=suppliers.find\(x=>x.id===inv.supplier_id\)/)
+ assert.match(browser,/normalizeWhatsAppNumber\(s.whatsapp\|\|s.phone\)/)
+ assert.match(browser,/downloadSupplierPriceRequestPng/)
+ assert.match(browser,/buildSupplierPngShareText/)
+ assert.doesNotMatch(browser,/navigator\.share\(/)
+ assert.doesNotMatch(browser,/shareRfqToSupplier/)
+ assert.doesNotMatch(browser,/window\.open\(/)
+ assert.match(buying,/add it from Downloads before sending/)
+ assert.match(buying,/target="_blank" rel="noopener noreferrer"/)
 })
 
 test('supplier quotation accepts only prices plus optional remarks and alternative sizes',async()=>{
