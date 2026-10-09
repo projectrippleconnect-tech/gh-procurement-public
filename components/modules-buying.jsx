@@ -2,7 +2,8 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone} from '@/lib/helpers'
+import {money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
+import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -638,37 +639,29 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
  }
  async function shareTextAndPng(inv){
   const s=suppliers.find(x=>x.id===inv.supplier_id)
-  if(!s)return
+  if(!s)return fail(new Error('The selected supplier could not be found.'))
+  const number=normalizeWhatsAppNumber(s.whatsapp||s.phone)
+  if(!number)return fail(new Error('Add a valid WhatsApp number for '+s.name+' in the Supplier Directory.'))
+  // Generic Android browser shares cannot specify the supplier contact. Do not
+  // open a generic "Send to..." picker for a supplier-directed button.
+  if(typeof window==='undefined'||typeof window.GHProcurementAndroid?.shareRfqToSupplier!=='function'){
+   return fail(new Error('To share the RFQ PNG and text directly to '+s.name+', open GH Procurement in the installed Android companion APK. Browser and PWA sharing cannot select a supplier.'))
+  }
   const args=supplierRequestArgs(inv)
-  const phone=s.whatsapp||s.phone
-  // In the Android companion app, pass the exact supplier number, actual image,
-  // and full RFQ text to a native Intent. Android's share sheet is bypassed.
-  // WhatsApp's recipient "jid" hint is undocumented and may still show a picker.
-  if(typeof window!=='undefined' && typeof window.GHProcurementAndroid?.shareRfqToSupplier==='function'){
-   if(!phone)return fail(new Error('Enter a WhatsApp number for '+s.name+' before sending.'))
-   try{
-    const png=await createSupplierPriceRequestPng(args)
-    const imageDataUrl=await new Promise((resolve,reject)=>{
-     const reader=new FileReader()
-     reader.onload=()=>resolve(reader.result)
-     reader.onerror=()=>reject(new Error('Could not read RFQ PNG.'))
-     reader.readAsDataURL(png.blob)
-    })
-    window.GHProcurementAndroid.shareRfqToSupplier(
-     phone,buildSupplierQuoteReplyText(args),String(imageDataUrl),s.name
-    )
-    // Do not mark Sent here: the recipient must press WhatsApp's Send button.
-    return
-   }catch(e){return fail(e)}
-  }
   try{
-   const result=await shareSupplierPriceRequestPng(args)
-   if(result.shared){flash('Choose WhatsApp and the supplier from Android Share. For direct supplier selection, open GH Procurement in its Android companion app.');return}
-   flash('PNG downloaded. Your browser cannot share it to a specific WhatsApp chat automatically.')
-  }catch(e){
-   if(e?.name==='AbortError')return
-   fail(e)
-  }
+   const png=await createSupplierPriceRequestPng(args)
+   const imageDataUrl=await new Promise((resolve,reject)=>{
+    const reader=new FileReader()
+    reader.onload=()=>resolve(reader.result)
+    reader.onerror=()=>reject(new Error('RFQ image could not be read.'))
+    reader.readAsDataURL(png.blob)
+   })
+   // This invitation's supplier number is sent to native WhatsApp sharing.
+   window.GHProcurementAndroid.shareRfqToSupplier(
+    number,buildSupplierQuoteReplyText(args),String(imageDataUrl),s.name
+   )
+   // Do not mark Sent here; WhatsApp still requires the final Send tap.
+  }catch(e){if(e?.name!=='AbortError')fail(e)}
  }
  function copyReplyText(inv){
   const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
@@ -722,7 +715,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
    <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier prices received · preferred minimum {minQuotes}. Delivery time is included in the recommendation for urgent items, and every recommendation can be changed before ordering.</p></div><div className="toolbar">{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Awards</button>}</div></div>
 
-   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Android companion app: attempt to open this supplier directly with the RFQ PNG and text. WhatsApp may ignore the recipient hint; verify the supplier before sending. In Chrome, Share Text + PNG still uses a contact picker.</div><div className="toolbar section"><button className="btn small primary" onClick={()=>shareTextAndPng(x)}>{typeof window!=='undefined'&&window.GHProcurementAndroid?.shareRfqToSupplier?'Send PNG + Text (Android)':'Share Text + PNG'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div></div>}</div>)}</div></div>}
+   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Direct supplier sharing needs the GH Procurement Android companion app. Browser/PWA access no longer opens the generic WhatsApp contact picker.</div><div className="toolbar section"><button className="btn small primary" onClick={()=>shareTextAndPng(x)}>Send PNG + Text · Direct Supplier</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div></div>}</div>)}</div></div>}
 
    <div className="formgrid">
     <div className="field"><label>{label('supplier','Supplier')}</label><select className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
