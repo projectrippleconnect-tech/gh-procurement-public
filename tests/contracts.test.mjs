@@ -245,7 +245,7 @@ test('RFQ browser sharing downloads PNG before opening a specific supplier chat,
  assert.match(buying,/browserRfqReady\?\.invitationId===x.id/)
  assert.match(buying,/Copy PNG Caption/)
  assert.match(buying,/navigator.clipboard.writeText\(buildSupplierPngShareText/)
- assert.match(buying,/Do not confirm Sent until you have actually sent it/)
+ assert.match(buying,/Check WhatsApp before confirming Sent/)
  assert.doesNotMatch(buying,/GHProcurementAndroid/)
 })
 
