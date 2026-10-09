@@ -421,3 +421,10 @@ test('RFQ coverage actions use precise outstanding-uncovered filter',()=>{
  assert.match(buying,/changeStage\('uncovered'\)/)
  assert.match(buying,/const changeStage=next=>\{setSelected\(new Set\(\)\);setPage\(0\);setControlFilter\('all'\);setStage\(next\)\}/)
 })
+
+test('supplier punctuality uses receipt evidence and never fabricates scores',()=>{
+ const buying=read('components/modules-buying.jsx')
+ assert.match(buying,/proc_v_supplier_delivery_evidence_v1/)
+ assert.match(buying,/p\.on_time_pct==null\?'Insufficient dated receipts'/)
+ assert.match(buying,/Insufficient data/)
+})
