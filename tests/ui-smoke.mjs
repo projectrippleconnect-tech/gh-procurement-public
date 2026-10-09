@@ -28,6 +28,7 @@ try{
   adjusted_qty:10,remaining_to_order:10,ordered_qty:0,ordered_not_received:0,status:'open',
   approval_status:'pending_review',source_type:'stock_count',priority:'normal',created_at:new Date().toISOString()}
  const supplier={id:'00000000-0000-4000-8000-000000000005',name:'Fixture supplier',phone:'+94779792078',whatsapp:'+94779792078',active:true}
+ const newSupplier={...supplier,id:'00000000-0000-4000-8000-000000000010',name:'Newly registered supplier'}
  const rfq={id:'00000000-0000-4000-8000-000000000006',rfq_no:'RFQ-FIXTURE',status:'prepared',due_date:'2099-01-01'}
  const po={id:'00000000-0000-4000-8000-000000000007',po_no:'PO-FIXTURE',supplier_id:supplier.id,supplier,status:'sent',total:1000,po_date:'2099-01-01'}
  for(const width of [320,390,768,1366]){
@@ -35,6 +36,7 @@ try{
   const page=await context.newPage()
   const errors=[],queries=[]
   let grantedPermissions=permissions
+  let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('pageerror',e=>errors.push(e.message))
   await context.route('https://*.supabase.co/**',async route=>{
    const req=route.request(),url=new URL(req.url()),name=url.pathname.split('/').pop()
@@ -45,9 +47,16 @@ try{
    else if(name==='proc_my_permissions_v1')data=grantedPermissions
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
    else if(name==='proc_v_requirements')data=[requirement]
-   else if(name==='proc_rfqs')data=[rfq]
-   else if(name==='proc_suppliers')data=[supplier]
-   else if(name==='proc_rfq_suppliers')data=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}]
+   else if(name==='proc_rfqs')data=[{...rfq,status:rfqStatus}]
+   else if(name==='proc_suppliers')data=directory
+   else if(name==='proc_rfq_suppliers')data=invitations
+   else if(name==='proc_add_rfq_supplier_v1'){
+    assert.deepEqual(req.postDataJSON(),{p_rfq_id:rfq.id,p_supplier_id:newSupplier.id,p_scope_override_reason:null})
+    if(addFailure){await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture invitation failure'})});return}
+    const invitation={id:'new-invite-fixture',rfq_id:rfq.id,supplier_id:newSupplier.id,status:'pending'}
+    invitations=[...invitations,invitation]
+    data={invitation,rfq_status:rfqStatus,added:true}
+   }
    else if(name==='proc_rfq_items')data=[{id:'00000000-0000-4000-8000-000000000008',rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item},requested_qty:10,selected_for_po:true}]
    else if(name==='proc_purchase_orders')data=[po]
    else if(name==='proc_po_lines')data=[{id:'00000000-0000-4000-8000-000000000009',po_id:po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
@@ -115,6 +124,38 @@ try{
    if(heading==='RFQs & Quotes'){
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
+    const newSelect=page.getByLabel('New supplier',{exact:true})
+    const quoteSelect=page.getByLabel('Supplier',{exact:true})
+    await quoteSelect.locator('option[value="'+supplier.id+'"]').waitFor({state:'attached'})
+    assert.equal(await quoteSelect.locator('option').count(),1,'Directory suppliers are not implicitly invited')
+    directory=[supplier,newSupplier]
+    await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
+    await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
+    const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
+    await price.fill('123.45')
+    await newSelect.selectOption(newSupplier.id)
+    await page.getByRole('button',{name:'Add to RFQ',exact:true}).click()
+    await page.getByText('Fixture invitation failure',{exact:true}).waitFor()
+    assert.equal(await quoteSelect.locator('option').count(),1,'Failed additions do not create phantom suppliers')
+    assert.equal(await price.inputValue(),'123.45','Failed additions preserve price drafts')
+    addFailure=false
+    await page.getByRole('button',{name:'Add to RFQ',exact:true}).click()
+    await quoteSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
+    assert.equal(await price.inputValue(),'123.45','Successful additions preserve the existing price draft')
+    assert.equal(await quoteSelect.inputValue(),supplier.id,'Adding a supplier keeps the selected quotation')
+    assert.equal(await newSelect.locator('option[value="'+newSupplier.id+'"]').count(),0,'Already invited suppliers cannot be selected again')
+    await quoteSelect.selectOption(newSupplier.id)
+    await page.waitForTimeout(150)
+    assert.equal(await price.inputValue(),'','The new supplier has a separate quotation')
+    await page.screenshot({path:'test-results/'+width+'-RFQ-added-supplier.png',fullPage:true})
+    grantedPermissions=permissions.filter(p=>p!=='procurement.rfq.manage')
+    await page.reload()
+    await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+    await navigate('Q RFQs & Quotes')
+    await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+    await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
+    assert.equal(await page.getByRole('button',{name:'Add to RFQ',exact:true}).count(),0,'Read-only users cannot add suppliers')
+    grantedPermissions=permissions
    }
    if(heading==='Orders')await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
    await page.screenshot({path:'test-results/'+width+'-'+heading.replaceAll(' ','-')+'.png',fullPage:true})
