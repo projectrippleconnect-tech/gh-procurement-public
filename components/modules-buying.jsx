@@ -397,9 +397,9 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   setQuoteRef(q.data.quote_ref||'');setValidUntil(q.data.valid_until||'');setFreight(String(q.data.freight_total??0));setMinOrder(String(q.data.minimum_order_value??0))
   const l=await supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id)
   if(l.error)return fail(l.error)
-  const map={};(l.data||[]).forEach(x=>map[x.rfq_item_id]={
-   price:String(x.unit_price),available:String(x.available_qty??''),lead:String(x.lead_days??''),
-   discount:String(x.discount_percent??0),tax:String(x.tax_percent??0),moq:String(x.moq??0),multiple:String(x.order_multiple??1)
+  const map={};(l.data||[]).forEach(x=>{
+   const details=decodeSupplierQuoteNotes(x.notes)
+   map[x.rfq_item_id]={price:String(x.unit_price),remarks:details.remarks,variants:details.variants}
   })
   setPrices(map)
  }
@@ -445,16 +445,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
     if(best&&bestIndex>=0){
      usedRows.add(bestIndex)
      const current=next[item.id]||{}
-     next[item.id]={
-      ...current,
-      price:String(Number(best.cost??best.mrp)),
-      discount:current.discount??String(Number(best.discount_percent||0)),
-      tax:current.tax??String(Number(best.tax_percent||0)),
-      available:current.available??'',
-      lead:current.lead??'',
-      moq:current.moq??'0',
-      multiple:current.multiple??'1'
-     }
+     next[item.id]={...current,price:String(Number(best.cost??best.mrp))}
      matched++
     }
    }
@@ -464,18 +455,55 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   }catch(e){fail(e)}finally{setQuoteOcrBusy(false)}
  }
 
+ function editPrice(itemId,change){
+  setPrices(current=>({...current,[itemId]:{...(current[itemId]||{}),...change}}))
+ }
+ function addSizeAlternative(itemId){
+  setPrices(current=>{
+   const row=current[itemId]||{},variants=row.variants||[]
+   if(variants.length>=12){flash('Maximum 12 size alternatives per item.');return current}
+   return {...current,[itemId]:{...row,variants:[...variants,{id:'alt-'+Date.now()+'-'+Math.random().toString(36).slice(2),size:'',price:'',remarks:''}]}}
+  })
+ }
+ function editSizeAlternative(itemId,id,change){
+  setPrices(current=>{
+   const row=current[itemId]||{}
+   return {...current,[itemId]:{...row,variants:(row.variants||[]).map(v=>v.id===id?{...v,...change}:v)}}
+  })
+ }
+ function removeSizeAlternative(itemId,id){
+  setPrices(current=>{
+   const row=current[itemId]||{}
+   return {...current,[itemId]:{...row,variants:(row.variants||[]).filter(v=>v.id!==id)}}
+  })
+ }
+ function sizeAlternativesEditor(itemId,value){
+  return <div className="stack">
+   {(value.variants||[]).map(v=><div className="formgrid" key={v.id}>
+    <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
+    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
+    <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
+    {canEdit&&<button type="button" className="btn small bad" onClick={()=>removeSizeAlternative(itemId,v.id)}>Remove size</button>}
+   </div>)}
+   {canEdit&&<button type="button" className="btn small" onClick={()=>addSizeAlternative(itemId)}>+ Add size variation</button>}
+  </div>
+ }
+
  async function saveQuote(){
   if(!canEdit)return fail(new Error(t('validation.rfq_read_only','Your role has read-only supplier-price access.')))
   if(!active||!supplier)return fail(new Error(t('validation.select_supplier','Select a supplier.')))
-  const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&prices[i.id]?.price!=='')
-  if(!quoted.length)return fail(new Error(t('validation.quote_one','Enter at least one quoted price.')))
-  const freightN=Number(freight||0),minN=Number(minOrder||0)
-  if(!Number.isFinite(freightN)||freightN<0||!Number.isFinite(minN)||minN<0)return fail(new Error(t('validation.freight_nonnegative','Freight and minimum order value must be zero or positive.')))
-  const invalid=quoted.some(i=>{
-   const v=prices[i.id]||{},p=Number(v.price),a=v.available===''?null:Number(v.available),l=v.lead===''?null:Number(v.lead),d=Number(v.discount||0),t=Number(v.tax||0),m=Number(v.moq||0),mult=Number(v.multiple||1)
-   return !Number.isFinite(p)||p<0||(a!==null&&(!Number.isFinite(a)||a<0))||(l!==null&&(!Number.isInteger(l)||l<0))||!Number.isFinite(d)||d<0||d>100||!Number.isFinite(t)||t<0||t>100||!Number.isFinite(m)||m<0||!Number.isFinite(mult)||mult<=0
+  const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&String(prices[i.id].price).trim()!=='')
+  if(!quoted.length)return fail(new Error('Enter at least one quoted unit price for the requested item size.'))
+  const variantsWithoutMain=items.some(i=>{
+   const v=prices[i.id]||{}
+   return (v.price===undefined||String(v.price).trim()==='')&&(v.variants||[]).some(x=>String(x.size||x.price||'').trim())
   })
-  if(invalid)return fail(new Error(t('validation.quote_fields','Check price, availability, lead days, discount/tax, MOQ and order multiple.')))
+  if(variantsWithoutMain)return fail(new Error('Enter the requested-size price before adding alternative sizes, or remove that item’s alternatives.'))
+  const invalid=quoted.some(i=>{
+   const v=prices[i.id]||{},p=Number(v.price)
+   return !Number.isFinite(p)||p<0||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500
+  })
+  if(invalid)return fail(new Error('Check unit prices and alternatives: each added size must have a valid price.'))
   setBusy(true);let path=null
   try{
    if(file){
@@ -484,18 +512,18 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
    }
    const lines=quoted.map(i=>({
     rfq_item_id:i.id,unit_price:Number(prices[i.id].price),
-    available_qty:prices[i.id].available||null,lead_days:prices[i.id].lead||null,
-    discount_percent:prices[i.id].discount||0,tax_percent:prices[i.id].tax||0,
-    moq:prices[i.id].moq||0,order_multiple:prices[i.id].multiple||1
+    available_qty:null,lead_days:null,
+    discount_percent:0,tax_percent:0,moq:0,order_multiple:1,
+    notes:encodeSupplierQuoteNotes(prices[i.id])
    }))
    const r=await supabase.rpc('proc_save_quote_v3',{
-    p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:quoteRef||null,p_lines:lines,
-    p_valid_until:validUntil||null,p_attachment_path:path,p_notes:null,
-    p_freight_total:freightN,p_minimum_order_value:minN
+    p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:null,p_lines:lines,
+    p_valid_until:null,p_attachment_path:path,p_notes:null,
+    p_freight_total:0,p_minimum_order_value:0
    })
    if(r.error)throw r.error
    setFile(null)
-   flash('Supplier price saved. Compare price, availability and delivery time, then review the recommended award.')
+   flash('Supplier prices saved. Size alternatives and remarks are retained for reference. Only the requested-item unit price participates in awards.')
    await open({...active,status:r.data.status});load()
   }catch(e){if(path)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
  }
