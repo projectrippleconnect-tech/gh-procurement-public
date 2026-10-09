@@ -16,6 +16,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
  const[rows,setRows]=useState([]),[suppliers,setSuppliers]=useState([]),[selected,setSelected]=useState(new Set()),[chosen,setChosen]=useState(new Set()),[suggestedSuppliers,setSuggestedSuppliers]=useState([]),[due,setDue]=useState(''),[busy,setBusy]=useState(false),[page,setPage]=useState(0),[total,setTotal]=useState(0),[scopeOverrides,setScopeOverrides]=useState({})
  const pageSize=200
+ const[oldestFirst,setOldestFirst]=useState(false)
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
  const[addMode,setAddMode]=useState('standard'),[specialItem,setSpecialItem]=useState(null)
  const[special,setSpecial]=useState({reason:'customer_request',customer_qty:'',purchase_qty:'',customer_reference:'',notes:'',priority:''})
@@ -35,7 +36,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  }
 
  const load=useCallback(async()=>{try{
-  let q=supabase.from('proc_v_requirements').select('*',{count:'exact'}).in('status',['open','quoting','partially_ordered','ordered','partially_received']).order('source_activity_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
+  let q=supabase.from('proc_v_requirements').select('*',{count:'exact'}).in('status',['open','quoting','partially_ordered','ordered','partially_received']).order(oldestFirst?'created_at':'source_activity_at',{ascending:!oldestFirst}).range(page*pageSize,page*pageSize+pageSize-1)
   if(stage==='pending_review')q=q.eq('approval_status','pending_review')
   if(stage==='approved')q=q.eq('approval_status','approved').eq('has_active_rfq',false)
   if(stage==='held')q=q.eq('approval_status','held')
@@ -54,7 +55,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    for(const x of results.slice(2))if(x.error)throw x.error
    setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
   }
- }catch(e){fail(e)}},[fail,stage,canReview,page])
+ }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst])
  useEffect(()=>{load()},[load])
  useEffect(()=>{setPage(0);setChosen(new Set());setScopeOverrides({})},[stage])
 
@@ -166,6 +167,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   {key:'max_stock',label:'Max',render:r=>qty(r.max_stock??r.request_max_stock_snapshot??0)},
   {key:'required_qty',label:'Suggested',render:r=>qty(r.required_qty)},
   {key:'adjusted_qty',label:'Approved Qty',render:r=>canReview?<input className="input stock-entry" defaultValue={r.adjusted_qty} onBlur={e=>setQty(r.id,e.target.value)}/>:qty(r.adjusted_qty)},
+  {key:'age',label:'Waiting',render:r=>{const age=Math.max(0,Math.floor((Date.now()-new Date(r.created_at).getTime())/86400000));return Number(r.remaining_to_order)>0?<strong className={age>=10?'warn-text':''}>{Number.isFinite(age)?age+'d':'—'}</strong>:'—'}},
   {key:'remaining_to_order',label:'Still To Order',render:r=><strong className="warn-text">{qty(r.remaining_to_order)}</strong>},
   {key:'request_reason',label:'Reason',render:r=>r.request_reason?<Badge>{String(r.request_reason).replaceAll('_',' ')}</Badge>:(r.urgency_reason?<Badge>{String(r.urgency_reason).replaceAll('_',' ')}</Badge>:'—')},
   {key:'special_requested_qty',label:'Customer / Special Qty',render:r=>r.special_requested_qty==null?'—':qty(r.special_requested_qty)},
@@ -177,7 +179,8 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const cols=configuredColumns(fields,'requirements',defaults)
 
  return <>
-  {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>} 
+  {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>}
+  <div className="row wrap" style={{gap:8,alignItems:'center'}}><button type="button" className="btn small" aria-pressed={oldestFirst} onClick={()=>{setPage(0);setOldestFirst(v=>!v)}}>{oldestFirst?'✓ Oldest requirements first':'Sort: newest activity'}</button><span className="muted tiny">Waiting age is measured from the requirement creation date; outstanding quantities remain visible.</span></div> 
   {canAdd&&<details className="card pad procurement-manual-add">
    <summary className="procurement-manual-summary"><b>+ {t('requirements.manual_special','Manual / Special Purchase')}</b><span>{t('requirements.manual_special_hint','Use only when the item is not from a stock submission.')}</span></summary>
    <div className="section procurement-manual-body"><div className="sectionhead"><div><h3>{t('requirements.manual_special','Manual / Special Purchase')}</h3><p>{t('requirements.normal_shortages_hint','Optional. Normal shortages arrive automatically from submitted stock counts.')}</p></div><div className="toolbar"><button className={'btn '+(addMode==='standard'?'primary':'')} onClick={()=>{setAddMode('standard');setSpecialItem(null)}}>{t('requirements.standard','Standard')}</button>{specialEnabled&&<button className={'btn '+(addMode==='special'?'primary':'')} onClick={()=>setAddMode('special')}>{t('requirements.special','Special Purchase')}</button>}</div></div>
