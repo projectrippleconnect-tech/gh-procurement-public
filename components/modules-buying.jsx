@@ -10,7 +10,7 @@ import {extractPriceListFile} from '@/lib/price-list-extract'
 import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
 
-export function Requirements({profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
+export function Requirements({initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
  const canAdd=can('procurement.requirements.manage')
  const canReview=can('procurement.requirements.manage')
  const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
@@ -20,7 +20,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
  const[addMode,setAddMode]=useState('standard'),[specialItem,setSpecialItem]=useState(null)
  const[special,setSpecial]=useState({reason:'customer_request',customer_qty:'',purchase_qty:'',customer_reference:'',notes:'',priority:''})
- const[stage,setStage]=useState(canReview?'pending_review':'all')
+ const[stage,setStage]=useState(['all','to_order','delivery'].includes(initialFilter)?initialFilter:(canReview?'pending_review':'all'))
  const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
  const[controlCounts,setControlCounts]=useState({outstanding:null,overdue:null,uncovered:null,delivery:null})
  const[controlFilter,setControlFilter]=useState('all')
@@ -39,6 +39,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
 
  const load=useCallback(async()=>{try{
   let q=supabase.from('proc_v_requirements').select('*',{count:'exact'}).in('status',['open','quoting','partially_ordered','ordered','partially_received']).order(oldestFirst?'created_at':'source_activity_at',{ascending:!oldestFirst}).range(page*pageSize,page*pageSize+pageSize-1)
+  if(stage==='to_order')q=q.gt('remaining_to_order',0)
   if(stage==='pending_review')q=q.eq('approval_status','pending_review')
   if(stage==='approved')q=q.eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false)
   if(stage==='held')q=q.eq('approval_status','held')
@@ -264,6 +265,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
 
   <div className="card pad section">
    <div className="sectionhead"><div><h3>{canReview?t('requirements.review_title','Procurement Review'):t('requirements.my_items','My Procurement Items')}</h3><p>{canReview?t('requirements.review_hint','Latest submitted stock shortages appear here. Select rows, adjust order quantities only when needed, approve, then choose suppliers.'):t('requirements.my_hint','Items you add or count appear here for Admin review.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   {['to_order','delivery'].includes(stage)&&<div className="notice section">{stage==='to_order'?'Still to order':'Awaiting receipt'} <button className="btn small" onClick={()=>changeStage('all')}>Clear filter</button></div>}
    {canReview&&<div className="toolbar section"><button className={'btn '+(stage==='pending_review'?'primary':'')} onClick={()=>changeStage('pending_review')}>{t('requirements.needs_review','Needs Review')}</button><button className={'btn '+(stage==='approved'?'primary':'')} onClick={()=>changeStage('approved')}>{t('requirements.approved','Approved')}</button><button className={'btn '+(stage==='held'?'primary':'')} onClick={()=>changeStage('held')}>{t('requirements.held','Held')}</button><button className={'btn '+(stage==='all'?'primary':'')} onClick={()=>changeStage('all')}>{t('requirements.all_active','All Active')}</button></div>}
    {canReview&&<div className="toolbar section procurement-bulk-actions"><button className="btn" onClick={()=>setSelected(new Set(rows.map(r=>r.id)))}>{t('requirements.select_all_visible','Select All Visible')}</button>{selected.size>0&&<><span className="muted tiny">{selected.size} {t('requirements.selected_count','selected')}</span>{stage==='pending_review'&&<button className="btn good" onClick={()=>review('approve')}>{t('requirements.approve_continue','Approve & Continue')}</button>}<button className="btn" onClick={()=>review('hold')}>{t('requirements.hold','Hold')}</button><button className="btn bad" onClick={()=>review('reject')}>{t('requirements.reject','Reject')}</button></>}</div>}
    {rows.length?<><div className="desktop-table tablewrap section"><table className="table"><thead><tr>{canReview&&<th/>}{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id} className={selected.has(r.id)?'selected':''}>{canReview&&<td><input type="checkbox" checked={selected.has(r.id)} onChange={e=>setSelected(v=>{const n=new Set(v);e.target.checked?n.add(r.id):n.delete(r.id);return n})}/></td>}{cols.map(c=><td key={c.key}>{c.render?c.render(r):String(r[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
@@ -401,13 +403,14 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  </div>
 }
 
-export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
+export function Rfqs({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
  const canEdit=can('procurement.rfq.manage')
  const quoteCfg=features.find(x=>x.feature_key==='quotes.minimum_quotes')?.config||{}
  const minQuotes=Math.max(1,Number(quoteCfg.minimum_quotes||2))
  const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
  const awardReviewEnabled=features.find(x=>x.feature_key==='quotes.award_review')?.enabled!==false
 
+ const[rfqFilter,setRfqFilter]=useState(initialFilter==='overdue'?'overdue':'all')
  const[rfqs,setRfqs]=useState([]),[rfqTotal,setRfqTotal]=useState(0),[page,setPage]=useState(0),[summaries,setSummaries]=useState({}),[suppliers,setSuppliers]=useState([])
  const[active,setActive]=useState(null),[items,setItems]=useState([]),[invite,setInvite]=useState([]),[comparison,setComparison]=useState([])
  const[supplier,setSupplier]=useState(''),[quoteRef,setQuoteRef]=useState(''),[validUntil,setValidUntil]=useState(''),[prices,setPrices]=useState({}),[file,setFile]=useState(null),[quoteOcrBusy,setQuoteOcrBusy]=useState(false)
@@ -429,7 +432,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
 
  const load=useCallback(async()=>{try{
   const[a,b]=await Promise.all([
-   supabase.from('proc_rfqs').select('*',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1),
+   (rfqFilter==='overdue'?supabase.from('proc_rfqs').select('*',{count:'exact'}).lt('due_date',new Date().toISOString().slice(0,10)).in('status',['sent','partially_quoted']):supabase.from('proc_rfqs').select('*',{count:'exact'})).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1),
    supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name')
   ])
   if(a.error)throw a.error;if(b.error)throw b.error
@@ -447,7 +450,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
    else m.waiting++
   }
   setSummaries(map)
- }catch(e){fail(e)}},[fail,page])
+ }catch(e){fail(e)}},[fail,page,rfqFilter])
  useEffect(()=>{load()},[load])
 
  async function open(r){
@@ -932,6 +935,7 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
   <ProcurementPath active={journeyStage} t={t}/>
   <div className="split rfq-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('buying.rfq_title','RFQs & Quotes')} <InfoButton topic="quotation_comparison" language={language}/></h3><p>{t('buying.rfq_hint',"Send the RFQ, enter each supplier price, availability and delivery time, then review the award before ordering.")}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   {rfqFilter==='overdue'&&<div className="notice section">Overdue supplier requests <button className="btn small" onClick={()=>{setRfqFilter('all');setPage(0)}}>Clear filter</button></div>}
    <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{rfqTotal?page*pageSize+1:0}–{Math.min((page+1)*pageSize,rfqTotal)} of {rfqTotal}</span><button className="btn" disabled={(page+1)*pageSize>=rfqTotal} onClick={()=>setPage(x=>x+1)}>Next</button></div>
   </div>

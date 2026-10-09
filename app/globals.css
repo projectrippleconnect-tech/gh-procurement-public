@@ -328,3 +328,5 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 /* Railway production deploy trigger · 2026-10-07 18:24 IST */
 
 /* Git integration production trigger · 2026-10-07 20:54 LK */
+
+.metric-link{font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%;min-width:0;transition:border-color .15s,background .15s}.metric-link:hover{border-color:var(--brand);background:#17263a}.metric-link:focus-visible{outline:3px solid var(--brand);outline-offset:3px}.metric-action{display:block;margin-top:10px;color:var(--brand2);font-size:12px;font-weight:700}

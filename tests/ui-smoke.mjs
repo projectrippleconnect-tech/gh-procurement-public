@@ -18,7 +18,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['dashboard.view','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
+ const permissions=['dashboard.view','urgent.view','invoices.view','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -33,14 +33,16 @@ try{
  for(const width of [320,390,768,1366]){
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  const errors=[]
+  const errors=[],queries=[]
+  let grantedPermissions=permissions
   page.on('pageerror',e=>errors.push(e.message))
   await context.route('https://*.supabase.co/**',async route=>{
    const req=route.request(),url=new URL(req.url()),name=url.pathname.split('/').pop()
+   queries.push(url)
    let data=[]
    if(url.pathname.includes('/auth/'))data=user
    else if(name==='proc_profiles')data=[profile]
-   else if(name==='proc_my_permissions_v1')data=permissions
+   else if(name==='proc_my_permissions_v1')data=grantedPermissions
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
    else if(name==='proc_v_requirements')data=[requirement]
    else if(name==='proc_rfqs')data=[rfq]
@@ -77,6 +79,36 @@ try{
    }
    await target.click()
   }
+  for(const [card,heading,table,field,value] of [
+   ['Active items','Items','proc_search_item_master_v2',null,null],
+   ['Open requirements','Review','proc_v_requirements',null,null],
+   ['Still to order','Review','proc_v_requirements','remaining_to_order','gt.0'],
+   ['Awaiting receipt','Review','proc_v_requirements','ordered_not_received','gt.0'],
+   ['Open POs','Orders','proc_purchase_orders','status','in.(pending_approval,approved,sent,partially_received)'],
+   ['PO value','Orders','proc_purchase_orders','status','neq.cancelled'],
+   ['Invoice variances','Invoices','proc_supplier_invoices','status','eq.variance'],
+   ['Stock checks due','Stock Entry','proc_v_stock_check_due','is_due','eq.true'],
+   ['Urgent actions','Exceptions','proc_v_urgent_actions',null,null]
+  ]){
+   queries.length=0
+   await page.getByRole('button',{name:card,exact:true}).click()
+   await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
+   await page.waitForFunction(()=>!document.querySelector('.login-shell'))
+   await page.waitForTimeout(250)
+   assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&(!field||u.searchParams.get(field)===value)),card+' must query its matching records')
+   if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
+   await navigate('⌂ Home')
+  }
+  for(const [button,heading,table,field] of [['Overdue supplier requests','RFQs & Quotes','proc_rfqs','due_date'],['Overdue purchase orders','Orders','proc_purchase_orders','expected_date']]){
+   await page.getByRole('button',{name:'Overdue actions',exact:true}).click()
+   queries.length=0
+   await page.getByRole('button',{name:new RegExp('^'+button)}).click()
+   await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
+   await page.waitForTimeout(250)
+   assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get(field)?.startsWith('lt.')&&u.searchParams.get('status')==='in.(sent,partially_received)'.replace('partially_received',table==='proc_rfqs'?'partially_quoted':'partially_received')),button+' must filter by due date and active status')
+   await navigate('⌂ Home')
+  }
+  await page.screenshot({path:'test-results/'+width+'-Dashboard.png',fullPage:true})
   for(const [label,heading] of [['✓ Stock Entry','Stock Entry'],['≡ Review','Review'],['Q RFQs & Quotes','RFQs & Quotes'],['PO Orders','Orders'],['⇩ Receive Goods','Receive Goods']]){
    await navigate(label)
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
@@ -89,6 +121,10 @@ try{
    const dimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
    assert.ok(dimensions.scroll<=dimensions.width+1,heading+' overflows at '+width+': '+JSON.stringify(dimensions))
   }
+  grantedPermissions=['dashboard.view']
+  await page.reload()
+  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+  assert.equal(await page.locator('.metric-link').count(),0,'Dashboard-only users have no inaccessible shortcuts')
   assert.deepEqual(errors,[],'Browser errors at '+width)
   console.log('PASS four-stage navigation and no horizontal overflow at '+width+'px')
   await context.close()

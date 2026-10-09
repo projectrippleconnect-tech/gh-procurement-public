@@ -7,14 +7,17 @@ import {exportPurchaseOrderPdf} from '@/lib/pdf'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 
-export function PurchaseOrders({profile,fields,company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function PurchaseOrders({initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const canEdit=can('procurement.orders.edit')
  const canApprove=can('procurement.orders.approve')
- const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState('all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
+ const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
  const pageSize=100
  const load=useCallback(async()=>{
   let q=supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
-  if(filter!=='all')q=q.eq('status',filter)
+  if(filter==='open')q=q.in('status',['pending_approval','approved','sent','partially_received'])
+  else if(filter==='non_cancelled')q=q.neq('status','cancelled')
+  else if(filter==='overdue')q=q.lt('expected_date',new Date().toISOString().slice(0,10)).in('status',['sent','partially_received'])
+  else if(filter!=='all')q=q.eq('status',filter)
   const r=await q
   if(r.error)fail(r.error);else{setRows(r.data||[]);setTotal(r.count||0)}
  },[filter,page,fail])
@@ -79,7 +82,7 @@ export function PurchaseOrders({profile,fields,company,footer,flash,fail,can=()=
  ])
  return <><ProcurementPath active={7} t={t}/><div className="split document-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>{t('documents.po_hint','Approval, supplier sharing and delivery tracking. Lists are explicitly paged instead of silently truncated.')}</p></div></div>
-   <div className="filters two"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
+   <div className="filters two"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
    <div className="stack section">{filtered.map(po=><button className={'btn record-button '+(active?.id===po.id?'active-record':'')} key={po.id} onClick={()=>open(po)}><div><strong>{po.po_no}</strong><div className="muted tiny">{po.supplier?.name} · {po.po_date}</div></div><div className="right"><Badge>{po.status}</Badge><div>{money(po.total)}</div></div></button>)}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} of {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>Next</button></div>
   </div>
@@ -109,19 +112,20 @@ export function PurchaseOrders({profile,fields,company,footer,flash,fail,can=()=
  </>
 }
 
-export function Invoices({profile,fields,features=[],flash,fail,can=()=>false,t=(k,f)=>f||k}){
+export function Invoices({initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,t=(k,f)=>f||k}){
  const canEdit=can('invoices.manage')
  const canResolve=features.find(x=>x.feature_key==='invoices.variance_resolution')?.enabled!==false
+ const[invoiceFilter,setInvoiceFilter]=useState(initialFilter==='variance'?'variance':'all')
  const[pos,setPos]=useState([]),[invoices,setInvoices]=useState([]),[invoiceTotal,setInvoiceTotal]=useState(0),[page,setPage]=useState(0),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[receiptMap,setReceiptMap]=useState({}),[invoice,setInvoice]=useState(''),[file,setFile]=useState(null),[busy,setBusy]=useState(false)
  const[resolutionTarget,setResolutionTarget]=useState(null),[resolutionAction,setResolutionAction]=useState('request_revised_invoice'),[resolutionNotes,setResolutionNotes]=useState(''),[creditNote,setCreditNote]=useState('')
  const pageSize=100
  const load=useCallback(async()=>{try{
   const[a,b]=await Promise.all([
    supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['approved','sent','partially_received','received']).order('created_at',{ascending:false}),
-   supabase.from('proc_supplier_invoices').select('*,supplier:proc_suppliers(name),po:proc_purchase_orders(po_no)',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
+   (invoiceFilter==='variance'?supabase.from('proc_supplier_invoices').select('*,supplier:proc_suppliers(name),po:proc_purchase_orders(po_no)',{count:'exact'}).eq('status','variance'):supabase.from('proc_supplier_invoices').select('*,supplier:proc_suppliers(name),po:proc_purchase_orders(po_no)',{count:'exact'})).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
   ])
   if(a.error)throw a.error;if(b.error)throw b.error;setPos(a.data||[]);setInvoices(b.data||[]);setInvoiceTotal(b.count||0)
- }catch(e){fail(e)}},[fail,page])
+ }catch(e){fail(e)}},[fail,page,invoiceFilter])
  useEffect(()=>{load()},[load])
  useEffect(()=>{if(!poId){setLines([]);setVals({});setReceiptMap({});return}(async()=>{
   const[a,b]=await Promise.all([
@@ -220,6 +224,7 @@ export function Invoices({profile,fields,features=[],flash,fail,can=()=>false,t=
   </div>
 
   <div className="card pad"><div className="sectionhead"><div><h3>{t('invoices.supplier_invoices','Supplier Invoices')}</h3><p>{t('invoices.supplier_hint','Variance invoices have a tracked resolution lifecycle instead of a permanent red flag.')}</p></div></div>
+   <select aria-label="Invoice status" className="select" value={invoiceFilter} onChange={e=>{setInvoiceFilter(e.target.value);setPage(0)}}><option value="all">All invoices</option><option value="variance">Invoice variances</option></select>
    <div className="stack">{invoices.map(inv=><button className="btn record-button" key={inv.id} onClick={()=>inv.status==='variance'&&canResolve&&setResolutionTarget(inv)}><div><strong>{inv.invoice_no}</strong><div className="muted tiny">{inv.supplier?.name} · {inv.po?.po_no||'No PO'} · {inv.invoice_date}</div></div><div className="right"><Badge>{inv.status}</Badge>{inv.variance_resolution_status&&inv.variance_resolution_status!=='not_required'&&<Badge>{inv.variance_resolution_status}</Badge>}<div>{money(inv.total)}</div></div></button>)}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{invoiceTotal?page*pageSize+1:0}–{Math.min((page+1)*pageSize,invoiceTotal)} {t('common.of','of')} {invoiceTotal}</span><button className="btn" disabled={(page+1)*pageSize>=invoiceTotal} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>
    {resolutionTarget&&<div className="card pad section variance-resolution"><div className="sectionhead"><div><h4>{t('invoices.resolve','Resolve')} {resolutionTarget.invoice_no}</h4><p>{t('invoices.current_status','Current status')}: {resolutionTarget.variance_resolution_status||'open'}</p></div><button className="btn small" onClick={()=>setResolutionTarget(null)}>{t('common.close','Close')}</button></div><div className="formgrid"><div className="field"><label>Action</label><select className="select" value={resolutionAction} onChange={e=>setResolutionAction(e.target.value)}><option value="request_revised_invoice">Request Revised Invoice</option><option value="request_credit_note">Request Credit Note</option><option value="credit_note_received">Credit Note Received</option><option value="dispute">Dispute</option>{canEdit&&<><option value="approve_difference">Approve Difference</option><option value="resolve">Resolve / Close</option><option value="reject">Reject Invoice</option></>}</select></div><div className="field"><label>Reference / Credit Note</label><input className="input" value={creditNote} onChange={e=>setCreditNote(e.target.value)}/></div><div className="field wide"><label>Resolution Notes</label><input className="input" value={resolutionNotes} onChange={e=>setResolutionNotes(e.target.value)}/></div></div><button className="btn primary section" disabled={busy} onClick={resolveVariance}>Record Variance Action</button></div>}

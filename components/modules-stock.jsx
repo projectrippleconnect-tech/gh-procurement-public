@@ -8,8 +8,10 @@ import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 
-export function Dashboard({features=[],fail,t=(k,f)=>f||k}){
+export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
+ const[overdueOpen,setOverdueOpen]=useState(false)
+ const destinations={active_items:['items',''],open_requirements:['requirements','all'],still_to_order:['requirements','to_order'],awaiting_receipt:['requirements','delivery'],open_pos:['po','open'],po_value:['po','non_cancelled'],invoice_variances:['invoices','variance'],stock_due:['stock','due'],urgent_actions:['urgent_actions','']}
  const load=useCallback(async()=>{try{
   const today=new Date().toISOString().slice(0,10)
   const[a,b,c,e,f,g,h,i]=await Promise.all([
@@ -40,7 +42,13 @@ export function Dashboard({features=[],fail,t=(k,f)=>f||k}){
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
-  <div className="grid metrics">{cards.map(x=><div className="card metric" key={x[0]}><div className="kicker">{t(x[0],x[1])}</div><div className="value num">{x[2]??0}</div><div className="sub">{t(x[0]+'.sub',x[3])}</div></div>)}</div>
+  <div className="grid metrics">{cards.map(x=>{
+   const key=x[0].slice('dashboard.'.length),target=destinations[key]
+   const actionable=key==='overdue_actions'?(canNavigate('rfq')||canNavigate('po')):target&&canNavigate(target[0])
+   const content=<><div className="kicker">{t(x[0],x[1])}</div><div className="value num" id={x[0]+'-value'}>{x[2]??0}</div><div className="sub">{t(x[0]+'.sub',x[3])}</div></>
+   return actionable?<button type="button" className="card metric metric-link" key={x[0]} aria-label={t(x[0],x[1])} aria-describedby={x[0]+'-value'} aria-expanded={key==='overdue_actions'?overdueOpen:undefined} aria-controls={key==='overdue_actions'?'dashboard-overdue':undefined} onClick={()=>key==='overdue_actions'?setOverdueOpen(v=>!v):navigate(...target)}>{content}<span className="metric-action">{t('dashboard.view_details','View details')} →</span></button>:<div className="card metric" key={x[0]}>{content}</div>
+  })}</div>
+  {overdueOpen&&<div className="card pad section" id="dashboard-overdue"><h3>{t('dashboard.overdue_actions','Overdue actions')}</h3><div className="toolbar">{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq','overdue')}>{t('dashboard.overdue_rfqs','Overdue supplier requests')} · {alerts.rfq||0}</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','overdue')}>{t('dashboard.overdue_pos','Overdue purchase orders')} · {alerts.po||0}</button>}</div></div>}
   <div className="split section">
    <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.procurement_attention','Procurement attention')}</h3><p>{t('dashboard.procurement_attention_hint','Newest unresolved requirements')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
     <DataTable columns={[
@@ -59,7 +67,7 @@ export function Dashboard({features=[],fail,t=(k,f)=>f||k}){
  </>
 }
 
-export function StockCheck({profile,fields,features=[],company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const feature=(key,fallback=true)=>features.find(x=>x.feature_key===key)?.enabled??fallback
  const cycleCfg=features.find(x=>x.feature_key==='stock.cycle_counting')?.config||{}
  const mobileCfg=features.find(x=>x.feature_key==='stock.mobile_entry')?.config||{}
@@ -72,7 +80,7 @@ export function StockCheck({profile,fields,features=[],company,footer,flash,fail
  const serverDrafts=feature('stock.server_drafts')
  const paperOcr=feature('stock.paper_ocr')
 
- const[cats,setCats]=useState([]),[cat,setCat]=useState('GENERAL'),[movement,setMovement]=useState('FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
+ const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
  const[items,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
@@ -112,7 +120,7 @@ export function StockCheck({profile,fields,features=[],company,footer,flash,fail
    if(chosen.filters.mainGroup!==undefined)setMainGroup(chosen.filters.mainGroup)
    if(chosen.filters.dueOnly!==undefined)setDueOnly(!!chosen.filters.dueOnly)
   }
- }catch(e){fail(e)}finally{setDraftReady(true)}})()},[profile.id,serverDrafts,fail])
+ }catch(e){fail(e)}finally{if(initialFilter==='due'){setCat('');setMovement('');setMainGroup('');setDueOnly(true)}setDraftReady(true)}})()},[profile.id,serverDrafts,fail])
 
  useEffect(()=>{
   if(!draftReady)return
@@ -138,7 +146,7 @@ export function StockCheck({profile,fields,features=[],company,footer,flash,fail
   const data=r.data||{}
   const list=Array.isArray(data.categories)?data.categories:[]
   setCats(list);setGroups(Array.isArray(data.main_groups)?data.main_groups:[])
-  if(list.length&&!list.includes(cat))setCat(list.includes('GENERAL')?'GENERAL':list[0])
+  if(initialFilter!=='due'&&cat&&list.length&&!list.includes(cat))setCat(list.includes('GENERAL')?'GENERAL':list[0])
  }catch(e){fail(e)}})()},[fail])
 
  const load=useCallback(async()=>{setLoading(true);try{
