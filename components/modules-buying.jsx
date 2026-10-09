@@ -747,38 +747,28 @@ export function Rfqs({profile,fields,features=[],company,footer,flash,fail,can=(
 
    <div className="formgrid">
     <div className="field"><label>{label('supplier','Supplier')}</label><select className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
-    {show('quote_ref')&&<div className="field"><label>{label('quote_ref','Supplier Quote Reference')}</label><input className="input" disabled={!canEdit} value={quoteRef} onChange={e=>setQuoteRef(e.target.value)}/></div>}
-    {show('valid_until')&&<div className="field"><label>{label('valid_until','Valid Until')}</label><input className="input" disabled={!canEdit} type="date" value={validUntil} onChange={e=>setValidUntil(e.target.value)}/></div>}
-    {commercialEnabled&&show('freight_total')&&<div className="field"><label>{label('freight_total','Freight Total')}</label><input className="input" inputMode="decimal" disabled={!canEdit} value={freight} onChange={e=>setFreight(e.target.value)}/></div>}
-    {commercialEnabled&&show('minimum_order_value')&&<div className="field"><label>{label('minimum_order_value','Minimum Order Value')}</label><input className="input" inputMode="decimal" disabled={!canEdit} value={minOrder} onChange={e=>setMinOrder(e.target.value)}/></div>}
-    {show('attachment')&&canEdit&&<div className="field"><label>{label('attachment','Quote Attachment')}</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
+    {show('attachment')&&canEdit&&<div className="field"><label>Supplier quotation attachment (optional)</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
    </div>
-
-   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th>
-    {show('description')&&<th>{label('description','Item')}</th>}{show('requested_qty')&&<th>{label('requested_qty','Requested Qty')}</th>}{show('unit_price')&&<th>{label('unit_price','Unit Price')}</th>}{show('available_qty')&&<th>{label('available_qty','Available Qty')}</th>}{show('discount_percent')&&<th>{label('discount_percent','Discount %')}</th>}{show('tax_percent')&&<th>{label('tax_percent','Tax %')}</th>}{commercialEnabled&&show('moq')&&<th>{label('moq','MOQ')}</th>}{commercialEnabled&&show('order_multiple')&&<th>{label('order_multiple','Multiple')}</th>}{show('lead_days')&&<th>{label('lead_days','Lead Days')}</th>}{show('current_best')&&<th>{label('current_best','Lowest Landed')}</th>}
-   </tr></thead><tbody>{items.map(i=>{const v=prices[i.id]||{},best=bestByItem[i.id]?.[0];return <tr key={i.id}><td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
-    {show('description')&&<td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>}
-    {show('requested_qty')&&<td>{qty(i.requested_qty)}</td>}
-    {show('unit_price')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} value={v.price??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,price:e.target.value}}))}/></td>}
-    {show('available_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} value={v.available??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,available:e.target.value}}))}/></td>}
-    {show('discount_percent')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.discount??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,discount:e.target.value}}))}/></td>}
-    {show('tax_percent')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.tax??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,tax:e.target.value}}))}/></td>}
-    {commercialEnabled&&show('moq')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.moq??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,moq:e.target.value}}))}/></td>}
-    {commercialEnabled&&show('order_multiple')&&<td><input className="input short-entry" inputMode="decimal" disabled={!canEdit} value={v.multiple??'1'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,multiple:e.target.value}}))}/></td>}
-    {show('lead_days')&&<td><input className="input short-entry" inputMode="numeric" disabled={!canEdit} value={v.lead??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,lead:e.target.value}}))}/></td>}
-    {show('current_best')&&<td>{best?<><strong>{money(best.landed_unit_cost)}</strong><div className="muted tiny">{best.supplier_name} · goods {money(best.effective_unit_price)}{Number(best.freight_unit_cost)>0?' · freight '+money(best.freight_unit_cost):''}</div>{(bestByItem[i.id]?.length||0)>1&&<Badge>tie</Badge>}</>:'—'}</td>}
+   <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
+   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
+   <tbody>{items.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
+    <td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
+    <td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>
+    <td>{qty(i.requested_qty)}</td>
+    <td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></td>
+    <td><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></td>
+    <td>{sizeAlternativesEditor(i.id,v)}</td>
    </tr>})}</tbody></table></div>
 
-   <div className="mobile-card-list section">{items.map(i=>{const v=prices[i.id]||{},best=bestByItem[i.id]?.[0];return <div className="mobile-data-card" key={i.id}><div className="stock-card-title"><strong>{itemTitle(i.requirement?.item||{})}</strong><label className={'choice-pill '+(i.selected_for_po!==false?'selected-choice':'')}><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/>Order</label></div><div className="formgrid section">
-    {show('requested_qty')&&<div className="field"><label>Requested Qty</label><div className="read-box">{qty(i.requested_qty)}</div></div>}
-    {show('unit_price')&&<div className="field"><label>Unit Price</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.price??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,price:e.target.value}}))}/></div>}
-    {show('available_qty')&&<div className="field"><label>Available</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.available??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,available:e.target.value}}))}/></div>}
-    {commercialEnabled&&show('moq')&&<div className="field"><label>MOQ</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.moq??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,moq:e.target.value}}))}/></div>}
-    {commercialEnabled&&show('order_multiple')&&<div className="field"><label>Multiple</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.multiple??'1'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,multiple:e.target.value}}))}/></div>}
-    {show('discount_percent')&&<div className="field"><label>Discount %</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.discount??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,discount:e.target.value}}))}/></div>}
-    {show('tax_percent')&&<div className="field"><label>Tax %</label><input className="input" inputMode="decimal" disabled={!canEdit} value={v.tax??'0'} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,tax:e.target.value}}))}/></div>}
-    {show('lead_days')&&<div className="field"><label>Lead Days</label><input className="input" inputMode="numeric" disabled={!canEdit} value={v.lead??''} onChange={e=>setPrices(x=>({...x,[i.id]:{...v,lead:e.target.value}}))}/></div>}
-   </div>{best&&show('current_best')&&<div className="notice section"><b>{best.supplier_name}</b> · landed {money(best.landed_unit_cost)} · delivery {best.lead_days==null?'not stated':best.lead_days+' day'+(Number(best.lead_days)===1?'':'s')}</div>}</div>})}</div>
+   <div className="mobile-card-list section">{items.map(i=>{const v=prices[i.id]||{};return <div className="mobile-data-card" key={i.id}>
+    <div className="stock-card-title"><strong>{itemTitle(i.requirement?.item||{})}</strong><label className={'choice-pill '+(i.selected_for_po!==false?'selected-choice':'')}><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/>Order</label></div>
+    <div className="muted tiny">Requested {qty(i.requested_qty)} {i.requirement?.item?.uom||''}</div>
+    <div className="formgrid section">
+     <div className="field"><label>Supplier unit price (Rs.)</label><input className="input" inputMode="decimal" disabled={!canEdit} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></div>
+     <div className="field"><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
+    </div>
+    <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
+   </div>})}</div>
 
    <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{comparison.length} comparison line(s).</span></div>
 
