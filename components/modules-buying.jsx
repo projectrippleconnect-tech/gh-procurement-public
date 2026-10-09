@@ -23,6 +23,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const[stage,setStage]=useState(canReview?'pending_review':'all')
  const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
  const[controlCounts,setControlCounts]=useState({outstanding:null,overdue:null,uncovered:null,delivery:null})
+ const[controlFilter,setControlFilter]=useState('all')
  const changeStage=next=>{setSelected(new Set());setStage(next)}
 
  const reasonLabels={
@@ -44,6 +45,8 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   if(stage==='attention')q=q.eq('approval_status','approved').gt('remaining_to_order',0)
   if(stage==='overdue')q=q.eq('approval_status','approved').gt('remaining_to_order',0).lt('created_at',new Date(Date.now()-10*86400000).toISOString())
   if(stage==='delivery')q=q.gt('ordered_not_received',0)
+  if(controlFilter==='urgent')q=q.eq('priority','urgent')
+  if(controlFilter==='partial')q=q.gt('ordered_qty',0).gt('remaining_to_order',0)
   const tasks=[q]
   if(canReview){
    tasks.push(supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name'))
@@ -64,7 +67,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
    setControlCounts({outstanding:results[6].count||0,overdue:results[7].count||0,uncovered:results[8].count||0,delivery:results[9].count||0})
   }
- }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst])
+ }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter])
  useEffect(()=>{load()},[load])
  useEffect(()=>{setPage(0);setChosen(new Set());setScopeOverrides({})},[stage])
 
@@ -210,6 +213,12 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    </details>}
   </section>}
   {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>}
+  <div className="row wrap" style={{gap:8,alignItems:'center'}}>
+   <label className="muted tiny" htmlFor="proc-attention-filter">Focus</label>
+   <select id="proc-attention-filter" className="input" style={{maxWidth:190}} value={controlFilter} onChange={e=>{setPage(0);setControlFilter(e.target.value)}}>
+    <option value="all">All requirements</option><option value="urgent">Urgent priority</option><option value="partial">Partially ordered</option>
+   </select>
+  </div>
   <div className="row wrap" style={{gap:8,alignItems:'center'}}><button type="button" className="btn small" aria-pressed={oldestFirst} onClick={()=>{setPage(0);setOldestFirst(v=>!v)}}>{oldestFirst?'✓ Oldest requirements first':'Sort: newest activity'}</button><span className="muted tiny">Waiting age is measured from the requirement creation date; outstanding quantities remain visible.</span></div> 
   {canAdd&&<details className="card pad procurement-manual-add">
    <summary className="procurement-manual-summary"><b>+ {t('requirements.manual_special','Manual / Special Purchase')}</b><span>{t('requirements.manual_special_hint','Use only when the item is not from a stock submission.')}</span></summary>
