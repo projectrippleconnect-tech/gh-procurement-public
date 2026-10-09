@@ -413,3 +413,11 @@ test('procurement control exposes full-dataset ageing, actionable queues and fou
  assert.match(buying,/4 · Receive & complete/)
  assert.match(buying,/Insufficient data/)
 })
+
+test('RFQ coverage actions use precise outstanding-uncovered filter',()=>{
+ const buying=read('components/modules-buying.jsx')
+ assert.match(buying,/stage==='uncovered'/)
+ assert.match(buying,/\.eq\('has_active_rfq',false\)/)
+ assert.match(buying,/changeStage\('uncovered'\)/)
+ assert.match(buying,/const changeStage=next=>\{setSelected\(new Set\(\)\);setPage\(0\);setControlFilter\('all'\);setStage\(next\)\}/)
+})
