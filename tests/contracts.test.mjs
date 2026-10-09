@@ -428,3 +428,11 @@ test('supplier punctuality uses receipt evidence and never fabricates scores',()
  assert.match(buying,/p\.on_time_pct==null\?'Insufficient dated receipts'/)
  assert.match(buying,/Insufficient data/)
 })
+
+test('supplier evidence errors are visible and lookup is linear',()=>{
+ const buying=read('components/modules-buying.jsx')
+ assert.match(buying,/if\(p\.error\)fail\(p\.error\)/)
+ assert.match(buying,/if\(d\.error\)fail\(d\.error\)/)
+ assert.match(buying,/const delivery=new Map/)
+ assert.match(buying,/delivery\.get\(x\.supplier_id\)/)
+})
