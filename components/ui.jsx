@@ -65,7 +65,24 @@ export function DataTable({columns,rows,rowKey='id',mobileCards=false}){
     <tbody>{rows.map((r,i)=><tr key={r[rowKey]||i}>{columns.map(c=><td key={c.key}>{c.render?c.render(r):c.key==='status'?<Badge>{r[c.key]}</Badge>:String(r[c.key]??'—')}</td>)}</tr>)}</tbody>
    </table>
   </div>
-  {mobileCards&&<div className="mobile-card-list">{rows.map((r,i)=><div className="mobile-data-card" key={r[rowKey]||i}>{columns.map(c=><div className="mobile-data-row" key={c.key}><span>{c.label}</span><div>{c.render?c.render(r):c.key==='status'?<Badge>{r[c.key]}</Badge>:String(r[c.key]??'—')}</div></div>)}</div>)}</div>}
+  {mobileCards&&<div className="mobile-card-list" style={{display:'block'}}>{rows.map((r,i)=>{
+   const visible=columns.filter(c=>!c.mobileHidden)
+   const headline=visible.slice(0,2)
+   const actions=visible.filter(c=>/^(actions?|manage|select)$/i.test(c.key)&&!headline.includes(c))
+   const more=visible.filter(c=>!headline.includes(c)&&!actions.includes(c))
+   const value=c=>c.render?c.render(r):c.key==='status'?<Badge>{r[c.key]}</Badge>:String(r[c.key]??'—')
+   return <div key={r[rowKey]||i} style={{padding:'9px 2px',borderBottom:'1px solid var(--border, #334155)',minWidth:0}}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,minWidth:0}}>
+     <div style={{flex:'1 1 auto',minWidth:0}}>
+      {headline.map((c,j)=><div key={c.key} style={{fontSize:j===0?14:12,overflowWrap:'anywhere'}}>{j===0?<strong>{value(c)}</strong>:<span className="muted">{c.label}: {value(c)}</span>}</div>)}
+     </div>
+     {actions.map(c=><div key={c.key} style={{flex:'0 0 auto'}}>{value(c)}</div>)}
+    </div>
+    {more.length>0&&<details style={{marginTop:3}}><summary className="muted tiny" style={{cursor:'pointer',padding:'4px 0'}}>More details</summary>
+     {more.map(c=><div className="mobile-data-row" key={c.key} style={{padding:'6px 0'}}><span>{c.label}</span><div>{value(c)}</div></div>)}
+    </details>}
+   </div>
+  })}</div>}
  </>
 }
 
