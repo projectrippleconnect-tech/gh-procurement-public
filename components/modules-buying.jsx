@@ -24,7 +24,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
  const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
  const[controlCounts,setControlCounts]=useState({outstanding:null,overdue:null,uncovered:null,delivery:null})
  const[controlFilter,setControlFilter]=useState('all')
- const changeStage=next=>{setSelected(new Set());setStage(next)}
+ const changeStage=next=>{setSelected(new Set());setPage(0);setControlFilter('all');setStage(next)}
 
  const reasonLabels={
   customer_request:'Customer request',
@@ -45,6 +45,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
   if(stage==='attention')q=q.eq('approval_status','approved').gt('remaining_to_order',0)
   if(stage==='overdue')q=q.eq('approval_status','approved').gt('remaining_to_order',0).lt('created_at',new Date(Date.now()-10*86400000).toISOString())
   if(stage==='delivery')q=q.gt('ordered_not_received',0)
+  if(stage==='uncovered')q=q.eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false)
   if(controlFilter==='urgent')q=q.eq('priority','urgent')
   if(controlFilter==='partial')q=q.gt('ordered_qty',0).gt('remaining_to_order',0)
   const tasks=[q]
@@ -202,7 +203,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    <div className="formgrid">
     <button type="button" className="btn" onClick={()=>changeStage('attention')}><strong>{controlCounts.outstanding??'…'}</strong> Still to order</button>
     <button type="button" className="btn" onClick={()=>{changeStage('overdue');setOldestFirst(true);setPage(0)}}><strong>{controlCounts.overdue??'…'}</strong> Waiting 10+ days</button>
-    <button type="button" className="btn" onClick={()=>changeStage('approved')}><strong>{controlCounts.uncovered??'…'}</strong> No active RFQ</button>
+    <button type="button" className="btn" onClick={()=>changeStage('uncovered')}><strong>{controlCounts.uncovered??'…'}</strong> No active RFQ</button>
     <button type="button" className="btn" onClick={()=>changeStage('delivery')}><strong>{controlCounts.delivery??'…'}</strong> Awaiting receipt</button>
    </div>
    {urgent.length>0&&<details><summary><strong>Oldest outstanding items</strong> — view priority list</summary>
@@ -216,7 +217,7 @@ export function Requirements({profile,fields,features=[],flash,fail,can=()=>fals
    <div className="muted tiny">QUICK PROCUREMENT FLOW</div>
    <div className="row wrap" style={{gap:8}}>
     <button type="button" className="btn small" onClick={()=>navigate('stock')}>1 · Check stock</button>
-    <button type="button" className="btn small" onClick={()=>{changeStage('approved');setControlFilter('all')}}>2 · Request prices</button>
+    <button type="button" className="btn small" onClick={()=>{changeStage('uncovered');setControlFilter('all')}}>2 · Request prices</button>
     <button type="button" className="btn small" onClick={()=>navigate('rfq')}>3 · Compare & order</button>
     <button type="button" className="btn small" onClick={()=>navigate('receiving')}>4 · Receive & complete</button>
    </div>
