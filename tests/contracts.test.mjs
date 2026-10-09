@@ -436,3 +436,8 @@ test('supplier evidence errors are visible and lookup is linear',()=>{
  assert.match(buying,/const delivery=new Map/)
  assert.match(buying,/delivery\.get\(x\.supplier_id\)/)
 })
+
+test('approved RFQ queue excludes zero outstanding quantity',()=>{
+ const buying=read('components/modules-buying.jsx')
+ assert.match(buying,/if\(stage==='approved'\)q=q\.eq\('approval_status','approved'\)\.gt\('remaining_to_order',0\)\.eq\('has_active_rfq',false\)/)
+})
