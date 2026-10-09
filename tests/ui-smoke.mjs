@@ -14,7 +14,7 @@ try{
   await new Promise(r=>setTimeout(r,100))
  }
  await mkdir('test-results',{recursive:true})
- browser=await chromium.launch({headless:true})
+ browser=await chromium.launch({headless:true,...(process.env.GH_UI_BROWSER_CHANNEL?{channel:process.env.GH_UI_BROWSER_CHANNEL}:{})})
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
@@ -27,6 +27,9 @@ try{
  const requirement={...item,id:'00000000-0000-4000-8000-000000000004',requirement_no:'REQ-FIXTURE',
   adjusted_qty:10,remaining_to_order:10,ordered_qty:0,ordered_not_received:0,status:'open',
   approval_status:'pending_review',source_type:'stock_count',priority:'normal',created_at:new Date().toISOString()}
+ const supplier={id:'00000000-0000-4000-8000-000000000005',name:'Fixture supplier',phone:'+94779792078',whatsapp:'+94779792078',active:true}
+ const rfq={id:'00000000-0000-4000-8000-000000000006',rfq_no:'RFQ-FIXTURE',status:'prepared',due_date:'2099-01-01'}
+ const po={id:'00000000-0000-4000-8000-000000000007',po_no:'PO-FIXTURE',supplier_id:supplier.id,supplier,status:'sent',total:1000,po_date:'2099-01-01'}
  for(const width of [320,390,768,1366]){
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
@@ -40,6 +43,12 @@ try{
    else if(name==='proc_my_permissions_v1')data=permissions
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
    else if(name==='proc_v_requirements')data=[requirement]
+   else if(name==='proc_rfqs')data=[rfq]
+   else if(name==='proc_suppliers')data=[supplier]
+   else if(name==='proc_rfq_suppliers')data=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}]
+   else if(name==='proc_rfq_items')data=[{id:'00000000-0000-4000-8000-000000000008',rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item},requested_qty:10,selected_for_po:true}]
+   else if(name==='proc_purchase_orders')data=[po]
+   else if(name==='proc_po_lines')data=[{id:'00000000-0000-4000-8000-000000000009',po_id:po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
@@ -71,6 +80,11 @@ try{
   for(const [label,heading] of [['✓ Stock Entry','Stock Entry'],['≡ Review','Review'],['Q RFQs & Quotes','RFQs & Quotes'],['PO Orders','Orders'],['⇩ Receive Goods','Receive Goods']]){
    await navigate(label)
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
+   if(heading==='RFQs & Quotes'){
+    await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+    await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
+   }
+   if(heading==='Orders')await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
    await page.screenshot({path:'test-results/'+width+'-'+heading.replaceAll(' ','-')+'.png',fullPage:true})
    const dimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
    assert.ok(dimensions.scroll<=dimensions.width+1,heading+' overflows at '+width+': '+JSON.stringify(dimensions))
