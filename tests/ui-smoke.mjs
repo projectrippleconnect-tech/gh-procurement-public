@@ -15,6 +15,23 @@ try{
   await new Promise(r=>setTimeout(r,100))
  }
  await mkdir('test-results',{recursive:true})
+ const htmlResponses=[]
+ for(let i=0;i<2;i++){
+  const response=await fetch(root,{headers:{'x-nonce':'untrusted-client-nonce','Content-Security-Policy':"script-src 'unsafe-inline'"}})
+  assert.equal(response.status,200)
+  const policy=response.headers.get('content-security-policy')||''
+  const nonce=policy.match(/'nonce-([^']+)'/)?.[1]
+  assert.ok(nonce&&nonce!=='untrusted-client-nonce','HTML response must use a server-generated nonce')
+  assert.doesNotMatch(policy.split(';').find(x=>x.trim().startsWith('script-src ')),/'unsafe-inline'|'unsafe-eval'/)
+  assert.match(response.headers.get('cache-control')||'',/no-store/)
+  const html=await response.text()
+  const scripts=[...html.matchAll(/<script\b([^>]*)>/g)]
+  assert.ok(scripts.length>0)
+  for(const [,attributes] of scripts)assert.ok(attributes.includes('nonce="'+nonce+'"'),'Framework script must match the response nonce')
+  htmlResponses.push(nonce)
+ }
+ assert.notEqual(htmlResponses[0],htmlResponses[1],'Nonce must change between HTML requests')
+ console.log('PASS request-specific CSP nonce, script authorization and client-header override protection')
  browser=await chromium.launch({headless:true,...(process.env.GH_UI_BROWSER_CHANNEL?{channel:process.env.GH_UI_BROWSER_CHANNEL}:{})})
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
@@ -36,7 +53,9 @@ try{
  for(const width of [320,390,768,1366]){
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  const errors=[],queries=[],receipts=[]
+  const errors=[],queries=[],receipts=[],policyViolations=[]
+  await page.exposeFunction('ghRecordCspViolation',data=>policyViolations.push(data))
+  await context.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.ghRecordCspViolation({directive:e.effectiveDirective,blocked:e.blockedURI})))
   async function requireQuery(predicate,message){
    for(let attempt=0;attempt<200;attempt++){
     if(queries.some(predicate))return
@@ -100,6 +119,17 @@ try{
   },{id,user})
   await page.goto(root)
   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+  assert.deepEqual(policyViolations,[],'Framework hydration must not violate CSP')
+  await page.evaluate(()=>{
+   const script=document.createElement('script')
+   script.textContent='window.__ghUntrustedInlineExecuted=true'
+   document.body.appendChild(script)
+   script.remove()
+  })
+  for(let attempt=0;attempt<200&&!policyViolations.length;attempt++)await page.waitForTimeout(25)
+  assert.equal(await page.evaluate(()=>window.__ghUntrustedInlineExecuted===true),false,'Untrusted inline JavaScript must be blocked')
+  assert.ok(policyViolations.some(x=>x.directive==='script-src-elem'&&x.blocked==='inline'),'Browser must enforce the inline-script refusal')
+  policyViolations.length=0
   async function navigate(label){
    let target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    if(await target.count()===0){
@@ -348,6 +378,7 @@ try{
   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
   assert.equal(await page.locator('.metric-link').count(),0,'Dashboard-only users have no inaccessible shortcuts')
   assert.deepEqual(errors,[],'Browser errors at '+width)
+  assert.deepEqual(policyViolations,[],'Procurement, PDF and OCR actions must not violate CSP at '+width)
   console.log('PASS four-stage navigation and no horizontal overflow at '+width+'px')
   await context.close()
  }
