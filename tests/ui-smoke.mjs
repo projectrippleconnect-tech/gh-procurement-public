@@ -3,7 +3,7 @@
 import {chromium} from 'playwright'
 import {spawn} from 'node:child_process'
 import assert from 'node:assert/strict'
-import {mkdir,writeFile} from 'node:fs/promises'
+import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {jsPDF} from 'jspdf'
 const root='http://127.0.0.1:3100'
 const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3100'],{stdio:'inherit'})
@@ -196,6 +196,30 @@ try{
     await page.getByText('Supplier request items saved.',{exact:false}).waitFor()
     assert.equal(invitations[0].requested_item_ids.length,99,'A bathroom-only request saves every matching item')
     assert.ok(!invitations[0].requested_item_ids.includes('00000000-0000-4000-8000-000000000008'),'A bathroom-only request excludes general hardware')
+    if(width===320){
+     await page.getByRole('button',{name:'Send Request',exact:true}).click()
+     const pdfDownload=page.waitForEvent('download')
+     await page.getByRole('button',{name:'RFQ PDF',exact:true}).click()
+     const pdf=await pdfDownload
+     const pdfBytes=await readFile(await pdf.path())
+     assert.ok(pdf.suggestedFilename().endsWith('.pdf'))
+     assert.ok(pdfBytes.subarray(0,5).toString()==='%PDF-')
+     const pdfContent=pdfBytes.toString('latin1')
+     assert.ok(pdfContent.includes('Bathroom fixture 99'),'PDF includes the last selected item')
+     assert.ok(!pdfContent.includes('Fixture hardware'),'PDF excludes the unselected general item')
+     await writeFile('test-results/exported-bathroom-rfq.pdf',pdfBytes)
+     const pngDownload=page.waitForEvent('download')
+     await page.getByRole('button',{name:'Download PNG Only',exact:true}).click()
+     const png=await pngDownload
+     const pngBytes=await readFile(await png.path())
+     assert.ok(png.suggestedFilename().endsWith('.png'))
+     assert.equal(pngBytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a')
+     assert.ok(pngBytes.readUInt32BE(16)>0&&pngBytes.readUInt32BE(20)>1000,'Supplier PNG contains the long item list')
+     await writeFile('test-results/exported-bathroom-rfq.png',pngBytes)
+     assert.equal(context.pages().length,1,'Download actions do not open a supplier chat')
+     await page.getByRole('button',{name:'Send Request',exact:true}).click()
+     console.log('PASS actual selective supplier RFQ PDF and PNG downloads under nonce CSP')
+    }
     const newSelect=page.getByLabel('New supplier',{exact:true})
     const quoteSelect=page.getByLabel('Supplier',{exact:true})
     await quoteSelect.locator('option[value="'+supplier.id+'"]').waitFor({state:'attached'})
