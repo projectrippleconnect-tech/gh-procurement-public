@@ -537,7 +537,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  async function editComparisonPrice(row,supplierId){
   if(!canEdit||busy||loadingQuote||quoteOcrBusy)return
   const item=row.requirement?.item||{}
-  setPriceSearch(item.item_code||itemTitle(item));setPriceFilter('all')
+  setPriceSearch(item.item_code||[item.description,item.size].filter(Boolean).join(' '));setPriceFilter('all')
   if(supplierId!==supplier)await loadExistingQuote(active.id,supplierId)
   priceEntryRef.current?.scrollIntoView({block:'start'})
   requestAnimationFrame(()=>{
