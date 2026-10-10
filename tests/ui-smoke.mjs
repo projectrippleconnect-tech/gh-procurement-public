@@ -237,7 +237,7 @@ try{
     await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
     await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
     const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
-    const attachment=page.locator('input[type="file"]').first()
+    const attachment=page.locator('.content > section:not([hidden]) input[type="file"]').first()
     const quotePdf=new jsPDF()
     quotePdf.setFontSize(12)
     quotePdf.text('Supplier quotation - generated extraction test document',15,20)
