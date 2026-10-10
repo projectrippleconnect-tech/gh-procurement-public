@@ -9,7 +9,7 @@ import {allRows} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 
-export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
+export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
  const[loadState,setLoadState]=useState({})
  const loadSerial=useRef(0)
@@ -32,7 +32,7 @@ export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>fals
   const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent']
   await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else setAlerts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
  }catch(e){fail(e)}},[fail])
- useEffect(()=>{load()},[load])
+ useEffect(()=>{if(activeView==='dashboard')load()},[load,activeView])
  const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
  const cards=[
   ['dashboard.active_items','Active items',d.active_items,'Master catalogue'],

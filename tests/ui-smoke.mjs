@@ -387,8 +387,14 @@ try{
     await page.getByLabel('Search receiving items',{exact:true}).waitFor()
     assert.equal(await page.locator('.receive-full-check input,.desktop-table tbody input[type="checkbox"]').filter({visible:true}).first().isChecked(),true,'Receiving values survive reload')
     for(const poId of [po.id,otherPo.id,po.id]){
-     await selector.selectOption(poId)
-     if(await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).isEnabled())await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+     if(await selector.inputValue()!==poId){
+      const loaded=page.waitForResponse(r=>{const u=new URL(r.url());return u.pathname.endsWith('/proc_po_lines')&&u.searchParams.get('po_id')==='eq.'+poId})
+      await selector.selectOption(poId);await loaded
+     }
+     await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+     const savedAttempt=await page.evaluate(id=>JSON.parse(localStorage.getItem('gh_receiving_draft_v1:00000000-0000-4000-8000-000000000002:'+id)||'null')?.attempt,poId)
+     if(savedAttempt)await page.getByText('A receipt attempt is saved.',{exact:false}).waitFor()
+     else await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
      await page.getByRole('button',{name:'Post GRN',exact:true}).click()
      await page.getByText('Fixture receipt retry',{exact:true}).waitFor()
      await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Posting…'))

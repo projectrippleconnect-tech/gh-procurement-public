@@ -15,7 +15,7 @@ import {extractPriceListFile} from '@/lib/price-list-extract'
 import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
 
-export function Requirements({initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
+export function Requirements({activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
  const canAdd=can('procurement.requirements.manage')
  const canReview=can('procurement.requirements.manage')
  const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
@@ -78,7 +78,7 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
    setControlCounts({outstanding:results[6].count||0,overdue:results[7].count||0,uncovered:results[8].count||0,delivery:results[9].count||0})
   }
  }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter,categoryFilter,requirementSearch])
- useEffect(()=>{load()},[load])
+ useEffect(()=>{if(activeView==='requirements')load()},[load,activeView])
  useEffect(()=>{setPage(0);setChosen(new Set());setScopeOverrides({})},[stage])
 
  useEffect(()=>{
@@ -414,7 +414,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  </div>
 }
 
-export function Rfqs({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
+export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
  const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
  const awardReviewEnabled=features.find(x=>x.feature_key==='quotes.award_review')?.enabled!==false
 
@@ -465,7 +465,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   }
   setSummaries(map)
  }catch(e){fail(e)}},[fail,page,rfqFilter])
- useEffect(()=>{load()},[load])
+ useEffect(()=>{if(activeView==='rfq')load()},[load,activeView])
 
  function rememberQuoteDraft(){
   if(!active?.id||!supplier||loadingQuote)return

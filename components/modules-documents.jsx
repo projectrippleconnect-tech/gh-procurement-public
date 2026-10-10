@@ -10,7 +10,7 @@ import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,Procurem
 import {InfoButton} from './help-ui'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
-export function PurchaseOrders({initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const canEdit=can('procurement.orders.edit')
  const canApprove=can('procurement.orders.approve')
  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue','pending_approval','approved','sent','partially_received','received','closed','cancelled'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
@@ -58,7 +58,7 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
   const r=await q
   if(r.error)fail(r.error);else{setRows(r.data||[]);setTotal(r.count||0)}
  },[filter,page,fail])
- useEffect(()=>{load()},[load])
+ useEffect(()=>{if(activeView==='po')load()},[load,activeView])
  useEffect(()=>{setPage(0)},[filter])
  useEffect(()=>{if(initialFilter&&rows.some(r=>r.id===initialFilter)&&active?.id!==initialFilter)void open(rows.find(r=>r.id===initialFilter))},[initialFilter,rows])
 
@@ -288,7 +288,7 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
  </div>
 }
 
-export function Receiving({initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function Receiving({activeView='receiving',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const canReceive=can('receiving.manage')
  const[pos,setPos]=useState([]),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[cases,setCases]=useState([])
  const rejectionEnabled=features.find(x=>x.feature_key==='receiving.rejection_followup')?.enabled!==false
@@ -306,7 +306,7 @@ export function Receiving({initialFilter='',profile,fields,features=[],flash,fai
   if(data[0].error)throw data[0].error;setPos(data[0].data||[])
   if(data[1]){if(data[1].error)throw data[1].error;setCases(data[1].data||[])}
  }catch(e){fail(e)}},[fail,rejectionEnabled,can])
- useEffect(()=>{loadPos()},[loadPos])
+ useEffect(()=>{if(activeView==='receiving')loadPos()},[loadPos,activeView])
  useEffect(()=>{let cancelled=false;setLines([]);setVals({});setDraftReady(false);setAttempt(null);setNotes('');if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status))').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);let saved=null;try{saved=JSON.parse(localStorage.getItem('gh_receiving_draft_v1:'+profile.id+':'+poId)||'null')}catch{};setVals(Object.fromEntries(data.map(x=>[x.id,saved?.vals?.[x.id]||{received:'',accepted:'',rejected:'0',reason:''}])));setNotes(saved?.notes||'');if(saved?.receiptKey)receiptKeys.current.set(poId,saved.receiptKey);setAttempt(saved?.attempt||null);draftOwner.current='gh_receiving_draft_v1:'+profile.id+':'+poId;setDraftReady(true)})();return()=>{cancelled=true}},[poId,profile.id,fail])
 
  const already=l=>(l.grn||[]).filter(g=>!g.receipt||g.receipt.status==='posted').reduce((s,x)=>s+Number(x.accepted_qty||0),0)
