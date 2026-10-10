@@ -58,7 +58,9 @@ try{
     invitations=[...invitations,invitation]
     data={invitation,rfq_status:rfqStatus,added:true}
    }
-   else if(name==='proc_rfq_items')data=[{id:'00000000-0000-4000-8000-000000000008',rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item},requested_qty:10,selected_for_po:true}]
+   else if(name==='proc_rfq_items')data=Array.from({length:100},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true}))
+   else if(name==='proc_v_quote_comparison')data=[{rfq_item_id:'00000000-0000-4000-8000-000000000008',supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-fixture',unit_price:100,landed_unit_cost:100,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1}]
+   else if(name==='proc_set_rfq_supplier_items_v1'){const p=req.postDataJSON();invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,requested_item_ids:p.p_item_ids}:x);data=invitations.find(x=>x.supplier_id===p.p_supplier_id)}
    else if(name==='proc_purchase_orders')data=[po,otherPo]
    else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
    else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
@@ -127,6 +129,21 @@ try{
    if(heading==='RFQs & Quotes'){
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
+    const sheet=page.getByRole('region',{name:'Scrollable supplier prices',exact:true})
+    assert.equal(await sheet.locator('tbody tr').count(),100,'Comparison keeps every RFQ item')
+    assert.equal(await sheet.locator('.rfq-best-price').count(),1,'Single valid quote is highlighted')
+    await page.getByLabel('Comparison filter',{exact:true}).selectOption('missing')
+    assert.equal(await sheet.locator('tbody tr').count(),99,'Missing items are explicit')
+    await page.getByLabel('Comparison filter',{exact:true}).selectOption('all')
+    await page.getByLabel('Search comparison items',{exact:true}).fill('Bathroom fixture 99')
+    assert.equal(await sheet.locator('tbody tr').count(),1,'Comparison search finds sparse items')
+    await page.getByLabel('Search comparison items',{exact:true}).fill('')
+    await page.locator('summary').filter({hasText:'Choose request items'}).click()
+    await page.getByLabel('Request category',{exact:true}).selectOption('BATHROOM')
+    await page.getByRole('button',{name:'Clear visible items',exact:true}).click()
+    await page.getByRole('button',{name:'Save Request Items',exact:true}).click()
+    await page.getByText('Supplier request items saved.',{exact:false}).waitFor()
+    assert.deepEqual(invitations[0].requested_item_ids,['00000000-0000-4000-8000-000000000008'],'Supplier selections are saved independently')
     const newSelect=page.getByLabel('New supplier',{exact:true})
     const quoteSelect=page.getByLabel('Supplier',{exact:true})
     await quoteSelect.locator('option[value="'+supplier.id+'"]').waitFor({state:'attached'})
@@ -136,6 +153,13 @@ try{
     await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
     const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
     await price.fill('123.45')
+    await page.getByLabel('Search supplier price entry',{exact:true}).fill('Bathroom fixture 99')
+    const sparsePrice=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
+    await sparsePrice.fill('88')
+    await page.getByLabel('Search supplier price entry',{exact:true}).fill(item.description)
+    assert.equal(await price.inputValue(),'123.45','Search preserves hidden price drafts')
+    await page.getByLabel('Search supplier price entry',{exact:true}).fill('')
+
     await newSelect.selectOption(newSupplier.id)
     await page.getByRole('button',{name:'Add to RFQ',exact:true}).click()
     await page.getByText('Fixture invitation failure',{exact:true}).waitFor()
