@@ -3,7 +3,8 @@
 import {chromium} from 'playwright'
 import {spawn} from 'node:child_process'
 import assert from 'node:assert/strict'
-import {mkdir} from 'node:fs/promises'
+import {mkdir,writeFile} from 'node:fs/promises'
+import {jsPDF} from 'jspdf'
 const root='http://127.0.0.1:3100'
 const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3100'],{stdio:'inherit'})
 let browser
@@ -167,7 +168,49 @@ try{
     await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
     await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
     const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
+    const attachment=page.locator('input[type="file"]').first()
+    const quotePdf=new jsPDF()
+    quotePdf.setFontSize(12)
+    quotePdf.text('Supplier quotation - generated extraction test document',15,20)
+    quotePdf.text(item.description+' '+item.size+' PCS 123.45',15,40)
+    const pdfBuffer=Buffer.from(quotePdf.output('arraybuffer'))
+    await attachment.setInputFiles({name:'generated-quotation.pdf',mimeType:'application/pdf',buffer:pdfBuffer})
+    await page.getByRole('button',{name:'Read Prices Automatically',exact:true}).click()
+    await page.getByText('1 quotation line(s) matched automatically.',{exact:false}).waitFor({timeout:60000})
+    await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Reading quotation…'))
+    assert.equal(await price.inputValue(),'123.45','Real PDF.js extraction imports the generated quotation')
+    if(width===320){
+     await writeFile('test-results/generated-quotation.pdf',pdfBuffer)
+     const longPdf=new jsPDF()
+     for(let n=1;n<41;n++)longPdf.addPage()
+     await attachment.setInputFiles({name:'41-pages.pdf',mimeType:'application/pdf',buffer:Buffer.from(longPdf.output('arraybuffer'))})
+     await page.getByRole('button',{name:'Read Prices Automatically',exact:true}).click()
+     await page.getByText('This PDF has 41 pages.',{exact:false}).waitFor()
+     assert.equal(await price.inputValue(),'123.45','An oversized PDF cannot silently replace draft prices')
+     const encoded=await page.evaluate(text=>{
+      const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=650
+      const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,2000,650)
+      ctx.fillStyle='#000';ctx.font='38px Arial';ctx.fillText('Supplier quotation',50,90)
+      ctx.fillText(text,50,180)
+      return canvas.toDataURL('image/png').split(',')[1]
+     },item.description+' '+item.size+' PCS 123.45')
+     const pngBuffer=Buffer.from(encoded,'base64')
+     await writeFile('test-results/generated-quotation.png',pngBuffer)
+     await attachment.setInputFiles({name:'generated-quotation.png',mimeType:'image/png',buffer:pngBuffer})
+     await price.fill('')
+     await page.getByRole('button',{name:'Read Prices Automatically',exact:true}).click()
+     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return input?.value==='123.45'&&!input.disabled},{},{timeout:120000})
+     assert.equal(await price.inputValue(),'123.45','Real Tesseract image OCR imports the generated quotation')
+     console.log('PASS real PDF.js and Tesseract quotation extraction; no silent PDF truncation')
+    }
     await price.fill('123.45')
+    const addSize=page.getByRole('button',{name:'+ Add size variation',exact:true}).filter({visible:true})
+    if(!await addSize.count())await page.locator('.mobile-card-list details').filter({visible:true}).first().locator('summary').click()
+    await addSize.first().click()
+    await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).filter({visible:true}).first().fill('3 inch')
+    const alternatives=page.locator('.formgrid').filter({has:page.getByPlaceholder('e.g. 1½ inch',{exact:true})}).filter({visible:true}).first()
+    await alternatives.getByPlaceholder('Price',{exact:true}).fill('57')
+    assert.equal(await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).first().inputValue(),'3 inch','Adding an alternative size does not crash the RFQ')
     await page.getByLabel('Search supplier price entry',{exact:true}).fill('Bathroom fixture 99')
     const sparsePrice=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
     await sparsePrice.fill('88')
@@ -198,11 +241,13 @@ try{
     await page.getByRole('button',{name:'Reload Supplier Prices',exact:true}).click()
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await price.inputValue(),'','The new supplier has a separate quotation')
+    assert.equal(await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).count(),0,'Alternative sizes remain isolated to their supplier')
     assert.equal(await page.getByText('Selected attachment: supplier-A.pdf',{exact:true}).count(),0,'Attachments stay with their supplier')
     await price.fill('777')
     await quoteSelect.selectOption(supplier.id)
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await price.inputValue(),'123.45','Switching suppliers restores unsaved prices')
+    assert.equal(await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).first().inputValue(),'3 inch','Supplier draft restores alternative sizes')
     await page.getByText('Selected attachment: supplier-A.pdf',{exact:true}).waitFor()
     await quoteSelect.selectOption(newSupplier.id)
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
