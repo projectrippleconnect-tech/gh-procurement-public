@@ -20,28 +20,9 @@ export const Err=({v})=>v?<div className="error section">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
 export function ProcurementPath({active=4,counts={},t=(k,f)=>f||k}){
- const steps=[
-  [4,t('journey.review','Review')],
-  [5,t('journey.rfq','Send RFQ')],
-  [6,t('journey.quotes','Quotes')],
-  [7,t('journey.order','Order')]
- ]
- return <div className="procurement-journey" aria-label={t('journey.label','Procurement progress')}>
-  <div className="procurement-completed-strip">
-   <b><span>✓</span>1 · {t('journey.enter_stock','Enter stock')}</b>
-   <i>→</i>
-   <b><span>✓</span>2 · {t('journey.submit_stock','Submit stock')}</b>
-   <i>→</i>
-   <b><span>✓</span>3 · {t('journey.stock_done','Done')}</b>
-  </div>
-  <div className="procurement-stepbar procurement-stepbar-numbered">
-   {steps.map(([n,label])=>{
-    const state=n<active?'done':n===active?'active':'upcoming'
-    const count=n===4?counts.review:n===5?counts.rfq:n===6?counts.quotes:n===7?counts.orders:null
-    return <div className={state} key={n}><span>{n<active?'✓':n}</span><b>{label}</b>{count!==null&&count!==undefined&&<small>{count}</small>}</div>
-   })}
-  </div>
- </div>
+ const steps=[[1,'Stock'],[2,'Review & buy'],[3,'Orders'],[4,'Receive']]
+ const current=active<=3?1:active<=6?2:active===7?3:4
+ return <div className="procurement-journey" aria-label="Procurement progress"><div className="procurement-stepbar procurement-stepbar-numbered">{steps.map(([n,label])=><div key={n} className={n===current?'active':'upcoming'}><span>{n}</span><b>{label}</b></div>)}</div><p className="muted tiny">Stock → supplier prices → approved orders → accepted deliveries. Open balances stay outstanding.</p></div>
 }
 
 export function fieldEnabled(fields,module,key){

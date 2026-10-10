@@ -9,6 +9,8 @@ import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
+import {ItemActivity} from './item-activity'
+import {nextRequirementAction} from '@/lib/procurement-flow'
 import {extractPriceListFile} from '@/lib/price-list-extract'
 import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
@@ -18,6 +20,7 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
  const canReview=can('procurement.requirements.manage')
  const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
  const[rows,setRows]=useState([]),[suppliers,setSuppliers]=useState([]),[selected,setSelected]=useState(new Set()),[chosen,setChosen]=useState(new Set()),[suggestedSuppliers,setSuggestedSuppliers]=useState([]),[due,setDue]=useState(''),[busy,setBusy]=useState(false),[page,setPage]=useState(0),[total,setTotal]=useState(0),[scopeOverrides,setScopeOverrides]=useState({})
+ const[activity,setActivity]=useState(null),[requirementSearch,setRequirementSearch]=useState(''),[categoryFilter,setCategoryFilter]=useState('')
  const pageSize=200
  const[oldestFirst,setOldestFirst]=useState(false)
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
@@ -52,6 +55,8 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
   if(stage==='uncovered')q=q.eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false)
   if(controlFilter==='urgent')q=q.eq('priority','urgent')
   if(controlFilter==='partial')q=q.gt('ordered_qty',0).gt('remaining_to_order',0).eq('approval_status','approved')
+  if(categoryFilter)q=q.eq('category',categoryFilter)
+  if(requirementSearch.trim())q=q.or(containsAny(['description','size','item_code','requirement_no'],requirementSearch.trim()))
   const tasks=[q]
   if(canReview){
    tasks.push(allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name').order('id')))
@@ -72,7 +77,7 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
    setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
    setControlCounts({outstanding:results[6].count||0,overdue:results[7].count||0,uncovered:results[8].count||0,delivery:results[9].count||0})
   }
- }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter])
+ }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter,categoryFilter,requirementSearch])
  useEffect(()=>{load()},[load])
  useEffect(()=>{setPage(0);setChosen(new Set());setScopeOverrides({})},[stage])
 
@@ -176,8 +181,9 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
  }
 
  const defaults=[
+  {key:'actions',label:'Next action',render:r=><button className="btn small" onClick={()=>setActivity(r)}>{nextRequirementAction(r)}</button>},
   {key:'requirement_no',label:'Requirement',render:r=><span className="mono tiny">{r.requirement_no}</span>},
-  {key:'description',label:'Item',render:r=><><strong>{itemTitle(r)}</strong><div className="muted tiny">{r.uom||''}</div></>},
+  {key:'description',label:'Item',render:r=><><button className="item-link" onClick={()=>setActivity(r)}>{itemTitle(r)}</button><div className="muted tiny">{r.uom||''} · {r.category}</div></>},
   {key:'size',label:'Size'},{key:'uom',label:'UOM'},
   {key:'current_stock',label:'Stock',render:r=>qty(r.current_stock??r.request_stock_snapshot??0)},
   {key:'reorder_level',label:'Reorder',render:r=>qty(r.reorder_level??r.request_reorder_snapshot??0)},
@@ -202,6 +208,8 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
  const cols=configuredColumns(fields,'requirements',defaults)
 
  return <>
+  {activity&&<ItemActivity row={activity} onClose={()=>setActivity(null)} can={can} navigate={navigate}/>}
+  <div className="filters two sticky-work-search"><input aria-label="Search outstanding items" className="input" placeholder="Search item, size or requirement" value={requirementSearch} onChange={e=>{setRequirementSearch(e.target.value);setPage(0)}}/><input aria-label="Filter requirement category" className="input" placeholder="Category (e.g. BATHROOM)" value={categoryFilter} onChange={e=>{setCategoryFilter(e.target.value.toUpperCase());setPage(0)}}/></div>
   {canReview&&<section className="card pad section" aria-label="Procurement control summary">
    <div className="sectionhead"><div><h3>Procurement Control</h3><p>Open requirements and next actions. Counts cover all matching requirements; the oldest-item preview shows the current page.</p></div></div>
    <div className="formgrid">
@@ -462,8 +470,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  function rememberQuoteDraft(){
   if(!active?.id||!supplier||loadingQuote)return
   const key=active.id+':'+supplier
-  if(file||JSON.stringify(prices)!==loadedQuote.current)quoteDrafts.current.set(key,{prices,file,base:loadedQuote.current})
-  else quoteDrafts.current.delete(key)
+  quoteDrafts.current.set(key,{prices,file,validUntil,base:loadedQuote.current})
  }
 
  async function open(r,preferredSupplier='',preserveDraft=true){
@@ -516,7 +523,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   try{
    if(!supplierId)return
    const draft=quoteDrafts.current.get(rfqId+':'+supplierId)
-   if(draft){loadedQuote.current=draft.base;setPrices(draft.prices);setFile(draft.file);return}
+   if(draft){loadedQuote.current=draft.base;setPrices(draft.prices);setFile(draft.file);setValidUntil(draft.validUntil||'');return}
    const q=await supabase.from('proc_quotes').select('id,quote_ref,valid_until,attachment_path,freight_total,minimum_order_value').eq('rfq_id',rfqId).eq('supplier_id',supplierId).maybeSingle()
    if(request!==quoteLoading.current)return
    if(q.error)throw q.error
@@ -527,7 +534,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
    if(l.error)throw l.error
    const map={};(l.data||[]).forEach(x=>{
     const details=decodeSupplierQuoteNotes(x.notes)
-    map[x.rfq_item_id]={price:String(x.unit_price),remarks:details.remarks,variants:details.variants}
+    map[x.rfq_item_id]={price:String(x.unit_price),remarks:details.remarks,variants:details.variants,available_qty:x.available_qty??'',lead_days:x.lead_days??'',moq:x.moq??0,order_multiple:x.order_multiple??1,discount_percent:x.discount_percent??0,tax_percent:x.tax_percent??0}
    })
    loadedQuote.current=JSON.stringify(map);setPrices(map)
   }catch(e){if(request===quoteLoading.current){setQuoteLoadError(true);fail(e)}}
@@ -645,7 +652,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   if(variantsWithoutMain)return fail(new Error('Enter the requested-size price before adding alternative sizes, or remove that item’s alternatives.'))
   const invalid=quoted.some(i=>{
    const v=prices[i.id]||{},p=Number(v.price)
-   return !Number.isFinite(p)||p<0||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500
+   return !Number.isFinite(p)||p<0||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500||['available_qty','lead_days'].some(k=>v[k]!==''&&v[k]!=null&&(!Number.isFinite(Number(v[k]))||Number(v[k])<0))
   })
   if(invalid)return fail(new Error('Check unit prices and alternatives: each added size must have a valid price.'))
   setBusy(true);let path=null,quoteSaved=false
@@ -656,13 +663,13 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
    }
    const lines=quoted.map(i=>({
     rfq_item_id:i.id,unit_price:Number(prices[i.id].price),
-    available_qty:null,lead_days:null,
-    discount_percent:0,tax_percent:0,moq:0,order_multiple:1,
+    available_qty:prices[i.id].available_qty===''||prices[i.id].available_qty==null?null:Number(prices[i.id].available_qty),lead_days:prices[i.id].lead_days===''||prices[i.id].lead_days==null?null:Number(prices[i.id].lead_days),
+    discount_percent:Number(prices[i.id].discount_percent||0),tax_percent:Number(prices[i.id].tax_percent||0),moq:Number(prices[i.id].moq||0),order_multiple:Number(prices[i.id].order_multiple||1),
     notes:encodeSupplierQuoteNotes(prices[i.id])
    }))
    const r=await supabase.rpc('proc_save_quote_v3',{
     p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:null,p_lines:lines,
-    p_valid_until:null,p_attachment_path:path,p_notes:null,
+    p_valid_until:validUntil||null,p_attachment_path:path,p_notes:null,
     p_freight_total:0,p_minimum_order_value:0
    })
    if(r.error)throw r.error
@@ -1037,7 +1044,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
    {loadingQuote&&<p className="muted tiny" role="status">Loading supplier prices…</p>}
    {quoteLoadError&&<div className="notice" role="alert">Supplier prices could not be loaded. Editing is paused to protect the existing quote. <button type="button" className="btn small" disabled={busy||loadingQuote} onClick={()=>loadExistingQuote(active.id,supplier,false)}>Reload Supplier Prices</button></div>}
    <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
-   <div ref={priceEntryRef} style={{scrollMarginTop:96}} className="formgrid section"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
+   <div ref={priceEntryRef} style={{scrollMarginTop:96}} className="formgrid section sticky-work-search"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
    <p className="muted tiny">Showing {visiblePriceItems.length} of {items.length} items. Search preserves every entered price; Save Supplier Price saves the entire supplier quote.</p>
    <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
    <tbody>{visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
@@ -1058,6 +1065,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
       <label title="Include in order" style={{display:'flex',alignItems:'center',justifyContent:'center'}}><input aria-label={'Order '+itemTitle(i.requirement?.item||{})} type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} onChange={e=>togglePoItem(i,e.target.checked)}/></label>
      </div>
      <details style={{marginTop:3}}><summary className="muted tiny" style={{cursor:'pointer',padding:'5px 0'}}>Details / remarks / sizes {(v.remarks||(v.variants||[]).length)?'●':''}</summary>
+      <div className="formgrid section"><label className="field">Available quantity<input className="input" inputMode="decimal" aria-label={'Available quantity for '+itemTitle(i.requirement?.item||{})} value={v.available_qty??''} placeholder="Unconfirmed" disabled={!canEdit||busy||loadingQuote} onChange={e=>editPrice(i.id,{available_qty:e.target.value})}/></label><label className="field">Delivery days<input className="input" inputMode="numeric" value={v.lead_days??''} placeholder="Unconfirmed" disabled={!canEdit||busy||loadingQuote} onChange={e=>editPrice(i.id,{lead_days:e.target.value})}/></label></div>
       <div className="field" style={{marginTop:8}}><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
       <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
      </details>
@@ -1070,6 +1078,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     {selectedUnpriced.length>0&&<><button className="btn small" disabled={busy} onClick={selectOnlyPricedItems}>Select Priced Items Only ({pricedCount})</button><span className="muted tiny">{selectedUnpriced.length} unpriced item(s) are still selected. You can untick them individually or use this button before reviewing.</span></>}
    </div>}
 
+   <details className="section"><summary>Quotation validity</summary><label className="field">Valid until<input aria-label="Quotation valid until" className="input" type="date" value={validUntil} disabled={!canEdit||busy||loadingQuote} onChange={e=>setValidUntil(e.target.value)}/></label><p className="muted tiny">Expired prices cannot be used for new orders. Confirm current availability before ordering.</p></details>
    <div ref={comparisonRef} style={{scrollMarginTop:96}}><RfqComparisonSheet onBackToEntry={()=>priceEntryRef.current?.scrollIntoView({block:'start'})} items={items} comparison={comparison} invitations={invite} supplierName={supplierName} canEdit={canEdit} busy={busy||loadingQuote||quoteOcrBusy} onEditPrice={editComparisonPrice} onOrderSelection={togglePoItem} onReview={async()=>{if(selectedUnpriced.length){const next=await selectOnlyPricedItems(false);if(next)buildAwardReview(next)}else buildAwardReview()}}/></div>
 
    {active?.status==='awarded'&&items.some(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))&&<div className="section" style={{padding:12,border:'1px solid var(--border, #334155)',borderRadius:12}}>

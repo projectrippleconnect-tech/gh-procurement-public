@@ -8,23 +8,24 @@ import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseO
 import {allRows} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
+import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
-export function PurchaseOrders({initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function PurchaseOrders({initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const canEdit=can('procurement.orders.edit')
  const canApprove=can('procurement.orders.approve')
- const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
- const[shareFields,setShareFields]=useState(defaultPoShareFields),[shareReady,setShareReady]=useState(false),[shareBusy,setShareBusy]=useState(false),[linesReady,setLinesReady]=useState(false),[gateway,setGateway]=useState(null)
+ const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue','pending_approval','approved','sent','partially_received','received','closed','cancelled'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
+ const[shareFields,setShareFields]=useState(defaultPoShareFields),[shareReady,setShareReady]=useState(false),[shareBusy,setShareBusy]=useState(false),[linesReady,setLinesReady]=useState(false),[gateway,setGateway]=useState(null),[gatewayLoading,setGatewayLoading]=useState(false)
  const settingsKey='gh_po_supplier_fields_v1:'+String(profile?.id||'anonymous')
  useEffect(()=>{try{setShareFields(resolvePoShareFields(JSON.parse(localStorage.getItem(settingsKey)||'null')))}catch{setShareFields(defaultPoShareFields())}setShareReady(true)},[settingsKey])
  function changeShareField(key,value){const next={...shareFields,[key]:value};setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{flash('Fields updated for this session; this browser could not save the preference.')}}
  const shareArgs={po:active,lines,company,selection:shareFields}
  async function refreshPoGateway(poId=active?.id){
-  setGateway(null)
-  if(!poId||!canEdit)return
+  setGateway(null);setGatewayLoading(true)
+  if(!poId||!canEdit){setGatewayLoading(false);return}
   try{const {data:{session}}=await supabase.auth.getSession();if(!session?.access_token)return
    const response=await fetch('/api/integrations/whatsapp/po?poId='+encodeURIComponent(poId),{headers:{Authorization:'Bearer '+session.access_token}})
    const result=await response.json();if(opening.currentPoId===poId)setGateway(response.ok?result:{error:result.error})
-  }catch{if(opening.currentPoId===poId)setGateway({error:'Could not check WhatsApp status.'})}
+  }catch{if(opening.currentPoId===poId)setGateway({error:'Could not check WhatsApp status.'})}finally{if(opening.currentPoId===poId)setGatewayLoading(false)}
  }
  async function exportPo(type){if(!linesReady||shareBusy)return;setShareBusy(true)
   try{if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer});else if(type==='share'){const result=await sharePurchaseOrderPng(shareArgs);flash(result.shared?'Image and caption handed to your share app. Confirm the supplier and tap Send.':'PNG downloaded. Open supplier chat, attach the image and paste the caption.')}else await downloadPurchaseOrderPng(shareArgs)}catch(e){if(e?.name!=='AbortError')fail(e)}finally{setShareBusy(false)}
@@ -59,12 +60,13 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
  },[filter,page,fail])
  useEffect(()=>{load()},[load])
  useEffect(()=>{setPage(0)},[filter])
+ useEffect(()=>{if(initialFilter&&rows.some(r=>r.id===initialFilter)&&active?.id!==initialFilter)void open(rows.find(r=>r.id===initialFilter))},[initialFilter,rows])
 
  async function open(po){
   const request=++opening.current
   opening.currentPoId=po.id;setLines([]);setLinesReady(false);setGateway(null);refreshPoGateway(po.id)
   setActive(po);setPoMeta({expected_date:po.expected_date||'',terms:po.terms||'',notes:po.notes||''})
-  const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom)').eq('po_id',po.id).order('id'))
+  const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status)),balance_actions:proc_po_balance_actions(action,reason,released_qty,created_at)').eq('po_id',po.id).order('id'))
   if(request!==opening.current)return
   if(r.error)fail(r.error);else {setLines(r.data||[]);setLinesReady(true)}
  }
@@ -100,13 +102,19 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
   if(!url)return fail(new Error(t('validation.no_whatsapp','This supplier has no valid WhatsApp number.')))
   window.open(url,'_blank','noopener,noreferrer')
  }
+ const sendBlock=poSendBlock({po:active,canEdit,ready:linesReady&&shareReady,loading:gatewayLoading,gateway,busy:shareBusy})
  const filtered=useMemo(()=>rows.filter(r=>(r.po_no+' '+(r.supplier?.name||'')).toLowerCase().includes(search.toLowerCase())),[rows,search])
+ async function releaseBalance(line,action){
+  const reason=window.prompt(action==='buy_elsewhere'?'Reason for releasing the supplier balance to buy elsewhere:':'Reason for cancelling this need:');if(!reason?.trim())return
+  if(!window.confirm('Release '+qty(remainingDelivery(line))+' '+line.item?.uom+' from '+active.supplier?.name+'? Notify the supplier separately. '+(action==='buy_elsewhere'?'This quantity will return to Still to order.':'This quantity will be removed from the approved need.')))return
+  setBusy(true);try{const r=await supabase.rpc('proc_release_po_balance_v1',{p_po_line_id:line.id,p_action:action,p_reason:reason});if(r.error)throw r.error;flash(qty(r.data.released_qty)+' released. Supplier notification is still required.');await load();const fresh=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',active.id).single();if(fresh.error)throw fresh.error;await open(fresh.data)}catch(e){fail(e)}finally{setBusy(false)}
+ }
  const poCols=configuredColumns(fields,'po',[
   {key:'item_code',label:'Code',render:l=><span className="mono tiny">{l.item?.item_code}</span>},
   {key:'description',label:'Item',render:l=><strong>{itemTitle(l.item||{})}</strong>},
   {key:'size',label:'Size',render:l=>l.item?.size||'—'},
   {key:'uom',label:'UOM',render:l=>l.item?.uom||'—'},
-  {key:'qty',label:'Qty',render:l=>qty(l.qty)},
+  {key:'qty',label:'Qty',render:l=><>{qty(l.qty)}{Number(l.cancelled_qty)>0&&<div className="muted tiny">Cancelled {qty(l.cancelled_qty)}</div>}</>},
   {key:'unit_price',label:'Unit Price',render:l=>money(l.unit_price)},
   {key:'discount_percent',label:'Discount %',render:l=>Number(l.discount_percent||0).toFixed(2)+'%'},
   {key:'tax_percent',label:'Tax %',render:l=>Number(l.tax_percent||0).toFixed(2)+'%'},
@@ -132,20 +140,26 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
     {fieldEnabled(fields,'po','notes')&&<div><span>{fieldLabel(fields,'po','notes','Notes')}</span>{canEdit&&!['closed','cancelled'].includes(active.status)?<input className="input" value={poMeta.notes} onChange={e=>setPoMeta(x=>({...x,notes:e.target.value}))}/>:<b>{active.notes||'—'}</b>}</div>}
    </div>
    <DataTable columns={poCols} rows={lines} mobileCards/>
+   {lines.some(l=>Number(l.cancelled_qty)>0)&&<div className="notice section">Original PO quantities and values are retained. Cancelled balances are shown separately in the delivery audit.</div>}
+   {canEdit&&canApprove&&['sent','partially_received'].includes(active.status)&&<details className="section"><summary>Outstanding delivery balances</summary><p className="muted tiny">Wait for delivery, cancel an unneeded balance, or release it to buy elsewhere. These actions require a reason and supplier notification.</p>{lines.filter(l=>remainingDelivery(l)>0).map(l=><div className="mobile-data-card" key={l.id}><strong>{itemTitle(l.item||{})}</strong><p>{qty(remainingDelivery(l))} {l.item?.uom} outstanding</p><div className="toolbar"><button className="btn small" disabled={busy} onClick={()=>releaseBalance(l,'buy_elsewhere')}>Buy elsewhere</button><button className="btn small bad" disabled={busy} onClick={()=>releaseBalance(l,'cancel')}>Cancel balance</button></div></div>)}</details>}
+   {lines.some(l=>l.balance_actions?.length)&&<details className="section"><summary>Balance action history</summary>{lines.flatMap(l=>(l.balance_actions||[]).map((a,i)=><p key={l.id+'-'+i}>{itemTitle(l.item||{})} · {qty(a.released_qty)} · {a.action} · {a.reason} · {new Date(a.created_at).toLocaleString()}</p>))}</details>}
    {fieldEnabled(fields,'po','total')&&<div className="document-total"><span>{fieldLabel(fields,'po','total','Total LKR')}</span><strong>{money(active.total)}</strong></div>}
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print">
     {canEdit&&['pending_approval','approved','sent','partially_received'].includes(active.status)&&<button className="btn" disabled={busy} onClick={saveMeta}>Save Details</button>}
     {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy} onClick={()=>action('approve')}>Approve PO</button>}
     {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy} onClick={()=>action('send')}>Confirm Sent</button>}
+   </div>
+   {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary section" onClick={()=>navigate('receiving',active.id)}>Receive this order</button>}
+   <details className="section no-print"><summary>Document & Sharing Options</summary><div className="toolbar section">
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('png')}>Download PO PNG</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('share')}>Share PO Image + Caption</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={copy}>Copy</button>
     {(active.supplier?.whatsapp||active.supplier?.phone)&&<button className="btn" onClick={whatsapp}>Open Supplier WhatsApp</button>}
     <button className="btn" onClick={()=>navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs)).then(()=>flash('PO caption copied.')).catch(fail)}>Copy PO Caption</button>
-   </div>
-   <div className="notice section no-print"><b>Send purchase-order image + caption</b><p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||'Not configured / checking'} · Sending {gateway?.sendingEnabled?'enabled':'disabled'}. Gateway acceptance does not prove delivery. Confirm Sent only after checking WhatsApp.</p><div className="toolbar">{canEdit&&<><button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh PO WhatsApp Status</button><button className="btn primary" disabled={!linesReady||!shareReady||shareBusy||active.status!=='approved'||!gateway?.connected||!gateway?.sendingEnabled||Boolean(gateway?.dispatches?.length)} onClick={sendPoImage}>{shareBusy?'Preparing / sending…':'Send PO PNG + Caption'}</button></>}{gateway?.dispatches?.map(d=><span className="tiny" key={d.id}>Attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</span>)}</div><p className="muted tiny">Fallback: Share PO Image + Caption, choose WhatsApp and the supplier; or download PNG, open the supplier chat, attach the saved image and paste the copied caption.</p></div>
+   </div></details>
+   <div className="notice section no-print"><b>Send purchase-order image + caption</b><p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||(gatewayLoading?'Checking connection…':'Not configured')} · Sending {gateway?.sendingEnabled?'enabled':'disabled'}. Gateway acceptance does not prove delivery. Confirm Sent only after checking WhatsApp.</p><div className="toolbar">{canEdit&&<><button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh PO WhatsApp Status</button><button className="btn primary" disabled={Boolean(sendBlock)} title={sendBlock||'Send to the saved supplier'} onClick={sendPoImage}>{shareBusy?'Preparing / sending…':'Send PO PNG + Caption'}</button></>}{gateway?.dispatches?.map(d=><span className="tiny" key={d.id}>Attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</span>)}</div>{sendBlock&&<p role="status" className="muted tiny">{sendBlock}</p>}<p className="muted tiny">Fallback: Share PO Image + Caption, choose WhatsApp and the supplier; or download PNG, open the supplier chat, attach the saved image and paste the copied caption.</p></div>
   </>}</div>
  </div>
  </>
@@ -274,11 +288,16 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
  </div>
 }
 
-export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function Receiving({initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const canReceive=can('receiving.manage')
  const[pos,setPos]=useState([]),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[cases,setCases]=useState([])
  const rejectionEnabled=features.find(x=>x.feature_key==='receiving.rejection_followup')?.enabled!==false
- const receiptKeys=useRef(new Map())
+ const receiptKeys=useRef(new Map()),draftOwner=useRef(null)
+ const[search,setSearch]=useState(''),[showCompleted,setShowCompleted]=useState(false),[draftReady,setDraftReady]=useState(false),[draftStatus,setDraftStatus]=useState(''),[attempt,setAttempt]=useState(null)
+ const draftKey=poId?'gh_receiving_draft_v1:'+profile.id+':'+poId:null
+ const visibleLines=lines.filter(l=>(showCompleted||remainingDelivery(l)>0)&&[l.item?.description,l.item?.size,l.item?.item_code].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
+ useEffect(()=>{if(initialFilter&&pos.some(p=>p.id===initialFilter))setPoId(initialFilter)},[initialFilter,pos])
+ useEffect(()=>{if(!draftReady||!draftKey||draftOwner.current!==draftKey)return;try{localStorage.setItem(draftKey,JSON.stringify({vals,notes,receiptKey:receiptKeys.current.get(poId)||null,attempt}));setDraftStatus('Saved on this device')}catch{setDraftStatus('Could not save draft on this device. Keep this screen open.')}},[vals,notes,attempt,draftReady,draftKey,poId])
 
  const loadPos=useCallback(async()=>{try{
   const promises=[allRows(()=>supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['sent','partially_received']).order('created_at',{ascending:false}).order('id'))]
@@ -288,19 +307,19 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
   if(data[1]){if(data[1].error)throw data[1].error;setCases(data[1].data||[])}
  }catch(e){fail(e)}},[fail,rejectionEnabled,can])
  useEffect(()=>{loadPos()},[loadPos])
- useEffect(()=>{let cancelled=false;setLines([]);setVals({});if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(description,size,uom),grn:proc_grn_lines(accepted_qty)').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);setVals(Object.fromEntries(data.map(x=>[x.id,{received:'',accepted:'',rejected:'0',reason:''}])))})();return()=>{cancelled=true}},[poId,fail])
+ useEffect(()=>{let cancelled=false;setLines([]);setVals({});setDraftReady(false);setAttempt(null);setNotes('');if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status))').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);let saved=null;try{saved=JSON.parse(localStorage.getItem('gh_receiving_draft_v1:'+profile.id+':'+poId)||'null')}catch{};setVals(Object.fromEntries(data.map(x=>[x.id,saved?.vals?.[x.id]||{received:'',accepted:'',rejected:'0',reason:''}])));setNotes(saved?.notes||'');if(saved?.receiptKey)receiptKeys.current.set(poId,saved.receiptKey);setAttempt(saved?.attempt||null);draftOwner.current='gh_receiving_draft_v1:'+profile.id+':'+poId;setDraftReady(true)})();return()=>{cancelled=true}},[poId,profile.id,fail])
 
- const already=l=>(l.grn||[]).reduce((s,x)=>s+Number(x.accepted_qty||0),0)
- const remaining=l=>Math.max(Number(l.qty||0)-already(l),0)
+ const already=l=>(l.grn||[]).filter(g=>!g.receipt||g.receipt.status==='posted').reduce((s,x)=>s+Number(x.accepted_qty||0),0)
+ const remaining=remainingDelivery
  const isFull=l=>{const v=vals[l.id]||{},rem=remaining(l);return rem>0&&Number(v.received||0)===rem&&Number(v.accepted||0)===rem&&Number(v.rejected||0)===0}
  function setFull(l,on){const rem=remaining(l);setVals(x=>({...x,[l.id]:on?{...x[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}:{...x[l.id],received:'',accepted:'',rejected:'0',reason:''}}))}
- function setAllFull(){setVals(x=>{const next={...x};for(const l of lines){const rem=remaining(l);if(rem>0)next[l.id]={...next[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}}return next})}
+ function setAllFull(){setVals(x=>{const next={...x};for(const l of visibleLines){const rem=remaining(l);if(rem>0)next[l.id]={...next[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}}return next})}
 
  async function post(){
   if(!canReceive||busy)return
   const po=pos.find(x=>x.id===poId);if(!po)return fail(new Error(t('validation.select_po','Select a purchase order.')))
   if(lines.some(l=>['received','accepted','rejected'].some(k=>{const v=vals[l.id]?.[k];return v!==undefined&&v!==''&&(!Number.isFinite(Number(v))||Number(v)<0)})))return fail(new Error('Receiving quantities must be finite, non-negative numbers.'))
-  const payload=lines.filter(l=>Number(vals[l.id]?.received||0)>0||Number(vals[l.id]?.accepted||0)>0||Number(vals[l.id]?.rejected||0)>0).map(l=>({po_line_id:l.id,received_qty:Number(vals[l.id]?.received||0),accepted_qty:Number(vals[l.id]?.accepted||0),rejected_qty:Number(vals[l.id]?.rejected||0),rejection_reason:vals[l.id]?.reason||null}))
+  const payload=attempt?.lines||lines.filter(l=>Number(vals[l.id]?.received||0)>0||Number(vals[l.id]?.accepted||0)>0||Number(vals[l.id]?.rejected||0)>0).map(l=>({po_line_id:l.id,received_qty:Number(vals[l.id]?.received||0),accepted_qty:Number(vals[l.id]?.accepted||0),rejected_qty:Number(vals[l.id]?.rejected||0),rejection_reason:vals[l.id]?.reason||null}))
   if(!payload.length)return fail(new Error(t('validation.receive_one','Enter at least one received quantity.')))
   for(const x of payload){
    if(x.received_qty<0||x.accepted_qty<0||x.rejected_qty<0||x.accepted_qty+x.rejected_qty>x.received_qty)return fail(new Error(t('validation.receive_math','Accepted + rejected must not exceed received quantity, and quantities cannot be negative.')))
@@ -309,11 +328,15 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
   if(!confirm(t('confirm.post_receipt','Post this goods receipt? Accepted quantities will immediately update stock.')))return
   setBusy(true)
   if(!receiptKeys.current.has(po.id))receiptKeys.current.set(po.id,globalThis.crypto.randomUUID())
-  const r=await supabase.rpc('proc_receive_po_v3',{p_po_id:po.id,p_receipt_key:receiptKeys.current.get(po.id),p_lines:payload,p_notes:notes||null})
+  const pending=attempt||{lines:payload,notes:notes||null};setAttempt(pending)
+  // Persist the exact retry key and payload before the request leaves this browser.
+  try{localStorage.setItem(draftKey,JSON.stringify({vals,notes,receiptKey:receiptKeys.current.get(po.id),attempt:pending}))}catch{}
+  let r;try{r=await supabase.rpc('proc_receive_po_v3',{p_po_id:po.id,p_receipt_key:receiptKeys.current.get(po.id),p_lines:pending.lines,p_notes:pending.notes})}catch(e){setBusy(false);fail(new Error('Receipt result unknown. Retry the same saved receipt; do not enter it again.'));return}
   setBusy(false)
-  if(r.error)return fail(r.error)
+  if(r.error){if(['P0001','42501','23514','22P02'].includes(r.error.code)){setAttempt(null);receiptKeys.current.delete(po.id)}return fail(r.error)}
   flash(r.data.grn_no+(r.data.replayed?' already posted — duplicate retry ignored.':' posted. Stock and reconciliation updated.'))
-  receiptKeys.current.delete(po.id)
+  try{localStorage.removeItem(draftKey)}catch{}
+  setDraftReady(false);setAttempt(null);receiptKeys.current.delete(po.id)
   setPoId('');setLines([]);setVals({});setNotes('');loadPos()
  }
 
@@ -330,12 +353,12 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
 
  const show=k=>fieldEnabled(fields,'receiving',k)
  const label=(k,v)=>fieldLabel(fields,'receiving',k,v)
- return <div className="stack">
+ return <div className="stack"><ProcurementPath active={8} t={t}/>
   <div className="card pad">
-   <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Accepted stock is retry-safe and cannot exceed the outstanding PO quantity. Rejected quantities create follow-up cases automatically.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!lines.length} onClick={setAllFull}>✓ Mark All Remaining Received</button><button className="btn primary" disabled={busy||!lines.length} onClick={post}>{busy?'Posting…':'Post GRN'}</button></div>}</div>
+   <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Accepted stock is retry-safe and cannot exceed the outstanding PO quantity. Rejected quantities create follow-up cases automatically.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!visibleLines.length||busy||Boolean(attempt)} onClick={setAllFull}>✓ Mark All Remaining Received</button><button className="btn primary" disabled={busy||!lines.length} onClick={post}>{busy?'Posting…':'Post GRN'}</button></div>}</div>
    <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><select aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>setPoId(e.target.value)}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</select></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>
-   {lines.length>0&&<><div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>✓ Full</th>{show('description')&&<th>Item</th>}{show('ordered_qty')&&<th>Ordered</th>}{show('previously_accepted')&&<th>Previously Accepted</th>}{show('received_qty')&&<th>Received Now</th>}{show('accepted_qty')&&<th>Accepted</th>}{show('rejected_qty')&&<th>Rejected</th>}{show('rejection_reason')&&<th>Reason</th>}</tr></thead><tbody>{lines.map(l=>{const v=vals[l.id]||{};return <tr key={l.id}><td className="center"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/></td>{show('description')&&<td><strong>{itemTitle(l.item||{})}</strong></td>}{show('ordered_qty')&&<td>{qty(l.qty)}</td>}{show('previously_accepted')&&<td>{qty(already(l))}<div className="muted tiny">Remaining {qty(remaining(l))}</div></td>}{show('received_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,received:e.target.value}}))}/></td>}{show('accepted_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,accepted:e.target.value}}))}/></td>}{show('rejected_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,rejected:e.target.value}}))}/></td>}{show('rejection_reason')&&<td><input className="input" disabled={!canReceive} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,reason:e.target.value}}))}/></td>}</tr>})}</tbody></table></div>
-   <div className="mobile-card-list">{lines.map(l=>{const v=vals[l.id]||{};return <div className="mobile-data-card" key={l.id}><div className="stock-card-title"><strong>{itemTitle(l.item||{})}</strong><label className="receive-full-check"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/> ✓ Full</label></div><div className="muted tiny">Ordered {qty(l.qty)} · Accepted {qty(already(l))} · Remaining {qty(remaining(l))}</div><div className="formgrid section">{show('received_qty')&&<div className="field"><label>Received</label><input className="input" inputMode="decimal" disabled={!canReceive} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,received:e.target.value}}))}/></div>}{show('accepted_qty')&&<div className="field"><label>Accepted</label><input className="input" inputMode="decimal" disabled={!canReceive} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,accepted:e.target.value}}))}/></div>}{show('rejected_qty')&&<div className="field"><label>Rejected</label><input className="input" inputMode="decimal" disabled={!canReceive} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,rejected:e.target.value}}))}/></div>}{show('rejection_reason')&&<div className="field"><label>Reason</label><input className="input" disabled={!canReceive} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,reason:e.target.value}}))}/></div>}</div></div>})}</div></>}
+   {lines.length>0&&<><div className="sticky-work-search section"><input aria-label="Search receiving items" className="input" placeholder="Search item, size or code" value={search} onChange={e=>setSearch(e.target.value)}/><label className="checkline"><input type="checkbox" checked={showCompleted} onChange={e=>setShowCompleted(e.target.checked)}/>Show completed lines</label><p className="muted tiny">{visibleLines.length} shown · {lines.filter(l=>remaining(l)>0).length} awaiting delivery · {draftStatus}</p>{attempt&&<p role="status">A receipt attempt is saved. Post GRN retries that exact receipt safely; quantities stay locked until its result is resolved.</p>}</div><div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>✓ Full</th>{show('description')&&<th>Item</th>}{show('ordered_qty')&&<th>Ordered</th>}{show('previously_accepted')&&<th>Previously Accepted</th>}{show('received_qty')&&<th>Received Now</th>}{show('accepted_qty')&&<th>Accepted</th>}{show('rejected_qty')&&<th>Rejected</th>}{show('rejection_reason')&&<th>Reason</th>}</tr></thead><tbody>{visibleLines.map(l=>{const v=vals[l.id]||{};return <tr key={l.id}><td className="center"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||busy||Boolean(attempt)||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/></td>{show('description')&&<td><strong>{itemTitle(l.item||{})}</strong></td>}{show('ordered_qty')&&<td>{qty(l.qty)}</td>}{show('previously_accepted')&&<td>{qty(already(l))}<div className="muted tiny">Remaining {qty(remaining(l))}</div></td>}{show('received_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'received',e.target.value)}))}/></td>}{show('accepted_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'accepted',e.target.value)}))}/></td>}{show('rejected_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'rejected',e.target.value)}))}/></td>}{show('rejection_reason')&&<td><input className="input" disabled={!canReceive||busy||Boolean(attempt)} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'reason',e.target.value)}))}/></td>}</tr>})}</tbody></table></div>
+   <div className="mobile-card-list">{visibleLines.map(l=>{const v=vals[l.id]||{};return <div className="mobile-data-card" key={l.id}><div className="stock-card-title"><strong>{itemTitle(l.item||{})}</strong><label className="receive-full-check"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||busy||Boolean(attempt)||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/> ✓ Full</label></div><div className="muted tiny">Ordered {qty(l.qty)} · Cancelled {qty(l.cancelled_qty)} · Accepted {qty(already(l))} · Remaining {qty(remaining(l))}</div><div className="formgrid section">{show('received_qty')&&<div className="field"><label>Received</label><input className="input" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'received',e.target.value)}))}/></div>}{show('accepted_qty')&&<div className="field"><label>Accepted</label><input className="input" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'accepted',e.target.value)}))}/></div>}<details className="wide"><summary>Damage / rejection details</summary>{show('rejected_qty')&&<div className="field"><label>Rejected</label><input className="input" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'rejected',e.target.value)}))}/></div>}{show('rejection_reason')&&<div className="field"><label>Reason</label><input className="input" disabled={!canReceive||busy||Boolean(attempt)} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'reason',e.target.value)}))}/></div>}</details></div></div>})}</div></>}
   </div>
 
   {rejectionEnabled&&can('receiving.view')&&<div className="card pad"><div className="sectionhead"><div><h3>Rejected Goods Follow-up</h3><p>Every rejected GRN quantity remains open until it is returned, replaced, credited or deliberately closed.</p></div><Badge>{cases.length} open</Badge></div>{cases.length===0?<Empty>No unresolved rejected goods.</Empty>:<div className="stack section">{cases.map(c=><div className="mobile-data-card" key={c.id}><div className="stock-card-title"><div><strong>{itemTitle(c)}</strong><div className="muted tiny">{c.grn_no} · {c.po_no} · {c.supplier_name}</div></div><Badge>{c.status}</Badge></div><div className="stock-mobile-grid"><div><span>Rejected</span><b>{qty(c.rejected_qty)}</b></div><div><span>Reason</span><b>{c.rejection_reason||'—'}</b></div><div><span>Due</span><b>{c.due_date||'—'}</b></div><div><span>Reference</span><b>{c.reference_no||'—'}</b></div></div>{canReceive&&<div className="toolbar section"><button className="btn small" onClick={()=>resolveCase(c,'returned_to_supplier')}>Returned</button><button className="btn small" onClick={()=>resolveCase(c,'replacement_requested')}>Request Replacement</button><button className="btn small" onClick={()=>resolveCase(c,'credit_note_requested')}>Request Credit Note</button><button className="btn small good" onClick={()=>resolveCase(c,'replacement_received')}>Replacement Received</button><button className="btn small good" onClick={()=>resolveCase(c,'credit_note_received')}>Credit Note Received</button>{canReceive&&<button className="btn small" onClick={()=>resolveCase(c,'accept_loss')}>Accept Loss</button>}</div>}</div>)}</div>}</div>}

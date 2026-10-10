@@ -11,11 +11,15 @@ import {InfoButton} from './help-ui'
 
 export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
+ const[loadState,setLoadState]=useState({})
+ const loadSerial=useRef(0)
  const[overdueOpen,setOverdueOpen]=useState(false)
  const destinations={active_items:['items',''],open_requirements:['requirements','all'],still_to_order:['requirements','to_order'],awaiting_receipt:['requirements','delivery'],open_pos:['po','open'],po_value:['po','non_cancelled'],invoice_variances:['invoices','variance'],stock_due:['stock','due'],urgent_actions:['urgent_actions','']}
  const load=useCallback(async()=>{try{
+  const serial=++loadSerial.current
+  setLoadState({summary:'loading',requirements:'loading',orders:'loading',rfq:'loading',po:'loading',stockDue:'loading',receiptVariance:'loading',urgent:'loading'})
   const today=businessDate()
-  const[a,b,c,e,f,g,h,i]=await Promise.all([
+  const tasks=[
    supabase.from('proc_v_dashboard').select('*').single(),
    supabase.from('proc_v_requirements').select('*').in('status',['open','quoting','partially_ordered','ordered','partially_received']).order('created_at',{ascending:false}).limit(8),
    supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['pending_approval','approved','sent','partially_received']).order('created_at',{ascending:false}).limit(6),
@@ -24,9 +28,9 @@ export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>fals
    supabase.from('proc_v_stock_check_due').select('item_id',{count:'exact',head:true}).eq('is_due',true),
    supabase.from('proc_v_receipt_reconciliation').select('po_line_id',{count:'exact',head:true}).gt('over_received_qty',0),
    supabase.from('proc_v_urgent_actions').select('action_id',{count:'exact',head:true})
-  ])
-  for(const x of[a,b,c,e,f,g,h,i])if(x.error)throw x.error
-  setD(a.data||{});setReq(b.data||[]);setPos(c.data||[]);setAlerts({rfq:e.count||0,po:f.count||0,stockDue:g.count||0,receiptVariance:h.count||0,urgent:i.count||0})
+  ]
+  const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent']
+  await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else setAlerts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
  }catch(e){fail(e)}},[fail])
  useEffect(()=>{load()},[load])
  const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
@@ -43,26 +47,29 @@ export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>fals
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
+  <div className="card pad section"><h3>Today's work</h3><div className="toolbar section">{canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>Review outstanding items</button>}{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq')}>Enter / compare prices</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','pending_approval')}>Approve orders</button>}{canNavigate('receiving')&&<button className="btn" onClick={()=>navigate('receiving')}>Receive deliveries</button>}<button className="btn small" onClick={load}>Refresh work queues</button></div></div>
   <div className="grid metrics">{cards.map(x=>{
    const key=x[0].slice('dashboard.'.length),target=destinations[key]
    const actionable=key==='overdue_actions'?(canNavigate('rfq')||canNavigate('po')):target&&canNavigate(target[0])
-   const content=<><div className="kicker">{t(x[0],x[1])}</div><div className="value num" id={x[0]+'-value'}>{x[2]??0}</div><div className="sub">{t(x[0]+'.sub',x[3])}</div></>
+   const source=key==='stock_due'?'stockDue':key==='urgent_actions'?'urgent':key==='overdue_actions'?(loadState.rfq==='error'||loadState.po==='error'?'error':loadState.rfq==='ready'&&loadState.po==='ready'?'overdue':'loading'):'summary'
+   const state=source==='overdue'?'ready':source==='error'||source==='loading'?source:loadState[source]
+   const content=<><div className="kicker">{t(x[0],x[1])}</div><div className="value num" id={x[0]+'-value'}>{state==='ready'?(x[2]??0):state==='error'?'Unavailable':'…'}</div><div className="sub">{t(x[0]+'.sub',x[3])}</div></>
    return actionable?<button type="button" className="card metric metric-link" key={x[0]} aria-label={t(x[0],x[1])} aria-describedby={x[0]+'-value'} aria-expanded={key==='overdue_actions'?overdueOpen:undefined} aria-controls={key==='overdue_actions'?'dashboard-overdue':undefined} onClick={()=>key==='overdue_actions'?setOverdueOpen(v=>!v):navigate(...target)}>{content}<span className="metric-action">{t('dashboard.view_details','View details')} →</span></button>:<div className="card metric" key={x[0]}>{content}</div>
   })}</div>
   {overdueOpen&&<div className="card pad section" id="dashboard-overdue"><h3>{t('dashboard.overdue_actions','Overdue actions')}</h3><div className="toolbar">{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq','overdue')}>{t('dashboard.overdue_rfqs','Overdue supplier requests')} · {alerts.rfq||0}</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','overdue')}>{t('dashboard.overdue_pos','Overdue purchase orders')} · {alerts.po||0}</button>}</div></div>}
   <div className="split section">
    <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.procurement_attention','Procurement attention')}</h3><p>{t('dashboard.procurement_attention_hint','Newest unresolved requirements')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
-    <DataTable columns={[
+    {loadState.requirements==='error'?<p role="alert">Requirements unavailable. Tap Refresh to retry.</p>:loadState.requirements!=='ready'?<p role="status">Loading requirements…</p>:<DataTable columns={[
      {key:'requirement_no',label:'Requirement'},
      {key:'description',label:'Item'},
      {key:'adjusted_qty',label:'Required',render:r=>qty(r.adjusted_qty)},
      {key:'remaining_to_order',label:'Still To Order',render:r=><b className="warn-text">{qty(r.remaining_to_order)}</b>},
      {key:'ordered_not_received',label:'Ordered Not Received',render:r=>qty(r.ordered_not_received)},
      {key:'status',label:'Status'}
-    ]} rows={req} mobileCards/>
+    ]} rows={req} mobileCards/>}
    </div>
    <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.po_pipeline','PO pipeline')}</h3><p>{t('dashboard.po_pipeline_hint','Approval and delivery status')}</p></div></div>
-    {pos.length?pos.map(x=><div className="card pad compact-record" style={{boxShadow:'none'}} key={x.id}><div><strong>{x.po_no}</strong><div className="muted tiny">{x.supplier?.name||'Supplier'}</div></div><div className="right"><Badge>{x.status}</Badge><div className="num record-value">{money(x.total)}</div></div></div>):<Empty/>}
+    {loadState.orders==='error'?<p role="alert">Orders unavailable. Tap Refresh to retry.</p>:loadState.orders!=='ready'?<p role="status">Loading orders…</p>:pos.length?pos.map(x=><button className="btn record-button compact-record" key={x.id} disabled={!canNavigate('po')} onClick={()=>navigate('po',x.id)}><div><strong>{x.po_no}</strong><div className="muted tiny">{x.supplier?.name||'Supplier'}</div></div><div className="right"><Badge>{x.status}</Badge><div className="num record-value">{money(x.total)}</div></div></button>):<Empty/>}
    </div>
   </div>
  </>
