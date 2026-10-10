@@ -4,6 +4,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
+import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
 import {allRows} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
@@ -12,6 +13,39 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
  const canEdit=can('procurement.orders.edit')
  const canApprove=can('procurement.orders.approve')
  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
+ const[shareFields,setShareFields]=useState(defaultPoShareFields),[shareReady,setShareReady]=useState(false),[shareBusy,setShareBusy]=useState(false),[linesReady,setLinesReady]=useState(false),[gateway,setGateway]=useState(null)
+ const settingsKey='gh_po_supplier_fields_v1:'+String(profile?.id||'anonymous')
+ useEffect(()=>{try{setShareFields(resolvePoShareFields(JSON.parse(localStorage.getItem(settingsKey)||'null')))}catch{setShareFields(defaultPoShareFields())}setShareReady(true)},[settingsKey])
+ function changeShareField(key,value){const next={...shareFields,[key]:value};setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{flash('Fields updated for this session; this browser could not save the preference.')}}
+ const shareArgs={po:active,lines,company,selection:shareFields}
+ async function refreshPoGateway(poId=active?.id){
+  setGateway(null)
+  if(!poId||!canEdit)return
+  try{const {data:{session}}=await supabase.auth.getSession();if(!session?.access_token)return
+   const response=await fetch('/api/integrations/whatsapp/po?poId='+encodeURIComponent(poId),{headers:{Authorization:'Bearer '+session.access_token}})
+   const result=await response.json();if(opening.currentPoId===poId)setGateway(response.ok?result:{error:result.error})
+  }catch{if(opening.currentPoId===poId)setGateway({error:'Could not check WhatsApp status.'})}
+ }
+ async function exportPo(type){if(!linesReady||shareBusy)return;setShareBusy(true)
+  try{if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer});else if(type==='share'){const result=await sharePurchaseOrderPng(shareArgs);flash(result.shared?'Image and caption handed to your share app. Confirm the supplier and tap Send.':'PNG downloaded. Open supplier chat, attach the image and paste the caption.')}else await downloadPurchaseOrderPng(shareArgs)}catch(e){if(e?.name!=='AbortError')fail(e)}finally{setShareBusy(false)}
+ }
+ async function sendPoImage(){
+  if(!active||!canEdit||shareBusy||!linesReady)return
+  if(active.status!=='approved')return fail(new Error('Approve this purchase order before sending.'))
+  if(!gateway?.connected||!gateway?.sendingEnabled)return fail(new Error('WhatsApp gateway must be linked and sending enabled. Use the PNG sharing fallback.'))
+  if(gateway.dispatches?.length)return fail(new Error('A send attempt already exists. Check WhatsApp and its audit status before any resend.'))
+  const edited=window.prompt('Caption for '+active.supplier?.name,buildPurchaseOrderCaption(shareArgs));if(edited===null)return
+  const caption=edited.trim();if(!caption||caption.length>2000)return fail(new Error('Caption must contain 1–2000 characters.'))
+  if(!window.confirm('Send this purchase-order image and caption to '+active.supplier?.name+' ('+(active.supplier?.whatsapp||active.supplier?.phone)+')?'))return
+  setShareBusy(true)
+  try{const png=await createPurchaseOrderPng(shareArgs);if(png.blob.size>4_500_000)throw new Error('Image is too large for WhatsApp gateway. Use PDF or fewer fields.')
+   const pngBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('Could not read PO image.'));reader.readAsDataURL(png.blob)})
+   const {data:{session}}=await supabase.auth.getSession();if(!session?.access_token)throw new Error('Sign in again before sending.')
+   const response=await fetch('/api/integrations/whatsapp/po',{method:'POST',headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},body:JSON.stringify({poId:active.id,pngBase64,caption})})
+   const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not send purchase-order image.')
+   flash('WhatsApp gateway accepted the PO image + caption. Check WhatsApp before confirming Sent.')
+  }catch(e){fail(e)}finally{setShareBusy(false);await refreshPoGateway(active.id)}
+ }
  const pageSize=100
  const opening=useRef(0)
  const load=useCallback(async()=>{
@@ -28,11 +62,11 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
 
  async function open(po){
   const request=++opening.current
-  setLines([])
+  opening.currentPoId=po.id;setLines([]);setLinesReady(false);setGateway(null);refreshPoGateway(po.id)
   setActive(po);setPoMeta({expected_date:po.expected_date||'',terms:po.terms||'',notes:po.notes||''})
   const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom)').eq('po_id',po.id).order('id'))
   if(request!==opening.current)return
-  if(r.error)fail(r.error);else setLines(r.data||[])
+  if(r.error)fail(r.error);else {setLines(r.data||[]);setLinesReady(true)}
  }
  async function saveMeta(){
   if(!active||!canEdit)return
@@ -58,16 +92,11 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
   load()
  }
  function copy(){
-  if(!active)return
-  navigator.clipboard.writeText([
-   'GENERAL HARDWARE',active.po_no,'Supplier: '+(active.supplier?.name||''),'',
-   ...lines.map(l=>`${itemTitle(l.item||{})} — ${qty(l.qty)} ${l.item?.uom||''} @ ${money(l.unit_price)}`),
-   active.freight_total?'Freight: '+money(active.freight_total):'',
-   '','TOTAL: '+money(active.total)
-  ].filter(Boolean).join('\n')).then(()=>flash('Purchase order copied for sharing.')).catch(fail)
+  if(!active||!linesReady)return
+  try{navigator.clipboard.writeText(buildPurchaseOrderText(shareArgs)).then(()=>flash('Purchase order copied with the selected fields.')).catch(fail)}catch(e){fail(e)}
  }
  function whatsapp(){
-  const url=whatsappUrl(active?.supplier?.whatsapp,`General Hardware — Purchase Order ${active?.po_no||''}\nTotal: ${money(active?.total)}\nPlease confirm availability and delivery.`)
+  const url=whatsappUrl(active?.supplier?.whatsapp||active?.supplier?.phone,'')
   if(!url)return fail(new Error(t('validation.no_whatsapp','This supplier has no valid WhatsApp number.')))
   window.open(url,'_blank','noopener,noreferrer')
  }
@@ -104,14 +133,19 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
    </div>
    <DataTable columns={poCols} rows={lines} mobileCards/>
    {fieldEnabled(fields,'po','total')&&<div className="document-total"><span>{fieldLabel(fields,'po','total','Total LKR')}</span><strong>{money(active.total)}</strong></div>}
+   <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print">
     {canEdit&&['pending_approval','approved','sent','partially_received'].includes(active.status)&&<button className="btn" disabled={busy} onClick={saveMeta}>Save Details</button>}
     {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy} onClick={()=>action('approve')}>Approve PO</button>}
     {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy} onClick={()=>action('send')}>Confirm Sent</button>}
-    <button className="btn" onClick={()=>exportPurchaseOrderPdf({po:active,lines,company,footer,fields})}>Download PDF</button>
-    <button className="btn" onClick={copy}>Copy</button>
-    {active.supplier?.whatsapp&&<button className="btn" onClick={whatsapp}>WhatsApp</button>}
+    <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>
+    <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('png')}>Download PO PNG</button>
+    <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('share')}>Share PO Image + Caption</button>
+    <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={copy}>Copy</button>
+    {(active.supplier?.whatsapp||active.supplier?.phone)&&<button className="btn" onClick={whatsapp}>Open Supplier WhatsApp</button>}
+    <button className="btn" onClick={()=>navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs)).then(()=>flash('PO caption copied.')).catch(fail)}>Copy PO Caption</button>
    </div>
+   <div className="notice section no-print"><b>Send purchase-order image + caption</b><p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||'Not configured / checking'} · Sending {gateway?.sendingEnabled?'enabled':'disabled'}. Gateway acceptance does not prove delivery. Confirm Sent only after checking WhatsApp.</p><div className="toolbar">{canEdit&&<><button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh PO WhatsApp Status</button><button className="btn primary" disabled={!linesReady||!shareReady||shareBusy||active.status!=='approved'||!gateway?.connected||!gateway?.sendingEnabled||Boolean(gateway?.dispatches?.length)} onClick={sendPoImage}>{shareBusy?'Preparing / sending…':'Send PO PNG + Caption'}</button></>}{gateway?.dispatches?.map(d=><span className="tiny" key={d.id}>Attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</span>)}</div><p className="muted tiny">Fallback: Share PO Image + Caption, choose WhatsApp and the supplier; or download PNG, open the supplier chat, attach the saved image and paste the copied caption.</p></div>
   </>}</div>
  </div>
  </>

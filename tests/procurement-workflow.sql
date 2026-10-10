@@ -112,7 +112,18 @@ begin
 
  for row_po in select (x->>'po_id')::uuid as id from jsonb_array_elements(result) x loop
   test_po_id:=row_po.id;
+  failure:=null;
+  begin perform public.proc_whatsapp_claim_po_dispatch(test_po_id,'default',repeat('b',64),'Unapproved PO fixture');exception when others then failure:=sqlerrm;end;
+  if failure is null then raise exception 'Unapproved PO dispatch accepted';end if;
   perform public.proc_approve_po_v2(test_po_id);
+  dispatch_id:=public.proc_whatsapp_claim_po_dispatch(test_po_id,'default',repeat('b',64),'PO fixture; no gateway contacted');
+  if (select supplier_id from public.proc_whatsapp_po_dispatches where id=dispatch_id)<>(select supplier_id from public.proc_purchase_orders where id=test_po_id)then raise exception 'PO recipient mismatch';end if;
+  failure:=null;
+  begin perform public.proc_whatsapp_claim_po_dispatch(test_po_id,'default',repeat('b',64),'Duplicate PO fixture');exception when unique_violation then failure:=sqlerrm;end;
+  if failure is null then raise exception 'Duplicate PO dispatch accepted';end if;
+  if not public.proc_whatsapp_finish_po_dispatch(dispatch_id,'accepted','fixture-po-message',null)then raise exception 'PO audit finish failed';end if;
+  if public.proc_whatsapp_finish_po_dispatch(dispatch_id,'unknown',null,'rewrite')then raise exception 'Completed PO audit overwritten';end if;
+  insert into certification_results values('PO dispatch: approved-only, saved recipient, unique claim and immutable finish',true);
   perform public.proc_mark_po_sent_v2(test_po_id);
   select id,item_id into strict line_id,test_item_id from public.proc_po_lines where po_id=test_po_id;
   failure:=null;
