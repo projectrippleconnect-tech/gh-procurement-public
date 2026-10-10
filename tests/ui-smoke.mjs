@@ -235,8 +235,12 @@ try{
     await page.locator('.award-review').waitFor()
     assert.equal(await page.getByLabel('Award quantity for '+item.description+' · '+item.size,{exact:true}).inputValue(),'10','A one-quote item reaches the final quantity review')
     assert.ok(!queries.some(u=>u.pathname.endsWith('/proc_finalize_award_plan_v2')),'Opening the review does not create purchase orders')
+    const reviewDimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
+    assert.ok(reviewDimensions.scroll<=reviewDimensions.width+1,'Supplier order review overflows at '+width+': '+JSON.stringify(reviewDimensions))
     await page.locator('.award-review').getByRole('button',{name:'Close',exact:true}).click()
 
+    const editableDimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
+    assert.ok(editableDimensions.scroll<=editableDimensions.width+1,'Editable RFQ overflows at '+width+': '+JSON.stringify(editableDimensions))
     await page.screenshot({path:'test-results/'+width+'-RFQ-added-supplier.png',fullPage:true})
     grantedPermissions=permissions.filter(p=>p!=='procurement.rfq.manage')
     await page.reload()
