@@ -182,6 +182,13 @@ try{
    await page.screenshot({path:'test-results/'+width+'-'+heading.replaceAll(' ','-')+'.png',fullPage:true})
    const dimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
    assert.ok(dimensions.scroll<=dimensions.width+1,heading+' overflows at '+width+': '+JSON.stringify(dimensions))
+   const clipped=await page.locator('button').evaluateAll(buttons=>buttons.filter(button=>{
+    if(!button.getClientRects().length||button.closest('.tablewrap')||getComputedStyle(button).visibility==='hidden')return false
+    const rect=button.getBoundingClientRect()
+    return rect.left < -1 || rect.right > window.innerWidth+1
+   }).map(button=>button.textContent.trim()))
+   assert.deepEqual(clipped,[],heading+' has clipped buttons at '+width)
+
   }
   grantedPermissions=['dashboard.view','invoices.view']
   await page.reload()
