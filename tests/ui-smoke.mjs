@@ -164,7 +164,8 @@ try{
    await navigate('⌂ Home')
   }
   for(const [button,heading,table,field] of [['Overdue supplier requests','RFQs & Quotes','proc_rfqs','due_date'],['Overdue purchase orders','Orders','proc_purchase_orders','expected_date']]){
-   await page.getByRole('button',{name:'Overdue actions',exact:true}).click()
+   const overdueToggle=page.getByRole('button',{name:'Overdue actions',exact:true})
+   if(await overdueToggle.getAttribute('aria-expanded')!=='true')await overdueToggle.click()
    queries.length=0
    await page.getByRole('button',{name:new RegExp('^'+button)}).click()
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
