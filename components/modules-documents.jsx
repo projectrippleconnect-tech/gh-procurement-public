@@ -60,7 +60,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  },[filter,page,fail])
  useEffect(()=>{if(activeView==='po')load()},[load,activeView])
  useEffect(()=>{setPage(0)},[filter])
- useEffect(()=>{if(initialFilter&&rows.some(r=>r.id===initialFilter)&&active?.id!==initialFilter)void open(rows.find(r=>r.id===initialFilter))},[initialFilter,rows])
+ useEffect(()=>{if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter))return;let cancelled=false;(async()=>{const r=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',initialFilter).single();if(cancelled)return;if(r.error)return fail(r.error);void open(r.data)})();return()=>{cancelled=true}},[initialFilter,fail])
 
  async function open(po){
   const request=++opening.current
