@@ -4,7 +4,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
-import {allRows} from '@/lib/query-pages'
+import {allRows,containsAny} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -305,7 +305,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
   if(!coverageSupplier||scopeType!=='item'||itemSearch.trim().length<2){setItemResults([]);return}
   const t=setTimeout(async()=>{
    const term=itemSearch.trim()
-   const r=await supabase.from('proc_items').select('id,item_code,description,size,category').eq('active',true).or('description.ilike.%'+term+'%,item_code.ilike.%'+term+'%,size.ilike.%'+term+'%').order('description').limit(20)
+   const r=await supabase.from('proc_items').select('id,item_code,description,size,category').eq('active',true).or(containsAny(['description','item_code','size'],term)).order('description').limit(20)
    if(r.error)return fail(r.error)
    setItemResults(r.data||[])
   },180)

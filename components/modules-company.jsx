@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {allRows} from '@/lib/query-pages'
+import {allRows,containsAny} from '@/lib/query-pages'
 import {businessDate,money,qty} from '@/lib/helpers'
 import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -102,7 +102,7 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
 
  useEffect(()=>{
   if(!canManage||itemSearch.trim().length<2){setItemResults([]);return}
-  const t=setTimeout(async()=>{const term=itemSearch.trim();const r=await supabase.from('proc_items').select('id,item_code,description,size,uom,category').eq('active',true).or('description.ilike.%'+term+'%,item_code.ilike.%'+term+'%,size.ilike.%'+term+'%').order('description').limit(20);if(r.error)fail(r.error);else setItemResults(r.data||[])},180)
+  const t=setTimeout(async()=>{const term=itemSearch.trim();const r=await supabase.from('proc_items').select('id,item_code,description,size,uom,category').eq('active',true).or(containsAny(['description','item_code','size'],term)).order('description').limit(20);if(r.error)fail(r.error);else setItemResults(r.data||[])},180)
   return()=>clearTimeout(t)
  },[itemSearch,canManage,fail])
 
