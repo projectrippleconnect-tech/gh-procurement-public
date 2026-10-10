@@ -53,6 +53,22 @@ begin
  perform public.proc_mark_rfq_supplier_sent_v1(test_rfq_id,sb);
  insert into certification_results values('2: approval, prepared RFQ and explicit sent confirmation',true);
 
+ execute 'reset role';
+ update public.proc_rfqs set status='cancelled' where id=test_rfq_id;
+ execute 'set local role authenticated';
+ failure:=null;
+ begin perform public.proc_save_quote_v3(test_rfq_id,sa,'CANCELLED',jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'unit_price',100,'available_qty',10)));
+ exception when others then failure:=sqlerrm; end;
+ if failure is null or failure not like '%Cannot edit quotations%' then raise exception 'Cancelled RFQ reopened: %',failure; end if;
+ execute 'reset role';
+ update public.proc_rfqs set status='sent' where id=test_rfq_id;
+ execute 'set local role authenticated';
+ failure:=null;
+ begin perform public.proc_save_quote_v3(test_rfq_id,sa,'NAN',jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'unit_price','NaN','available_qty',10)));
+ exception when numeric_value_out_of_range then failure:=sqlerrm; end;
+ if failure is null then raise exception 'NaN quotation accepted'; end if;
+ insert into certification_results values('security: cancelled RFQ stays closed and non-finite quotes are rejected',true);
+
  perform public.proc_save_quote_v3(test_rfq_id,sa,'CERT-A',jsonb_build_array(
   jsonb_build_object('rfq_item_id',ria,'unit_price',100,'available_qty',10),
   jsonb_build_object('rfq_item_id',rib,'unit_price',210,'available_qty',10)));
@@ -72,6 +88,11 @@ begin
  begin perform public.proc_finalize_award_plan_v2(test_rfq_id,jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'quote_line_id',qa,'qty',10)));
  exception when others then failure:=sqlerrm; end;
  if failure is null then raise exception 'RFQ awarded twice'; end if;
+ if (select open_pos from public.proc_v_dashboard)<>(select count(*) from public.proc_purchase_orders where status in ('pending_approval','approved','sent','partially_received')) then raise exception 'Dashboard open PO count mismatch'; end if;
+ failure:=null;
+ begin perform public.proc_save_quote_v3(test_rfq_id,sa,'AWARDED',jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'unit_price',1,'available_qty',10)));
+ exception when others then failure:=sqlerrm; end;
+ if failure is null or failure not like '%Cannot edit quotations%' then raise exception 'Awarded RFQ quotation edit accepted'; end if;
  insert into certification_results values('3: per-item best prices, supplier POs, totals and duplicate award blocked',true);
 
  for row_po in select (x->>'po_id')::uuid as id from jsonb_array_elements(result) x loop
@@ -84,6 +105,20 @@ begin
    jsonb_build_object('po_line_id',line_id,'received_qty',1,'accepted_qty',0,'rejected_qty',1)));
   exception when others then failure:=sqlerrm; end;
   if failure is null or failure not like '%rejection reason%' then raise exception 'Unexplained rejection accepted: %',failure; end if;
+  failure:=null;
+  begin perform public.proc_receive_po_v3(test_po_id,gen_random_uuid(),jsonb_build_array(jsonb_build_object('po_line_id',line_id,'received_qty','NaN','accepted_qty',0,'rejected_qty',0)));
+  exception when numeric_value_out_of_range then failure:=sqlerrm; end;
+  if failure is null then raise exception 'NaN receiving accepted'; end if;
+  failure:=null;
+  begin perform public.proc_receive_po_v3(test_po_id,gen_random_uuid(),jsonb_build_array(
+   jsonb_build_object('po_line_id',line_id,'received_qty',10,'accepted_qty',10),
+   jsonb_build_object('po_line_id',line_id,'received_qty',10,'accepted_qty',10)));
+  exception when others then failure:=sqlerrm; end;
+  if failure is distinct from 'Each purchase order line may appear only once per receipt' then raise exception 'Duplicate receiving line accepted'; end if;
+  failure:=null;
+  begin perform public.proc_receive_po_v3(test_po_id,gen_random_uuid(),jsonb_build_array(jsonb_build_object('po_line_id',line_id,'received_qty',11,'accepted_qty',11)));
+  exception when others then failure:=sqlerrm; end;
+  if failure is null or failure not like '%outstanding ordered%' then raise exception 'Excess receipt accepted'; end if;
   receipt_key:=gen_random_uuid();
   replay:=public.proc_receive_po_v3(test_po_id,receipt_key,jsonb_build_array(
    jsonb_build_object('po_line_id',line_id,'received_qty',10,'accepted_qty',10,'rejected_qty',0)));
@@ -92,6 +127,16 @@ begin
   if replay->>'replayed'<>'true' then raise exception 'Receiving replay not idempotent'; end if;
   select qty into strict accepted from public.proc_stock_balances where item_id=test_item_id;
   if accepted<>20 then raise exception 'Stock posted incorrectly: %',accepted; end if;
+  failure:=null;
+  begin perform public.proc_create_invoice_v4(test_po_id,'DUP-'||test_po_id,jsonb_build_array(
+   jsonb_build_object('po_line_id',line_id,'qty',10,'unit_price',100),
+   jsonb_build_object('po_line_id',line_id,'qty',10,'unit_price',100)));
+  exception when others then failure:=sqlerrm; end;
+  if failure is distinct from 'Each purchase order line may appear only once per invoice' then raise exception 'Duplicate invoice line accepted'; end if;
+  failure:=null;
+  begin perform public.proc_create_invoice_v4(test_po_id,'NAN-'||test_po_id,jsonb_build_array(jsonb_build_object('po_line_id',line_id,'qty',1,'unit_price','NaN')));
+  exception when numeric_value_out_of_range then failure:=sqlerrm; end;
+  if failure is null then raise exception 'NaN invoice accepted'; end if;
   replay:=public.proc_create_invoice_v4(test_po_id,'CERT-'||test_po_id,jsonb_build_array(
    jsonb_build_object('po_line_id',line_id,'qty',10,'unit_price',case when test_item_id=a then 100 else 200 end)));
   if replay->>'status'<>'matched' then raise exception 'Three-way match failed: %',replay; end if;

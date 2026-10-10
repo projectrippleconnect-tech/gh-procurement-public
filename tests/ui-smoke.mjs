@@ -18,7 +18,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['dashboard.view','urgent.view','invoices.view','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
+ const permissions=['dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -31,10 +31,11 @@ try{
  const newSupplier={...supplier,id:'00000000-0000-4000-8000-000000000010',name:'Newly registered supplier'}
  const rfq={id:'00000000-0000-4000-8000-000000000006',rfq_no:'RFQ-FIXTURE',status:'prepared',due_date:'2099-01-01'}
  const po={id:'00000000-0000-4000-8000-000000000007',po_no:'PO-FIXTURE',supplier_id:supplier.id,supplier,status:'sent',total:1000,po_date:'2099-01-01'}
+ const otherPo={...po,id:'00000000-0000-4000-8000-000000000011',po_no:'PO-SECOND'}
  for(const width of [320,390,768,1366]){
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  const errors=[],queries=[]
+  const errors=[],queries=[],receipts=[]
   let grantedPermissions=permissions
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('pageerror',e=>errors.push(e.message))
@@ -58,8 +59,10 @@ try{
     data={invitation,rfq_status:rfqStatus,added:true}
    }
    else if(name==='proc_rfq_items')data=[{id:'00000000-0000-4000-8000-000000000008',rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item},requested_qty:10,selected_for_po:true}]
-   else if(name==='proc_purchase_orders')data=[po]
-   else if(name==='proc_po_lines')data=[{id:'00000000-0000-4000-8000-000000000009',po_id:po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
+   else if(name==='proc_purchase_orders')data=[po,otherPo]
+   else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
+   else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
+   else if(name==='proc_po_lines')data=[{id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
@@ -141,6 +144,9 @@ try{
     addFailure=false
     await page.getByRole('button',{name:'Add to RFQ',exact:true}).click()
     await quoteSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
+    await page.evaluate(()=>{const channel=new BroadcastChannel('sb-huxhcjmcvlhblvpvrron-auth-token');channel.postMessage({event:'TOKEN_REFRESHED',session:JSON.parse(localStorage.getItem('sb-huxhcjmcvlhblvpvrron-auth-token'))});channel.close()})
+    await page.waitForTimeout(500)
+    assert.equal(await price.inputValue(),'123.45','Token refresh preserves unsaved quote input')
     assert.equal(await price.inputValue(),'123.45','Successful additions preserve the existing price draft')
     assert.equal(await quoteSelect.inputValue(),supplier.id,'Adding a supplier keeps the selected quotation')
     assert.equal(await newSelect.locator('option[value="'+newSupplier.id+'"]').count(),0,'Already invited suppliers cannot be selected again')
@@ -157,11 +163,32 @@ try{
     assert.equal(await page.getByRole('button',{name:'Add to RFQ',exact:true}).count(),0,'Read-only users cannot add suppliers')
     grantedPermissions=permissions
    }
+   if(heading==='Receive Goods'){
+    page.on('dialog',dialog=>dialog.accept())
+    const selector=page.getByLabel('Purchase Order',{exact:true})
+    for(const poId of [po.id,otherPo.id,po.id]){
+     await selector.selectOption(poId)
+     await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+     await page.getByRole('button',{name:'Post GRN',exact:true}).click()
+     await page.getByText('Fixture receipt retry',{exact:true}).waitFor()
+     await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Posting…'))
+     await page.waitForTimeout(100)
+    }
+    assert.equal(receipts.length,3,'Three receiving attempts were issued')
+    assert.notEqual(receipts[0].p_receipt_key,receipts[1].p_receipt_key,'Different POs get different receipt keys')
+    assert.equal(receipts[0].p_receipt_key,receipts[2].p_receipt_key,'Retrying the same PO reuses its receipt key')
+   }
    if(heading==='Orders')await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
    await page.screenshot({path:'test-results/'+width+'-'+heading.replaceAll(' ','-')+'.png',fullPage:true})
    const dimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
    assert.ok(dimensions.scroll<=dimensions.width+1,heading+' overflows at '+width+': '+JSON.stringify(dimensions))
   }
+  grantedPermissions=['dashboard.view','invoices.view']
+  await page.reload()
+  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+  await navigate('▤ Invoices')
+  await page.getByRole('button').filter({hasText:'INV-VARIANCE'}).click()
+  assert.equal(await page.getByRole('button',{name:'Record Variance Action',exact:true}).count(),0,'Invoice viewers cannot open variance editing')
   grantedPermissions=['dashboard.view']
   await page.reload()
   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()

@@ -4,6 +4,14 @@ export const money = (n: number | string | null | undefined) =>
 export const qty = (n: number | string | null | undefined) =>
   new Intl.NumberFormat('en-LK', { maximumFractionDigits: 3 }).format(Number(n || 0))
 
+export const businessDate = (date: Date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date)
+  const value = (key: string) => parts.find(p => p.type === key)?.value
+  return `${value('year')}-${value('month')}-${value('day')}`
+}
+
 export const stamp = () => {
   const d = new Date()
   const p = (v: number, l = 2) => String(v).padStart(l, '0')

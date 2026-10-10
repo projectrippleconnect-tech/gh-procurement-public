@@ -2,8 +2,9 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
+import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
+import {allRows} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 
@@ -12,11 +13,12 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
  const canApprove=can('procurement.orders.approve')
  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
  const pageSize=100
+ const opening=useRef(0)
  const load=useCallback(async()=>{
   let q=supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
   if(filter==='open')q=q.in('status',['pending_approval','approved','sent','partially_received'])
   else if(filter==='non_cancelled')q=q.neq('status','cancelled')
-  else if(filter==='overdue')q=q.lt('expected_date',new Date().toISOString().slice(0,10)).in('status',['sent','partially_received'])
+  else if(filter==='overdue')q=q.lt('expected_date',businessDate()).in('status',['sent','partially_received'])
   else if(filter!=='all')q=q.eq('status',filter)
   const r=await q
   if(r.error)fail(r.error);else{setRows(r.data||[]);setTotal(r.count||0)}
@@ -25,8 +27,11 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
  useEffect(()=>{setPage(0)},[filter])
 
  async function open(po){
+  const request=++opening.current
+  setLines([])
   setActive(po);setPoMeta({expected_date:po.expected_date||'',terms:po.terms||'',notes:po.notes||''})
-  const r=await supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom)').eq('po_id',po.id).order('id')
+  const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom)').eq('po_id',po.id).order('id'))
+  if(request!==opening.current)return
   if(r.error)fail(r.error);else setLines(r.data||[])
  }
  async function saveMeta(){
@@ -83,7 +88,7 @@ export function PurchaseOrders({initialFilter='',profile,fields,company,footer,f
  return <><ProcurementPath active={7} t={t}/><div className="split document-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>{t('documents.po_hint','Approval, supplier sharing and delivery tracking. Lists are explicitly paged instead of silently truncated.')}</p></div></div>
    <div className="filters two"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
-   <div className="stack section">{filtered.map(po=><button className={'btn record-button '+(active?.id===po.id?'active-record':'')} key={po.id} onClick={()=>open(po)}><div><strong>{po.po_no}</strong><div className="muted tiny">{po.supplier?.name} · {po.po_date}</div></div><div className="right"><Badge>{po.status}</Badge><div>{money(po.total)}</div></div></button>)}</div>
+   <div className="stack section">{filtered.map(po=><button className={'btn record-button '+(active?.id===po.id?'active-record':'')} key={po.id} disabled={busy} onClick={()=>open(po)}><div><strong>{po.po_no}</strong><div className="muted tiny">{po.supplier?.name} · {po.po_date}</div></div><div className="right"><Badge>{po.status}</Badge><div>{money(po.total)}</div></div></button>)}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} of {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>Next</button></div>
   </div>
   <div className="card pad">{!active?<Empty>Select a purchase order.</Empty>:<>
@@ -121,24 +126,25 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
  const pageSize=100
  const load=useCallback(async()=>{try{
   const[a,b]=await Promise.all([
-   supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['approved','sent','partially_received','received']).order('created_at',{ascending:false}),
+   allRows(()=>supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['approved','sent','partially_received','received']).order('created_at',{ascending:false}).order('id')),
    (invoiceFilter==='variance'?supabase.from('proc_supplier_invoices').select('*,supplier:proc_suppliers(name),po:proc_purchase_orders(po_no)',{count:'exact'}).eq('status','variance'):supabase.from('proc_supplier_invoices').select('*,supplier:proc_suppliers(name),po:proc_purchase_orders(po_no)',{count:'exact'})).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
   ])
   if(a.error)throw a.error;if(b.error)throw b.error;setPos(a.data||[]);setInvoices(b.data||[]);setInvoiceTotal(b.count||0)
  }catch(e){fail(e)}},[fail,page,invoiceFilter])
  useEffect(()=>{load()},[load])
- useEffect(()=>{if(!poId){setLines([]);setVals({});setReceiptMap({});return}(async()=>{
+ useEffect(()=>{let cancelled=false;setLines([]);setVals({});setReceiptMap({});if(!poId)return;(async()=>{
   const[a,b]=await Promise.all([
-   supabase.from('proc_po_lines').select('*,item:proc_items(description,size,uom)').eq('po_id',poId),
-   supabase.from('proc_v_invoiceable_po_lines').select('po_line_id,accepted_qty,invoiced_qty,invoiceable_qty').eq('po_id',poId)
+   allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(description,size,uom)').eq('po_id',poId).order('id')),
+   allRows(()=>supabase.from('proc_v_invoiceable_po_lines').select('po_line_id,accepted_qty,invoiced_qty,invoiceable_qty').eq('po_id',poId).order('po_line_id'))
   ])
+  if(cancelled)return
   if(a.error)return fail(a.error);if(b.error)return fail(b.error)
   setLines(a.data||[])
   setReceiptMap(Object.fromEntries((b.data||[]).map(x=>[x.po_line_id,{
    accepted:Number(x.accepted_qty||0),invoiced:Number(x.invoiced_qty||0),invoiceable:Number(x.invoiceable_qty||0)
   }])))
   setVals(Object.fromEntries((a.data||[]).map(x=>[x.id,{qty:'',price:'',discount:'',tax:''}])))
- })()},[poId,fail])
+ })();return()=>{cancelled=true}},[poId,fail])
 
  function sameAsPo(line){
   const available=Number(receiptMap[line.id]?.invoiceable||0)
@@ -156,10 +162,12 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
   const po=pos.find(x=>x.id===poId)
   if(!po||!invoice.trim())return fail(new Error(t('invoices.select_po_number','Select a PO and enter the supplier invoice number.')))
   if(!lines.length)return fail(new Error(t('invoices.no_lines','The selected purchase order has no lines.')))
+  if(lines.some(l=>{const v=vals[l.id]?.qty;return v!==undefined&&v!==''&&(!Number.isFinite(Number(v))||Number(v)<0)}))return fail(new Error('Invoice quantities must be finite, non-negative numbers.'))
   const invoiceLines=lines.filter(l=>vals[l.id]?.qty!==undefined&&vals[l.id]?.qty!==''&&Number(vals[l.id]?.qty)>0)
   if(!invoiceLines.length)return fail(new Error('Enter at least one invoiced quantity. Leave lines not on this supplier invoice blank.'))
   const incomplete=invoiceLines.some(l=>['price','discount','tax'].some(k=>vals[l.id]?.[k]===undefined||vals[l.id]?.[k]===''))
   if(incomplete)return fail(new Error('Complete price, discount and tax for each line included on this supplier invoice.'))
+  if(invoiceLines.some(l=>{const v=vals[l.id];return !Number.isFinite(Number(v.price))||Number(v.price)<0||['discount','tax'].some(k=>!Number.isFinite(Number(v[k]))||Number(v[k])<0||Number(v[k])>100)}))return fail(new Error('Enter a valid non-negative price and discount/tax percentages from 0 to 100.'))
   let path=null;setBusy(true)
   try{
    if(file){
@@ -175,7 +183,7 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
  }
 
  async function resolveVariance(){
-  if(!resolutionTarget)return
+  if(!canEdit||!resolutionTarget||busy)return
   if(resolutionAction==='credit_note_received'&&!creditNote.trim())return fail(new Error(t('invoices.credit_note','Enter the credit note number.')))
   setBusy(true)
   const r=await supabase.rpc('proc_resolve_invoice_variance_v1',{
@@ -195,7 +203,7 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
  return <div className="split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('invoices.matching','Invoice Matching')}</h3><p>{t('invoices.matching_hint','Three-way match checks Supplier Invoice ↔ Purchase Order ↔ posted GRN. Invoice values start blank to avoid confirmation bias.')}</p></div>{canEdit&&lines.length>0&&<button className="btn" onClick={allSameAsPo}>{t('invoices.same_all','Use GRN Qty + PO Price')}</button>}</div>
    {canEdit?<div className="stack">
-    <div className="field"><label>{label('purchase_order','Purchase Order')}</label><select className="select" value={poId} onChange={e=>setPoId(e.target.value)}><option value="">Select PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</select></div>
+    <div className="field"><label>{label('purchase_order','Purchase Order')}</label><select aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>setPoId(e.target.value)}><option value="">Select PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</select></div>
     <div className="field"><label>{label('invoice_no','Supplier Invoice Number')}</label><input className="input" value={invoice} onChange={e=>setInvoice(e.target.value)}/></div>
     {show('attachment')&&<div className="field"><label>{label('attachment','Invoice PDF / Image')}</label><input className="input" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>setFile(e.target.files?.[0]||null)}/></div>}
    </div>:<div className="notice">{t('invoices.read_only','Your role can review invoices but cannot create or modify them.')}</div>}
@@ -225,7 +233,7 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
 
   <div className="card pad"><div className="sectionhead"><div><h3>{t('invoices.supplier_invoices','Supplier Invoices')}</h3><p>{t('invoices.supplier_hint','Variance invoices have a tracked resolution lifecycle instead of a permanent red flag.')}</p></div></div>
    <select aria-label="Invoice status" className="select" value={invoiceFilter} onChange={e=>{setInvoiceFilter(e.target.value);setPage(0)}}><option value="all">All invoices</option><option value="variance">Invoice variances</option></select>
-   <div className="stack">{invoices.map(inv=><button className="btn record-button" key={inv.id} onClick={()=>inv.status==='variance'&&canResolve&&setResolutionTarget(inv)}><div><strong>{inv.invoice_no}</strong><div className="muted tiny">{inv.supplier?.name} · {inv.po?.po_no||'No PO'} · {inv.invoice_date}</div></div><div className="right"><Badge>{inv.status}</Badge>{inv.variance_resolution_status&&inv.variance_resolution_status!=='not_required'&&<Badge>{inv.variance_resolution_status}</Badge>}<div>{money(inv.total)}</div></div></button>)}</div>
+   <div className="stack">{invoices.map(inv=><button className="btn record-button" key={inv.id} onClick={()=>inv.status==='variance'&&canEdit&&canResolve&&setResolutionTarget(inv)}><div><strong>{inv.invoice_no}</strong><div className="muted tiny">{inv.supplier?.name} · {inv.po?.po_no||'No PO'} · {inv.invoice_date}</div></div><div className="right"><Badge>{inv.status}</Badge>{inv.variance_resolution_status&&inv.variance_resolution_status!=='not_required'&&<Badge>{inv.variance_resolution_status}</Badge>}<div>{money(inv.total)}</div></div></button>)}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{invoiceTotal?page*pageSize+1:0}–{Math.min((page+1)*pageSize,invoiceTotal)} {t('common.of','of')} {invoiceTotal}</span><button className="btn" disabled={(page+1)*pageSize>=invoiceTotal} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>
    {resolutionTarget&&<div className="card pad section variance-resolution"><div className="sectionhead"><div><h4>{t('invoices.resolve','Resolve')} {resolutionTarget.invoice_no}</h4><p>{t('invoices.current_status','Current status')}: {resolutionTarget.variance_resolution_status||'open'}</p></div><button className="btn small" onClick={()=>setResolutionTarget(null)}>{t('common.close','Close')}</button></div><div className="formgrid"><div className="field"><label>Action</label><select className="select" value={resolutionAction} onChange={e=>setResolutionAction(e.target.value)}><option value="request_revised_invoice">Request Revised Invoice</option><option value="request_credit_note">Request Credit Note</option><option value="credit_note_received">Credit Note Received</option><option value="dispute">Dispute</option>{canEdit&&<><option value="approve_difference">Approve Difference</option><option value="resolve">Resolve / Close</option><option value="reject">Reject Invoice</option></>}</select></div><div className="field"><label>Reference / Credit Note</label><input className="input" value={creditNote} onChange={e=>setCreditNote(e.target.value)}/></div><div className="field wide"><label>Resolution Notes</label><input className="input" value={resolutionNotes} onChange={e=>setResolutionNotes(e.target.value)}/></div></div><button className="btn primary section" disabled={busy} onClick={resolveVariance}>Record Variance Action</button></div>}
   </div>
@@ -236,17 +244,17 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
  const canReceive=can('receiving.manage')
  const[pos,setPos]=useState([]),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[cases,setCases]=useState([])
  const rejectionEnabled=features.find(x=>x.feature_key==='receiving.rejection_followup')?.enabled!==false
- const receiptKey=useRef(globalThis.crypto?.randomUUID?.()||('receipt-'+Date.now()))
+ const receiptKeys=useRef(new Map())
 
  const loadPos=useCallback(async()=>{try{
-  const promises=[supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['sent','partially_received']).order('created_at',{ascending:false})]
+  const promises=[allRows(()=>supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['sent','partially_received']).order('created_at',{ascending:false}).order('id'))]
   if(rejectionEnabled&&can('receiving.view'))promises.push(supabase.from('proc_v_rejection_cases').select('*').neq('status','resolved').order('created_at',{ascending:false}).limit(500))
   const data=await Promise.all(promises)
   if(data[0].error)throw data[0].error;setPos(data[0].data||[])
   if(data[1]){if(data[1].error)throw data[1].error;setCases(data[1].data||[])}
  }catch(e){fail(e)}},[fail,rejectionEnabled,can])
  useEffect(()=>{loadPos()},[loadPos])
- useEffect(()=>{if(!poId){setLines([]);setVals({});return}(async()=>{const r=await supabase.from('proc_po_lines').select('*,item:proc_items(description,size,uom),grn:proc_grn_lines(accepted_qty)').eq('po_id',poId);if(r.error)return fail(r.error);const data=r.data||[];setLines(data);setVals(Object.fromEntries(data.map(x=>[x.id,{received:'',accepted:'',rejected:'0',reason:''}])))})()},[poId,fail])
+ useEffect(()=>{let cancelled=false;setLines([]);setVals({});if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(description,size,uom),grn:proc_grn_lines(accepted_qty)').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);setVals(Object.fromEntries(data.map(x=>[x.id,{received:'',accepted:'',rejected:'0',reason:''}])))})();return()=>{cancelled=true}},[poId,fail])
 
  const already=l=>(l.grn||[]).reduce((s,x)=>s+Number(x.accepted_qty||0),0)
  const remaining=l=>Math.max(Number(l.qty||0)-already(l),0)
@@ -255,7 +263,9 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
  function setAllFull(){setVals(x=>{const next={...x};for(const l of lines){const rem=remaining(l);if(rem>0)next[l.id]={...next[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}}return next})}
 
  async function post(){
+  if(!canReceive||busy)return
   const po=pos.find(x=>x.id===poId);if(!po)return fail(new Error(t('validation.select_po','Select a purchase order.')))
+  if(lines.some(l=>['received','accepted','rejected'].some(k=>{const v=vals[l.id]?.[k];return v!==undefined&&v!==''&&(!Number.isFinite(Number(v))||Number(v)<0)})))return fail(new Error('Receiving quantities must be finite, non-negative numbers.'))
   const payload=lines.filter(l=>Number(vals[l.id]?.received||0)>0||Number(vals[l.id]?.accepted||0)>0||Number(vals[l.id]?.rejected||0)>0).map(l=>({po_line_id:l.id,received_qty:Number(vals[l.id]?.received||0),accepted_qty:Number(vals[l.id]?.accepted||0),rejected_qty:Number(vals[l.id]?.rejected||0),rejection_reason:vals[l.id]?.reason||null}))
   if(!payload.length)return fail(new Error(t('validation.receive_one','Enter at least one received quantity.')))
   for(const x of payload){
@@ -264,11 +274,12 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
   }
   if(!confirm(t('confirm.post_receipt','Post this goods receipt? Accepted quantities will immediately update stock.')))return
   setBusy(true)
-  const r=await supabase.rpc('proc_receive_po_v3',{p_po_id:po.id,p_receipt_key:receiptKey.current,p_lines:payload,p_notes:notes||null})
+  if(!receiptKeys.current.has(po.id))receiptKeys.current.set(po.id,globalThis.crypto.randomUUID())
+  const r=await supabase.rpc('proc_receive_po_v3',{p_po_id:po.id,p_receipt_key:receiptKeys.current.get(po.id),p_lines:payload,p_notes:notes||null})
   setBusy(false)
   if(r.error)return fail(r.error)
   flash(r.data.grn_no+(r.data.replayed?' already posted — duplicate retry ignored.':' posted. Stock and reconciliation updated.'))
-  receiptKey.current=globalThis.crypto?.randomUUID?.()||('receipt-'+Date.now())
+  receiptKeys.current.delete(po.id)
   setPoId('');setLines([]);setVals({});setNotes('');loadPos()
  }
 
@@ -288,7 +299,7 @@ export function Receiving({profile,fields,features=[],flash,fail,can=()=>false,l
  return <div className="stack">
   <div className="card pad">
    <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Accepted stock is retry-safe and cannot exceed the outstanding PO quantity. Rejected quantities create follow-up cases automatically.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!lines.length} onClick={setAllFull}>✓ Mark All Remaining Received</button><button className="btn primary" disabled={busy||!lines.length} onClick={post}>{busy?'Posting…':'Post GRN'}</button></div>}</div>
-   <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><select className="select" value={poId} onChange={e=>setPoId(e.target.value)}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</select></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>
+   <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><select aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>setPoId(e.target.value)}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</select></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>
    {lines.length>0&&<><div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>✓ Full</th>{show('description')&&<th>Item</th>}{show('ordered_qty')&&<th>Ordered</th>}{show('previously_accepted')&&<th>Previously Accepted</th>}{show('received_qty')&&<th>Received Now</th>}{show('accepted_qty')&&<th>Accepted</th>}{show('rejected_qty')&&<th>Rejected</th>}{show('rejection_reason')&&<th>Reason</th>}</tr></thead><tbody>{lines.map(l=>{const v=vals[l.id]||{};return <tr key={l.id}><td className="center"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/></td>{show('description')&&<td><strong>{itemTitle(l.item||{})}</strong></td>}{show('ordered_qty')&&<td>{qty(l.qty)}</td>}{show('previously_accepted')&&<td>{qty(already(l))}<div className="muted tiny">Remaining {qty(remaining(l))}</div></td>}{show('received_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,received:e.target.value}}))}/></td>}{show('accepted_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,accepted:e.target.value}}))}/></td>}{show('rejected_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,rejected:e.target.value}}))}/></td>}{show('rejection_reason')&&<td><input className="input" disabled={!canReceive} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,reason:e.target.value}}))}/></td>}</tr>})}</tbody></table></div>
    <div className="mobile-card-list">{lines.map(l=>{const v=vals[l.id]||{};return <div className="mobile-data-card" key={l.id}><div className="stock-card-title"><strong>{itemTitle(l.item||{})}</strong><label className="receive-full-check"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/> ✓ Full</label></div><div className="muted tiny">Ordered {qty(l.qty)} · Accepted {qty(already(l))} · Remaining {qty(remaining(l))}</div><div className="formgrid section">{show('received_qty')&&<div className="field"><label>Received</label><input className="input" inputMode="decimal" disabled={!canReceive} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,received:e.target.value}}))}/></div>}{show('accepted_qty')&&<div className="field"><label>Accepted</label><input className="input" inputMode="decimal" disabled={!canReceive} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,accepted:e.target.value}}))}/></div>}{show('rejected_qty')&&<div className="field"><label>Rejected</label><input className="input" inputMode="decimal" disabled={!canReceive} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,rejected:e.target.value}}))}/></div>}{show('rejection_reason')&&<div className="field"><label>Reason</label><input className="input" disabled={!canReceive} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:{...v,reason:e.target.value}}))}/></div>}</div></div>})}</div></>}
   </div>
