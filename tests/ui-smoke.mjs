@@ -66,6 +66,9 @@ try{
   const savedQuotes=new Map()
   let quoteReadFailure=null
   let grantedPermissions=permissions
+  let poFixtureStatus='sent',poLargeExport=false
+  const poGatewayRequests=[]
+  await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('pageerror',e=>errors.push(e.message))
   await context.route('https://*.supabase.co/**',async route=>{
@@ -97,10 +100,10 @@ try{
     rfqStatus='partially_quoted';invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,status:'quoted'}:x);data={status:rfqStatus}
    }
    else if(name==='proc_set_rfq_supplier_items_v1'){const p=req.postDataJSON();invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,requested_item_ids:p.p_item_ids}:x);data=invitations.find(x=>x.supplier_id===p.p_supplier_id)}
-   else if(name==='proc_purchase_orders')data=[po,otherPo]
+   else if(name==='proc_purchase_orders')data=[{...po,status:poFixtureStatus},otherPo]
    else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
    else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
-   else if(name==='proc_po_lines')data=[{id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
+   else if(name==='proc_po_lines')data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):[{id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
@@ -170,6 +173,8 @@ try{
   }
   await page.screenshot({path:'test-results/'+width+'-Dashboard.png',fullPage:true})
   for(const [label,heading] of [['✓ Stock Entry','Stock Entry'],['≡ Review','Review'],['Q RFQs & Quotes','RFQs & Quotes'],['PO Orders','Orders'],['⇩ Receive Goods','Receive Goods']]){
+   if(heading==='Orders')poFixtureStatus='approved'
+   if(heading==='Receive Goods')poFixtureStatus='sent'
    await navigate(label)
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
    if(heading==='RFQs & Quotes'){
@@ -380,7 +385,44 @@ try{
     assert.notEqual(receipts[0].p_receipt_key,receipts[1].p_receipt_key,'Different POs get different receipt keys')
     assert.equal(receipts[0].p_receipt_key,receipts[2].p_receipt_key,'Retrying the same PO reuses its receipt key')
    }
-   if(heading==='Orders')await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   if(heading==='Orders'){
+    poFixtureStatus='approved';poLargeExport=width===320
+    await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+    await page.getByRole('button',{name:'Download PO PNG',exact:true}).waitFor({state:'visible'})
+    if(width===320){
+     await page.getByText('Supplier document fields',{exact:true}).click()
+     assert.equal(await page.getByLabel('Description',{exact:true}).isChecked(),true)
+     assert.equal(await page.getByLabel('Unit price',{exact:true}).isChecked(),false)
+     const pdfDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download PDF',exact:true}).click()
+     const pdf=await pdfDownload,pdfBytes=await readFile(await pdf.path())
+     assert.equal(pdfBytes.subarray(0,5).toString(),'%PDF-');assert.ok(pdfBytes.includes(Buffer.from('PO fixture 100')))
+     assert.ok(!pdfBytes.includes(Buffer.from('Discount %')));assert.ok(!pdfBytes.includes(Buffer.from('Line total')));assert.ok(!pdfBytes.includes(Buffer.from('123.45')))
+     await writeFile('test-results/exported-po-default.pdf',pdfBytes)
+     const pngDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download PO PNG',exact:true}).click()
+     const png=await pngDownload,pngBytes=await readFile(await png.path())
+     assert.equal(pngBytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.ok(pngBytes.readUInt32BE(20)>5000)
+     await writeFile('test-results/exported-po-default.png',pngBytes)
+     await page.getByLabel('Unit price',{exact:true}).check();await page.getByLabel('Size',{exact:true}).uncheck()
+     const customDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download PDF',exact:true}).click()
+     const custom=await customDownload,customBytes=await readFile(await custom.path())
+     assert.ok(customBytes.includes(Buffer.from('123.45')));assert.ok(!customBytes.includes(Buffer.from('2 inch')))
+     await writeFile('test-results/exported-po-custom.pdf',customBytes)
+     const preferences=await page.evaluate(()=>JSON.parse(localStorage.getItem('gh_po_supplier_fields_v1:00000000-0000-4000-8000-000000000002')))
+     assert.equal(preferences.unit_price,true);assert.equal(preferences.size,false)
+     await page.getByRole('button',{name:'Reset to quantity-only fields',exact:true}).click()
+     let dialogNumber=0;const sendDialog=async d=>{dialogNumber++;await d.accept(d.type()==='prompt'?'PO fixture caption':undefined)}
+     page.on('dialog',sendDialog)
+     await page.getByRole('button',{name:'Send PO PNG + Caption',exact:true}).click()
+     await page.getByText('WhatsApp gateway accepted the PO image + caption.',{exact:false}).waitFor()
+     page.off('dialog',sendDialog)
+     assert.equal(dialogNumber,2);assert.equal(poGatewayRequests.length,1)
+     assert.equal(poGatewayRequests[0].poId,po.id);assert.equal(poGatewayRequests[0].caption,'PO fixture caption')
+     assert.equal(Buffer.from(poGatewayRequests[0].pngBase64,'base64').subarray(0,8).toString('hex'),'89504e470d0a1a0a')
+     assert.equal(poGatewayRequests[0].supplierId,undefined,'Recipient is resolved server-side from PO')
+     console.log('PASS 100-item PO PDF/PNG exports, optional fields, preferences and mocked attached-caption dispatch')
+    }
+    poLargeExport=false
+   }
    await page.screenshot({path:'test-results/'+width+'-'+heading.replaceAll(' ','-')+'.png',fullPage:true})
    const dimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
    assert.ok(dimensions.scroll<=dimensions.width+1,heading+' overflows at '+width+': '+JSON.stringify(dimensions))

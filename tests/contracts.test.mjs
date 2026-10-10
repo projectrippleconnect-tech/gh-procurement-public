@@ -195,7 +195,7 @@ test('WhatsApp links normalize Sri Lankan local numbers before opening',()=>{
 
   assert.match(buying,/whatsappUrl\(s\.whatsapp\)/)
   assert.match(buying,/whatsappUrl\(s\.whatsapp\|\|s\.phone,msg\)/)
-  assert.match(docs,/whatsappUrl\(active\?\.supplier\?\.whatsapp,/)
+  assert.match(docs,/whatsappUrl\(active\?\.supplier\?\.whatsapp\|\|active\?\.supplier\?\.phone,/)
 
   assert.doesNotMatch(buying,/https:\/\/wa\.me\/.*replace\(\/\\D\/g/)
   assert.doesNotMatch(docs,/https:\/\/wa\.me\/.*replace\(\/\\D\/g/)
