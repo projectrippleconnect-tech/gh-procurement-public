@@ -2,7 +2,8 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {money,qty} from '@/lib/helpers'
+import {allRows} from '@/lib/query-pages'
+import {businessDate,money,qty} from '@/lib/helpers'
 import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
 
@@ -209,7 +210,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  useEffect(()=>{
   if(!canImportItems)return
   ;(async()=>{try{
-   const r=await supabase.from('proc_items').select('category,brand,main_group,subgroup,uom').eq('active',true).limit(5000)
+   const r=await allRows(()=>supabase.from('proc_items').select('category,brand,main_group,subgroup,uom').eq('active',true).order('id'))
    if(r.error)throw r.error
    const uniq=k=>[...new Set((r.data||[]).map(x=>x[k]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)))
    setItemMeta({categories:uniq('category'),brands:uniq('brand'),mainGroups:uniq('main_group'),subgroups:uniq('subgroup'),uoms:uniq('uom')})
@@ -394,7 +395,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
   const extracted=priceRowsForSave()
   if(!extracted.length)return fail(new Error(t('price_lists.no_products','No extracted products are ready. Retry OCR with a clearer crop.')))
 
-  const title=form.title.trim()||cleanJoined([currentCompany?.name,form.effective_date||new Date().toISOString().slice(0,10),'Price List'])
+  const title=form.title.trim()||cleanJoined([currentCompany?.name,form.effective_date||businessDate(),'Price List'])
   setBusy(true)
   const uploaded=[]
   let pl=null

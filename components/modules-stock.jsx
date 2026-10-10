@@ -2,9 +2,10 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {qty,money,itemTitle} from '@/lib/helpers'
+import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
+import {allRows} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 
@@ -13,7 +14,7 @@ export function Dashboard({features=[],fail,navigate=()=>{},canNavigate=()=>fals
  const[overdueOpen,setOverdueOpen]=useState(false)
  const destinations={active_items:['items',''],open_requirements:['requirements','all'],still_to_order:['requirements','to_order'],awaiting_receipt:['requirements','delivery'],open_pos:['po','open'],po_value:['po','non_cancelled'],invoice_variances:['invoices','variance'],stock_due:['stock','due'],urgent_actions:['urgent_actions','']}
  const load=useCallback(async()=>{try{
-  const today=new Date().toISOString().slice(0,10)
+  const today=businessDate()
   const[a,b,c,e,f,g,h,i]=await Promise.all([
    supabase.from('proc_v_dashboard').select('*').single(),
    supabase.from('proc_v_requirements').select('*').in('status',['open','quoting','partially_ordered','ordered','partially_received']).order('created_at',{ascending:false}).limit(8),
@@ -127,8 +128,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   const savedAt=new Date().toISOString()
   const filters={cat,movement,mainGroup,dueOnly}
   const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
+  // Save locally immediately so leaving the screen cannot cancel the last keystroke.
+  try{localStorage.setItem(draftKey,JSON.stringify(payload))}catch{console.warn('Local stock draft could not be saved')}
   const t=setTimeout(async()=>{
-   localStorage.setItem(draftKey,JSON.stringify(payload))
    if(serverDrafts){
     const r=await supabase.from('proc_stock_count_drafts').upsert({
      owner_id:profile.id,entry,skipped:[...skipped],cursor,filters,
@@ -408,9 +410,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
  async function movementPdf(m){
   try{
-   let q=supabase.from('proc_items').select('item_code,category,description,size,max_stock,reorder_level,movement').eq('active',true).eq('movement',m).order('description').limit(5000)
-   if(cat)q=q.eq('category',cat);if(mainGroup)q=q.eq('main_group',mainGroup)
-   const r=await q;if(r.error)throw r.error
+   const r=await allRows(()=>{let q=supabase.from('proc_items').select('item_code,category,description,size,max_stock,reorder_level,movement').eq('active',true).eq('movement',m).order('description').order('id');if(cat)q=q.eq('category',cat);if(mainGroup)q=q.eq('main_group',mainGroup);return q});if(r.error)throw r.error
    exportMovementChecklistPdf({items:r.data||[],company,movement:m,category:cat||''})
   }catch(e){fail(e)}
  }

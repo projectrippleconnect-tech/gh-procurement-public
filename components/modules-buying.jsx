@@ -1,9 +1,10 @@
 'use client'
 
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
+import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
+import {allRows} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -51,7 +52,7 @@ export function Requirements({initialFilter='',profile,fields,features=[],flash,
   if(controlFilter==='partial')q=q.gt('ordered_qty',0).gt('remaining_to_order',0).eq('approval_status','approved')
   const tasks=[q]
   if(canReview){
-   tasks.push(supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name'))
+   tasks.push(allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name').order('id')))
    tasks.push(supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']))
    tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted']))
    tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).eq('status','quoted'))
@@ -404,7 +405,6 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
 }
 
 export function Rfqs({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
- const canEdit=can('procurement.rfq.manage')
  const quoteCfg=features.find(x=>x.feature_key==='quotes.minimum_quotes')?.config||{}
  const minQuotes=Math.max(1,Number(quoteCfg.minimum_quotes||2))
  const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
@@ -413,6 +413,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  const[rfqFilter,setRfqFilter]=useState(initialFilter==='overdue'?'overdue':'all')
  const[rfqs,setRfqs]=useState([]),[rfqTotal,setRfqTotal]=useState(0),[page,setPage]=useState(0),[summaries,setSummaries]=useState({}),[suppliers,setSuppliers]=useState([])
  const[active,setActive]=useState(null),[items,setItems]=useState([]),[invite,setInvite]=useState([]),[comparison,setComparison]=useState([])
+ const canEdit=can('procurement.rfq.manage')&&(!active||['draft','prepared','sent','partially_quoted','quoted'].includes(active.status))
+ const opening=useRef(0),quoteLoading=useRef(0)
  const[addSupplierId,setAddSupplierId]=useState(''),[scopeOverride,setScopeOverride]=useState(''),[addingSupplier,setAddingSupplier]=useState(false)
  const[supplier,setSupplier]=useState(''),[quoteRef,setQuoteRef]=useState(''),[validUntil,setValidUntil]=useState(''),[prices,setPrices]=useState({}),[file,setFile]=useState(null),[quoteOcrBusy,setQuoteOcrBusy]=useState(false)
  const[freight,setFreight]=useState('0'),[minOrder,setMinOrder]=useState('0'),[busy,setBusy]=useState(false)
@@ -433,8 +435,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
 
  const load=useCallback(async()=>{try{
   const[a,b]=await Promise.all([
-   (rfqFilter==='overdue'?supabase.from('proc_rfqs').select('*',{count:'exact'}).lt('due_date',new Date().toISOString().slice(0,10)).in('status',['sent','partially_quoted']):supabase.from('proc_rfqs').select('*',{count:'exact'})).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1),
-   supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name')
+   (rfqFilter==='overdue'?supabase.from('proc_rfqs').select('*',{count:'exact'}).lt('due_date',businessDate()).in('status',['sent','partially_quoted']):supabase.from('proc_rfqs').select('*',{count:'exact'})).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1),
+   allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name').order('id'))
   ])
   if(a.error)throw a.error;if(b.error)throw b.error
   setRfqs(a.data||[]);setRfqTotal(a.count||0);setSuppliers(b.data||[])
@@ -455,14 +457,18 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  useEffect(()=>{load()},[load])
 
  async function open(r){
+  const request=++opening.current
+  quoteLoading.current++
+  setItems([]);setInvite([]);setComparison([]);setSupplier('')
   setAddSupplierId('');setScopeOverride('')
   setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setQuoteException(r.quote_exception_reason||'');setSendMenuId('');setBrowserRfqReady(null);setGateway({configured:false,connected:false,sendingEnabled:false,dispatches:[]});void refreshGatewayStatus(r.id);if(profile?.role==='admin')void loadPairStatus()
   const[a,b,c,d]=await Promise.all([
-   supabase.from('proc_rfq_items').select('*,requirement:proc_requirements(*,item:proc_items(*))').eq('rfq_id',r.id).order('id'),
-   supabase.from('proc_rfq_suppliers').select('*').eq('rfq_id',r.id),
-   supabase.from('proc_v_quote_comparison').select('*').eq('rfq_id',r.id).order('rfq_item_id').order('landed_unit_cost'),
-   supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name')
+   allRows(()=>supabase.from('proc_rfq_items').select('*,requirement:proc_requirements(*,item:proc_items(*))').eq('rfq_id',r.id).order('id')),
+   allRows(()=>supabase.from('proc_rfq_suppliers').select('*').eq('rfq_id',r.id).order('id')),
+   allRows(()=>supabase.from('proc_v_quote_comparison').select('*').eq('rfq_id',r.id).order('rfq_item_id').order('landed_unit_cost').order('supplier_id')),
+   allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name').order('id'))
   ])
+  if(request!==opening.current)return
   if(a.error)return fail(a.error);if(b.error)return fail(b.error);if(c.error)return fail(c.error);if(d.error)return fail(d.error)
   setSuppliers(d.data||[])
   setItems(a.data||[]);setInvite(b.data||[]);setComparison(c.data||[])
@@ -489,13 +495,16 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  }
 
  async function loadExistingQuote(rfqId,supplierId){
+  const request=++quoteLoading.current
   setSupplier(supplierId);setPrices({});setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0')
   if(!supplierId)return
   const q=await supabase.from('proc_quotes').select('id,quote_ref,valid_until,attachment_path,freight_total,minimum_order_value').eq('rfq_id',rfqId).eq('supplier_id',supplierId).maybeSingle()
+  if(request!==quoteLoading.current)return
   if(q.error)return fail(q.error)
   if(!q.data)return
   setQuoteRef(q.data.quote_ref||'');setValidUntil(q.data.valid_until||'');setFreight(String(q.data.freight_total??0));setMinOrder(String(q.data.minimum_order_value??0))
-  const l=await supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id)
+  const l=await allRows(()=>supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id).order('id'))
+  if(request!==quoteLoading.current)return
   if(l.error)return fail(l.error)
   const map={};(l.data||[]).forEach(x=>{
    const details=decodeSupplierQuoteNotes(x.notes)
@@ -951,14 +960,14 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  const supplierName=id=>suppliers.find(s=>s.id===id)?.name||id
  const bestByItem=useMemo(()=>{const m={};comparison.forEach(x=>{if(Number(x.landed_rank)===1)m[x.rfq_item_id]=(m[x.rfq_item_id]||[]).concat(x)});return m},[comparison])
  const show=k=>fieldEnabled(fields,'rfq',k),label=(k,v)=>fieldLabel(fields,'rfq',k,v)
- const overdue=r=>r.due_date&&r.due_date<new Date().toISOString().slice(0,10)&&['sent','partially_quoted'].includes(r.status)
+ const overdue=r=>r.due_date&&r.due_date<businessDate()&&['sent','partially_quoted'].includes(r.status)
 
  return <>
   <ProcurementPath active={journeyStage} t={t}/>
   <div className="split rfq-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('buying.rfq_title','RFQs & Quotes')} <InfoButton topic="quotation_comparison" language={language}/></h3><p>{t('buying.rfq_hint',"Send the RFQ, enter each supplier price, availability and delivery time, then review the award before ordering.")}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
    {rfqFilter==='overdue'&&<div className="notice section">Overdue supplier requests <button className="btn small" onClick={()=>{setRfqFilter('all');setPage(0)}}>Clear filter</button></div>}
-   <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} disabled={addingSupplier} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
+   <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} disabled={addingSupplier||busy} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{rfqTotal?page*pageSize+1:0}–{Math.min((page+1)*pageSize,rfqTotal)} of {rfqTotal}</span><button className="btn" disabled={(page+1)*pageSize>=rfqTotal} onClick={()=>setPage(x=>x+1)}>Next</button></div>
   </div>
 

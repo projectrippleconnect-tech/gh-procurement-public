@@ -21,6 +21,7 @@ export default function ProcurementApp(){
  const[permissions,setPermissions]=useState(new Set()),[permissionsLoaded,setPermissionsLoaded]=useState(false),[language,setLanguage]=useState(()=>typeof window!=='undefined'?(localStorage.getItem('gh-procurement-language')||'en'):'en')
  const[mobileMenu,setMobileMenu]=useState(false),[securityOpen,setSecurityOpen]=useState(false),[helpOpen,setHelpOpen]=useState(false)
  const lastActivity=useRef(Date.now()),noticeTimer=useRef(null),errorTimer=useRef(null)
+ const hydratedUser=useRef(null)
 
  const ensure=useCallback(async s=>{
   const x=await supabase.from('proc_profiles').select('*').eq('id',s.user.id).maybeSingle()
@@ -35,7 +36,7 @@ export default function ProcurementApp(){
  const loadPermissions=useCallback(async()=>{
   const r=await supabase.rpc('proc_my_permissions_v1')
   if(r.error)throw r.error
-  setPermissions(new Set((r.data||[]).map(x=>typeof x==='string'?x:x.permission_key).filter(Boolean)));setPermissionsLoaded(true)
+  return new Set((r.data||[]).map(x=>typeof x==='string'?x:x.permission_key).filter(Boolean))
  },[])
 
  const loadConfig=useCallback(async()=>{
@@ -46,8 +47,9 @@ export default function ProcurementApp(){
    supabase.from('proc_settings').select('key,value')
   ])
   if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error;if(d.error)throw d.error
-  setModules(a.data||[]);setFields(b.data||[]);setFeatures(c.data||[]);setSettings(Object.fromEntries((d.data||[]).map(x=>[x.key,x.value])))
+  return {modules:a.data||[],fields:b.data||[],features:c.data||[],settings:Object.fromEntries((d.data||[]).map(x=>[x.key,x.value]))}
  },[])
+ const applyConfig=useCallback(config=>{setModules(config.modules);setFields(config.fields);setFeatures(config.features);setSettings(config.settings)},[])
 
  useEffect(()=>{
   if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recovery')==='1')setRecovery(true)
@@ -55,7 +57,7 @@ export default function ProcurementApp(){
   const{data}=supabase.auth.onAuthStateChange((event,s)=>{
    if(event==='PASSWORD_RECOVERY')setRecovery(true)
    setSession(s)
-   if(!s){setProfile(null);setModules([]);setFields([]);setFeatures([]);setPermissions(new Set());setPermissionsLoaded(false);setBoot(false)}
+   if(!s){hydratedUser.current=null;setProfile(null);setModules([]);setFields([]);setFeatures([]);setSettings({});setPermissions(new Set());setPermissionsLoaded(false);setBoot(false)}
   })
   return()=>data.subscription.unsubscribe()
  },[])
@@ -63,18 +65,19 @@ export default function ProcurementApp(){
  useEffect(()=>{
   if(!session||recovery)return
   let cancelled=false
-  setBoot(true);setProfile(null);setPermissions(new Set());setPermissionsLoaded(false)
+  const initial=hydratedUser.current!==session.user.id
+  if(initial){setBoot(true);setProfile(null);setPermissions(new Set());setPermissionsLoaded(false);lastActivity.current=Date.now()}
   async function hydrate(){
    try{
     const next=await ensure(session)
-    await Promise.all([loadConfig(),loadPermissions()])
-    if(!cancelled){setProfile(next);setError('')}
-   }catch(e){if(!cancelled)setError(e.message)}
+    const [config,allowed]=await Promise.all([loadConfig(),loadPermissions()])
+    if(!cancelled){applyConfig(config);setPermissions(allowed);setPermissionsLoaded(true);setProfile(next);hydratedUser.current=session.user.id;setError('')}
+   }catch(e){if(!cancelled){hydratedUser.current=null;setProfile(null);setPermissions(new Set());setPermissionsLoaded(false);setError(e.message)}}
    finally{if(!cancelled)setBoot(false)}
   }
   hydrate()
   return()=>{cancelled=true}
- },[session,recovery,ensure,loadConfig,loadPermissions])
+ },[session,recovery,ensure,loadConfig,loadPermissions,applyConfig])
 
  useEffect(()=>{
   if(!session||!profile)return
@@ -104,7 +107,7 @@ export default function ProcurementApp(){
   setError(e?.message||String(e));setNotice('')
   errorTimer.current=window.setTimeout(()=>setError(''),6500)
  },[])
- const refreshConfig=useCallback(async()=>{try{await loadConfig()}catch(e){fail(e)}},[loadConfig,fail])
+ const refreshConfig=useCallback(async()=>{const user=hydratedUser.current;try{const config=await loadConfig();if(user&&hydratedUser.current===user)applyConfig(config)}catch(e){fail(e)}},[loadConfig,applyConfig,fail])
 
  useEffect(()=>{
   if(!profile||typeof window==='undefined')return
@@ -120,7 +123,7 @@ export default function ProcurementApp(){
  const t=useMemo(()=>createTranslator(language),[language])
  const can=useCallback(key=>{
   if(permissionsLoaded)return permissions.has(key)
-  return profile?.role==='admin'
+  return false
  },[permissions,permissionsLoaded,profile])
 
  const setAppLanguage=useCallback(async next=>{

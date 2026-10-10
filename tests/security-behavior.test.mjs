@@ -40,3 +40,22 @@ test('gateway preserves the full allowed caption',async()=>{
  const caption='x'.repeat(1800)
  assert.equal(wahaImagePayload({phone:'+94779792078',caption}).caption,caption)
 })
+
+test('business dates follow Sri Lanka midnight rather than UTC or device timezone',()=>{
+ const {businessDate}=moduleAt('lib/helpers.ts')
+ assert.equal(businessDate(new Date('2026-10-09T18:29:59Z')),'2026-10-09')
+ assert.equal(businessDate(new Date('2026-10-09T18:30:00Z')),'2026-10-10')
+ assert.equal(businessDate(new Date('2026-12-31T18:30:00Z')),'2027-01-01')
+})
+
+test('complete dataset queries traverse the API cap and do not return partial success',async()=>{
+ const {allRows}=await import('../lib/query-pages.js')
+ const rows=Array.from({length:1201},(_,id)=>({id})),ranges=[]
+ const result=await allRows(()=>({async range(from,to){ranges.push([from,to]);return {data:rows.slice(from,to+1),error:null}}}))
+ assert.deepEqual(result.data,rows)
+ assert.deepEqual(ranges,[[0,499],[500,999],[1000,1499]])
+ const failure={message:'Second page unavailable'}
+ const failed=await allRows(()=>({async range(from){return from===0?{data:rows.slice(0,500),error:null}:{data:null,error:failure}}}))
+ assert.equal(failed.error,failure)
+ assert.deepEqual(failed.data,[])
+})
