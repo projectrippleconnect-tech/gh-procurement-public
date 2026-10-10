@@ -20,13 +20,13 @@ export function SupplierRequestSelection({items,invitation,scopes,onSave,disable
  </details>
 }
 
-export function RfqComparisonSheet({items,comparison,invitations,supplierName,canEdit,busy,onReview,onOrderSelection}){
+export function RfqComparisonSheet({items,comparison,invitations,supplierName,canEdit,busy,onReview,onOrderSelection,onBackToEntry}){
  const[search,setSearch]=useState(''),[filter,setFilter]=useState('all')
  const rows=useMemo(()=>quoteSheetRows(items,comparison,search,filter),[items,comparison,search,filter])
  const supplierIds=[...new Set([...invitations.map(x=>x.supplier_id),...comparison.map(x=>x.supplier_id)])]
  const priced=new Set(comparison.map(x=>x.rfq_item_id))
  return <section className="section" aria-label="Supplier price comparison">
-  <h3>Supplier Price Comparison</h3>
+  <div className="sectionhead"><h3>Supplier Price Comparison</h3><button type="button" className="btn small" onClick={onBackToEntry}>Back to Price Entry</button></div>
   <p className="muted tiny">{items.length} items · {priced.size} priced · {items.length-priced.size} missing. Swipe sideways for suppliers; scroll down for items. Green marks every lowest unit price, including ties. Only saved, valid quotes appear.</p>
   <div className="formgrid"><input aria-label="Search comparison items" className="input" placeholder="Search comparison items" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Comparison filter" className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All items</option><option value="missing">Missing all prices</option><option value="priced">Priced items</option></select></div>
   <div className="tablewrap rfq-price-sheet section" tabIndex={0} role="region" aria-label="Scrollable supplier prices"><table className="table"><thead><tr><th className="rfq-sheet-item">Item / size · Order?</th><th>Qty</th>{supplierIds.map(id=><th key={id}>{supplierName(id)}<div className="muted tiny">{comparison.filter(q=>q.supplier_id===id).length} priced</div></th>)}<th>Lowest · supplier</th></tr></thead><tbody>{rows.map(({row,quotes,lowest})=><tr key={row.id}>

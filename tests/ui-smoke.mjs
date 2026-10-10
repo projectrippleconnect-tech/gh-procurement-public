@@ -129,6 +129,9 @@ try{
    if(heading==='RFQs & Quotes'){
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
+    await page.getByRole('button',{name:'View Price Comparison',exact:true}).click()
+    await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).waitFor()
+    await page.getByRole('button',{name:'Back to Price Entry',exact:true}).click()
     const sheet=page.getByRole('region',{name:'Scrollable supplier prices',exact:true})
     assert.equal(await sheet.locator('tbody tr').count(),100,'Comparison keeps every RFQ item')
     assert.equal(await sheet.locator('.rfq-best-price').count(),1,'Single valid quote is highlighted')
