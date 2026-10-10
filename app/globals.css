@@ -353,3 +353,13 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .rfq-price-cell:hover,.rfq-price-cell:focus-visible{border-color:var(--brand,#ffb000);outline:2px solid var(--brand,#ffb000);outline-offset:1px}
 .rfq-lowest-price{max-width:160px;white-space:normal!important;overflow-wrap:anywhere}
 .rfq-split .btn{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+
+/* Procurement work areas retain drafts while hidden; hidden must override layout rules. */
+[hidden]{display:none!important}
+.item-link{border:0;background:transparent;color:var(--text);font:inherit;font-weight:700;text-align:left;padding:4px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.sticky-work-search{position:sticky;top:76px;z-index:8;background:var(--panel,#102033);padding:8px;border-radius:10px}
+.comparison-summary{position:sticky;bottom:0;background:var(--panel,#102033);padding:10px;border:1px solid var(--border,#334155);border-radius:10px;z-index:3}
+.rfq-price-sheet thead th{position:sticky;top:0;z-index:2;background:var(--panel,#102033)}
+@media(max-width:700px){.sticky-work-search{top:64px}.modal-backdrop .modal{max-height:85dvh;overflow-y:auto}.comparison-summary{bottom:0}}
+
+.proc-review-main .item-link{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}

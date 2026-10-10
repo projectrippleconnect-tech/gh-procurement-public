@@ -164,7 +164,8 @@ try{
    await navigate('⌂ Home')
   }
   for(const [button,heading,table,field] of [['Overdue supplier requests','RFQs & Quotes','proc_rfqs','due_date'],['Overdue purchase orders','Orders','proc_purchase_orders','expected_date']]){
-   await page.getByRole('button',{name:'Overdue actions',exact:true}).click()
+   const overdueToggle=page.getByRole('button',{name:'Overdue actions',exact:true})
+   if(await overdueToggle.getAttribute('aria-expanded')!=='true')await overdueToggle.click()
    queries.length=0
    await page.getByRole('button',{name:new RegExp('^'+button)}).click()
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
@@ -177,6 +178,11 @@ try{
    if(heading==='Receive Goods')poFixtureStatus='sent'
    await navigate(label)
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
+   if(heading==='Review'){
+    await page.getByRole('button',{name:item.description+' · '+item.size,exact:true}).filter({visible:true}).first().click()
+    await page.getByRole('heading',{name:item.description+' · '+item.size,exact:true}).waitFor()
+    await page.locator('.modal').getByRole('button',{name:'Close',exact:true}).click()
+   }
    if(heading==='RFQs & Quotes'){
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
@@ -194,6 +200,9 @@ try{
     await page.getByLabel('Search comparison items',{exact:true}).fill('Bathroom fixture 99')
     assert.equal(await sheet.locator('tbody tr').count(),1,'Comparison search finds sparse items')
     await page.getByLabel('Search comparison items',{exact:true}).fill('')
+    await page.getByLabel('Comparison filter',{exact:true}).selectOption('single')
+    assert.equal(await sheet.locator('tbody tr').count(),1,'Single quote filter handles a sparse 100-item request')
+    await page.getByLabel('Comparison filter',{exact:true}).selectOption('all')
     await page.locator('summary').filter({hasText:'Choose request items'}).click()
     await page.getByLabel('Request category',{exact:true}).selectOption('BATHROOM')
     await page.getByRole('button',{name:'Use Visible Items Only',exact:true}).click()
@@ -233,7 +242,7 @@ try{
     await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
     await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
     const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
-    const attachment=page.locator('input[type="file"]').first()
+    const attachment=page.locator('.content > section:not([hidden]) input[type="file"]').first()
     const quotePdf=new jsPDF()
     quotePdf.setFontSize(12)
     quotePdf.text('Supplier quotation - generated extraction test document',15,20)
@@ -367,15 +376,30 @@ try{
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
     assert.equal(await page.getByRole('button',{name:'Add to RFQ',exact:true}).count(),0,'Read-only users cannot add suppliers')
-    assert.equal(await page.locator('.rfq-price-cell').count(),0,'Read-only users cannot edit through comparison cells')
+    assert.equal(await page.locator('.content > section:not([hidden]) .rfq-price-cell').count(),0,'Read-only users cannot edit through comparison cells')
     grantedPermissions=permissions
    }
    if(heading==='Receive Goods'){
     page.on('dialog',dialog=>dialog.accept())
     const selector=page.getByLabel('Purchase Order',{exact:true})
+    await selector.selectOption(po.id)
+    await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+    const receivedInput=page.locator('.content > section:not([hidden]) input').filter({visible:true})
+    // Draft survives a full page reload and retains the selected account/PO scope.
+    await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+    await page.waitForFunction(()=>!!localStorage.getItem('gh_receiving_draft_v1:00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000007'))
+    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⇩ Receive Goods');await selector.selectOption(po.id)
+    await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+    assert.equal(await page.locator('.receive-full-check input,.desktop-table tbody input[type="checkbox"]').filter({visible:true}).first().isChecked(),true,'Receiving values survive reload')
     for(const poId of [po.id,otherPo.id,po.id]){
-     await selector.selectOption(poId)
-     await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+     if(await selector.inputValue()!==poId){
+      const loaded=page.waitForResponse(r=>{const u=new URL(r.url());return u.pathname.endsWith('/proc_po_lines')&&u.searchParams.get('po_id')==='eq.'+poId})
+      await selector.selectOption(poId);await loaded
+     }
+     await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+     const savedAttempt=await page.evaluate(id=>JSON.parse(localStorage.getItem('gh_receiving_draft_v1:00000000-0000-4000-8000-000000000002:'+id)||'null')?.attempt,poId)
+     if(savedAttempt)await page.getByText('A receipt attempt is saved.',{exact:false}).waitFor()
+     else await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
      await page.getByRole('button',{name:'Post GRN',exact:true}).click()
      await page.getByText('Fixture receipt retry',{exact:true}).waitFor()
      await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Posting…'))
@@ -388,6 +412,7 @@ try{
    if(heading==='Orders'){
     poFixtureStatus='approved';poLargeExport=width===320
     await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+    await page.locator('summary').filter({hasText:'Document & Sharing Options'}).click()
     await page.getByRole('button',{name:'Download PO PNG',exact:true}).waitFor({state:'visible'})
     if(width===320){
      await page.getByText('Supplier document fields',{exact:true}).click()

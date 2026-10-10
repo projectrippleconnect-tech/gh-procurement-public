@@ -53,21 +53,12 @@ test('routine shortages stop at buyer review instead of auto-awarding',()=>{
   assert.match(buying,/Step 4 · Review & Choose Suppliers/)
 })
 
-test('guided procurement path continues numbering after stock entry',()=>{
-  const ui=read('components/ui.jsx')
-  const buying=read('components/modules-buying.jsx')
-  const docs=read('components/modules-documents.jsx')
-  assert.match(ui,/1 ·/)
-  assert.match(ui,/2 ·/)
-  assert.match(ui,/3 ·/)
-  assert.match(ui,/\[4,t\('journey\.review'/)
-  assert.match(ui,/\[5,t\('journey\.rfq'/)
-  assert.match(ui,/\[6,t\('journey\.quotes'/)
-  assert.match(ui,/\[7,t\('journey\.order'/)
-  assert.match(buying,/ProcurementPath active=\{4\}/)
-  assert.match(buying,/ProcurementPath active=\{journeyStage\}/)
-  assert.match(buying,/awardOpen\?7/)
-  assert.match(docs,/ProcurementPath active=\{7\}/)
+test('procurement path uses four consistent stages including receiving',()=>{
+ const ui=read('components/ui.jsx'),docs=read('components/modules-documents.jsx')
+ assert.match(ui,/\[1,'Stock'\]/);assert.match(ui,/\[2,'Review & buy'\]/)
+ assert.match(ui,/\[3,'Orders'\]/);assert.match(ui,/\[4,'Receive'\]/)
+ assert.doesNotMatch(ui,/procurement-completed-strip/)
+ assert.match(docs,/ProcurementPath active=\{8\}/)
 })
 
 test('RFQs are prepared until actual transmission is confirmed',()=>{
@@ -323,7 +314,7 @@ test('supplier quotation accepts only prices plus optional remarks and alternati
  assert.match(buying,/Quick price entry/)
  assert.match(buying,/Details \/ remarks \/ sizes/)
  assert.match(buying,/p_freight_total:0,p_minimum_order_value:0/)
- assert.match(buying,/discount_percent:0,tax_percent:0,moq:0,order_multiple:1/)
+ assert.match(buying,/discount_percent:Number\(prices\[i.id\].discount_percent\|\|0\)/)
  const quoteEditor=buying.slice(buying.indexOf('   <div className="formgrid">\n    <div className="field"><label>{label(\'supplier\',\'Supplier\')}</label>'),buying.indexOf('   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}'))
  for(const term of ['Discount %','Tax %','Lead Days','Freight Total','MOQ','Minimum Order Value'])assert.doesNotMatch(quoteEditor,new RegExp(term))
 })
