@@ -117,18 +117,19 @@ try{
     expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,user
    }))
   },{id,user})
-  await page.goto(root)
-  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
-  assert.deepEqual(policyViolations,[],'Framework hydration must not violate CSP')
-  await page.evaluate(()=>{
-   const script=document.createElement('script')
-   script.textContent='window.__ghUntrustedInlineExecuted=true'
-   document.body.appendChild(script)
-   script.remove()
+  // Inject into the parsed HTML response, rather than through trusted runtime code.
+  await page.route(root+'/',async route=>{
+   const response=await route.fetch()
+   const html=await response.text()
+   await route.fulfill({response,body:html.replace('</head>','<script>window.__ghUntrustedInlineExecuted=true</script></head>')})
   })
+  await page.goto(root)
+  await page.unroute(root+'/')
+  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
   for(let attempt=0;attempt<200&&!policyViolations.length;attempt++)await page.waitForTimeout(25)
   assert.equal(await page.evaluate(()=>window.__ghUntrustedInlineExecuted===true),false,'Untrusted inline JavaScript must be blocked')
   assert.ok(policyViolations.some(x=>x.directive==='script-src-elem'&&x.blocked==='inline'),'Browser must enforce the inline-script refusal')
+  assert.deepEqual(policyViolations.filter(x=>x.directive!=='script-src-elem'||x.blocked!=='inline'),[],'Only the controlled injection may violate CSP')
   policyViolations.length=0
   async function navigate(label){
    let target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
