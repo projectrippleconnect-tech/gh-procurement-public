@@ -623,7 +623,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   return <div className="stack">
    {(value.variants||[]).map(v=><div className="formgrid" key={v.id}>
     <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
-    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" data-rfq-price-item={i.id} placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
+    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
     <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
     {canEdit&&<button type="button" className="btn small bad" onClick={()=>removeSizeAlternative(itemId,v.id)}>Remove size</button>}
    </div>)}
