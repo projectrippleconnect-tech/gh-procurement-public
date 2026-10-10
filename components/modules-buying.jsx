@@ -4,7 +4,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
-import {matchesRfqItem,supplierRequestItems} from '@/lib/rfq-sheet'
+import {matchesRfqItem,supplierRequestItems,pricedReviewSelection} from '@/lib/rfq-sheet'
 import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
@@ -414,7 +414,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  const[rfqs,setRfqs]=useState([]),[rfqTotal,setRfqTotal]=useState(0),[page,setPage]=useState(0),[summaries,setSummaries]=useState({}),[suppliers,setSuppliers]=useState([])
  const[active,setActive]=useState(null),[items,setItems]=useState([]),[invite,setInvite]=useState([]),[comparison,setComparison]=useState([])
  const canEdit=can('procurement.rfq.manage')&&(!active||['draft','prepared','sent','partially_quoted','quoted'].includes(active.status))
- const opening=useRef(0),quoteLoading=useRef(0),priceEntryRef=useRef(null),comparisonRef=useRef(null)
+ const opening=useRef(0),quoteLoading=useRef(0),priceEntryRef=useRef(null),comparisonRef=useRef(null),quoteDrafts=useRef(new Map()),loadedQuote=useRef('{}')
+ const[loadingQuote,setLoadingQuote]=useState(false),[quoteLoadError,setQuoteLoadError]=useState(false)
  const[addSupplierId,setAddSupplierId]=useState(''),[scopeOverride,setScopeOverride]=useState(''),[addingSupplier,setAddingSupplier]=useState(false)
  const[supplier,setSupplier]=useState(''),[quoteRef,setQuoteRef]=useState(''),[validUntil,setValidUntil]=useState(''),[prices,setPrices]=useState({}),[file,setFile]=useState(null),[quoteOcrBusy,setQuoteOcrBusy]=useState(false)
  const[freight,setFreight]=useState('0'),[minOrder,setMinOrder]=useState('0'),[busy,setBusy]=useState(false)
@@ -458,7 +459,15 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  }catch(e){fail(e)}},[fail,page,rfqFilter])
  useEffect(()=>{load()},[load])
 
- async function open(r){
+ function rememberQuoteDraft(){
+  if(!active?.id||!supplier||loadingQuote)return
+  const key=active.id+':'+supplier
+  if(file||JSON.stringify(prices)!==loadedQuote.current)quoteDrafts.current.set(key,{prices,file,base:loadedQuote.current})
+  else quoteDrafts.current.delete(key)
+ }
+
+ async function open(r,preferredSupplier='',preserveDraft=true){
+  if(preserveDraft)rememberQuoteDraft()
   const request=++opening.current
   quoteLoading.current++
   setItems([]);setInvite([]);setComparison([]);setSupplier('');setPriceSearch('');setPriceFilter('all');setSupplierScopes([])
@@ -476,8 +485,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   setSupplierScopes(e.data||[])
   setSuppliers(d.data||[])
   setItems(a.data||[]);setInvite(b.data||[]);setComparison(c.data||[])
-  const first=b.data?.[0]?.supplier_id||'';setSupplier(first)
-  if(first)await loadExistingQuote(r.id,first,a.data||[])
+  const first=b.data?.some(x=>x.supplier_id===preferredSupplier)?preferredSupplier:(b.data?.[0]?.supplier_id||'');setSupplier(first)
+  if(first)await loadExistingQuote(r.id,first,false)
  }
 
  async function addSupplierToRfq(){
@@ -498,23 +507,42 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   }catch(e){fail(e)}finally{setAddingSupplier(false)}
  }
 
- async function loadExistingQuote(rfqId,supplierId){
+ async function loadExistingQuote(rfqId,supplierId,preserveDraft=true){
+  if(preserveDraft)rememberQuoteDraft()
   const request=++quoteLoading.current
-  setSupplier(supplierId);setPrices({});setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0')
-  if(!supplierId)return
-  const q=await supabase.from('proc_quotes').select('id,quote_ref,valid_until,attachment_path,freight_total,minimum_order_value').eq('rfq_id',rfqId).eq('supplier_id',supplierId).maybeSingle()
-  if(request!==quoteLoading.current)return
-  if(q.error)return fail(q.error)
-  if(!q.data)return
-  setQuoteRef(q.data.quote_ref||'');setValidUntil(q.data.valid_until||'');setFreight(String(q.data.freight_total??0));setMinOrder(String(q.data.minimum_order_value??0))
-  const l=await allRows(()=>supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id).order('id'))
-  if(request!==quoteLoading.current)return
-  if(l.error)return fail(l.error)
-  const map={};(l.data||[]).forEach(x=>{
-   const details=decodeSupplierQuoteNotes(x.notes)
-   map[x.rfq_item_id]={price:String(x.unit_price),remarks:details.remarks,variants:details.variants}
+  setLoadingQuote(true);setQuoteLoadError(false);loadedQuote.current='{}'
+  setSupplier(supplierId);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0')
+  try{
+   if(!supplierId)return
+   const draft=quoteDrafts.current.get(rfqId+':'+supplierId)
+   if(draft){loadedQuote.current=draft.base;setPrices(draft.prices);setFile(draft.file);return}
+   const q=await supabase.from('proc_quotes').select('id,quote_ref,valid_until,attachment_path,freight_total,minimum_order_value').eq('rfq_id',rfqId).eq('supplier_id',supplierId).maybeSingle()
+   if(request!==quoteLoading.current)return
+   if(q.error)throw q.error
+   if(!q.data)return
+   setQuoteRef(q.data.quote_ref||'');setValidUntil(q.data.valid_until||'');setFreight(String(q.data.freight_total??0));setMinOrder(String(q.data.minimum_order_value??0))
+   const l=await allRows(()=>supabase.from('proc_quote_lines').select('*').eq('quote_id',q.data.id).order('id'))
+   if(request!==quoteLoading.current)return
+   if(l.error)throw l.error
+   const map={};(l.data||[]).forEach(x=>{
+    const details=decodeSupplierQuoteNotes(x.notes)
+    map[x.rfq_item_id]={price:String(x.unit_price),remarks:details.remarks,variants:details.variants}
+   })
+   loadedQuote.current=JSON.stringify(map);setPrices(map)
+  }catch(e){if(request===quoteLoading.current){setQuoteLoadError(true);fail(e)}}
+  finally{if(request===quoteLoading.current)setLoadingQuote(false)}
+ }
+
+ async function editComparisonPrice(row,supplierId){
+  if(!canEdit||busy||loadingQuote||quoteOcrBusy)return
+  const item=row.requirement?.item||{}
+  setPriceSearch(item.item_code||itemTitle(item));setPriceFilter('all')
+  if(supplierId!==supplier)await loadExistingQuote(active.id,supplierId)
+  priceEntryRef.current?.scrollIntoView({block:'start'})
+  requestAnimationFrame(()=>{
+   const input=[...document.querySelectorAll('[data-rfq-price-item]')].find(x=>x.dataset.rfqPriceItem===row.id&&x.getClientRects().length)
+   input?.focus({preventScroll:true})
   })
-  setPrices(map)
  }
 
  function quoteTokens(v){
@@ -593,9 +621,9 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  function sizeAlternativesEditor(itemId,value){
   return <div className="stack">
    {(value.variants||[]).map(v=><div className="formgrid" key={v.id}>
-    <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
-    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
-    <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
+    <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
+    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" data-rfq-price-item={i.id} placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
+    <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
     {canEdit&&<button type="button" className="btn small bad" onClick={()=>removeSizeAlternative(itemId,v.id)}>Remove size</button>}
    </div>)}
    {canEdit&&<button type="button" className="btn small" onClick={()=>addSizeAlternative(itemId)}>+ Add size variation</button>}
@@ -603,6 +631,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  }
 
  async function saveQuote(){
+  if(loadingQuote||quoteOcrBusy||busy)return
+  if(quoteLoadError)return fail(new Error('Reload the supplier prices before saving to protect the existing quotation.'))
   if(!canEdit)return fail(new Error(t('validation.rfq_read_only','Your role has read-only supplier-price access.')))
   if(!active||!supplier)return fail(new Error(t('validation.select_supplier','Select a supplier.')))
   const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&String(prices[i.id].price).trim()!=='')
@@ -617,7 +647,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
    return !Number.isFinite(p)||p<0||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500
   })
   if(invalid)return fail(new Error('Check unit prices and alternatives: each added size must have a valid price.'))
-  setBusy(true);let path=null
+  setBusy(true);let path=null,quoteSaved=false
   try{
    if(file){
     path='quotes/'+active.id+'/'+Date.now()+'-'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_')
@@ -635,29 +665,36 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     p_freight_total:0,p_minimum_order_value:0
    })
    if(r.error)throw r.error
+   quoteSaved=true
    setFile(null)
    flash(quoted.length+' supplier item price(s) saved. Next: Review quoted items, or select another supplier to enter more prices. No purchase order has been created.')
-   await open({...active,status:r.data.status});load()
-  }catch(e){if(path)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
+   quoteDrafts.current.delete(active.id+':'+supplier)
+   await open({...active,status:r.data.status},supplier,false);load()
+  }catch(e){if(path&&!quoteSaved)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
  }
 
  async function togglePoItem(i,on){
-  if(!canEdit)return
-  const r=await supabase.from('proc_rfq_items').update({selected_for_po:on}).eq('id',i.id)
-  if(r.error)return fail(r.error)
-  setItems(v=>v.map(x=>x.id===i.id?{...x,selected_for_po:on}:x))
- }
-
- async function selectOnlyPricedItems(){
-  if(!canEdit||!active||!pricedCount)return
-  if(!window.confirm('Select the '+pricedCount+' priced item(s) for the current order review and untick the '+unpricedCount+' unpriced item(s)? This changes the current RFQ order selection; it does not delete their stock requirements or quotations.'))return
+  if(!canEdit||busy)return
   setBusy(true)
   try{
-   const ids=items.filter(i=>!pricedItemIds.has(i.id)&&i.selected_for_po!==false).map(i=>i.id)
-   const enable=items.filter(i=>pricedItemIds.has(i.id)&&i.selected_for_po===false).map(i=>i.id)
+   const r=await supabase.from('proc_rfq_items').update({selected_for_po:on}).eq('id',i.id)
+   if(r.error)throw r.error
+   setItems(v=>v.map(x=>x.id===i.id?{...x,selected_for_po:on}:x));setAwardOpen(false);setAwardPlan([])
+  }catch(e){fail(e)}finally{setBusy(false)}
+ }
+
+ async function selectOnlyPricedItems(includeExcluded=true){
+  if(!canEdit||!active||!pricedCount)return
+  const next=pricedReviewSelection(items,comparison,includeExcluded!==false)
+  const count=next.filter(i=>i.selected_for_po).length
+  if(!count)return fail(new Error('Select at least one priced item to review. Your excluded items remain unticked.'))
+  if(!window.confirm('Review '+count+' priced item(s) and leave unpriced items outstanding? '+(includeExcluded===false?'Your unticked items remain excluded. ':'')+'This changes only the current RFQ order selection.'))return
+  setBusy(true)
+  try{
+   const ids=items.filter((i,index)=>!next[index].selected_for_po&&i.selected_for_po!==false).map(i=>i.id)
+   const enable=items.filter((i,index)=>next[index].selected_for_po&&i.selected_for_po===false).map(i=>i.id)
    if(ids.length){const x=await supabase.from('proc_rfq_items').update({selected_for_po:false}).in('id',ids).eq('rfq_id',active.id);if(x.error)throw x.error}
    if(enable.length){const x=await supabase.from('proc_rfq_items').update({selected_for_po:true}).in('id',enable).eq('rfq_id',active.id);if(x.error)throw x.error}
-   const next=items.map(i=>({...i,selected_for_po:pricedItemIds.has(i.id)}))
    setItems(next)
    flash('Only items with received supplier prices are selected. Review the selections before creating orders.')
    return next
@@ -971,7 +1008,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   <div className="split rfq-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('buying.rfq_title','RFQs & Quotes')} <InfoButton topic="quotation_comparison" language={language}/></h3><p>{t('buying.rfq_hint',"Send the RFQ, enter each supplier price, availability and delivery time, then review the award before ordering.")}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
    {rfqFilter==='overdue'&&<div className="notice section">Overdue supplier requests <button className="btn small" onClick={()=>{setRfqFilter('all');setPage(0)}}>Clear filter</button></div>}
-   <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} disabled={addingSupplier||busy} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
+   <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} disabled={addingSupplier||busy||loadingQuote||quoteOcrBusy} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{rfqTotal?page*pageSize+1:0}–{Math.min((page+1)*pageSize,rfqTotal)} of {rfqTotal}</span><button className="btn" disabled={(page+1)*pageSize>=rfqTotal} onClick={()=>setPage(x=>x+1)}>Next</button></div>
   </div>
 
@@ -992,20 +1029,22 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     <div className="toolbar section"><button className="btn primary" disabled={addingSupplier||busy||!addSupplierId} onClick={addSupplierToRfq}>{addingSupplier?'Adding supplier…':'Add to RFQ'}</button><button className="btn small" disabled={addingSupplier} onClick={load}>Refresh Suppliers</button></div>
    </div>}
    <div className="formgrid">
-    <div className="field"><label htmlFor="rfq-quote-supplier">{label('supplier','Supplier')}</label><select id="rfq-quote-supplier" className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
-    {show('attachment')&&canEdit&&<div className="field"><label>Supplier quotation attachment (optional)</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
+    <div className="field"><label htmlFor="rfq-quote-supplier">{label('supplier','Supplier')}</label><select id="rfq-quote-supplier" disabled={busy||quoteOcrBusy} className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
+    {show('attachment')&&canEdit&&<div className="field"><label>Supplier quotation attachment (optional)</label><input key={supplier} disabled={busy||loadingQuote||quoteOcrBusy} className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<span className="muted tiny">Selected attachment: {file.name}</span>}{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
    </div>
    {invite.find(x=>x.supplier_id===supplier)&&<SupplierRequestSelection key={active.id+'-'+supplier+'-'+JSON.stringify(invite.find(x=>x.supplier_id===supplier)?.requested_item_ids)} items={items} invitation={invite.find(x=>x.supplier_id===supplier)} scopes={supplierScopes} disabled={busy||!canEdit||!['pending','prepared'].includes(invite.find(x=>x.supplier_id===supplier)?.status)} onSave={async ids=>{setBusy(true);try{const r=await supabase.rpc('proc_set_rfq_supplier_items_v1',{p_rfq_id:active.id,p_supplier_id:supplier,p_item_ids:ids});if(r.error)throw r.error;setInvite(v=>v.map(x=>x.supplier_id===supplier?r.data:x));setBrowserRfqReady(null);flash('Supplier request items saved. Exports and messages now use this selection.')}catch(e){fail(e)}finally{setBusy(false)}}}/>}
+   {loadingQuote&&<p className="muted tiny" role="status">Loading supplier prices…</p>}
+   {quoteLoadError&&<div className="notice" role="alert">Supplier prices could not be loaded. Editing is paused to protect the existing quote. <button type="button" className="btn small" disabled={busy||loadingQuote} onClick={()=>loadExistingQuote(active.id,supplier,false)}>Reload Supplier Prices</button></div>}
    <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
    <div ref={priceEntryRef} style={{scrollMarginTop:96}} className="formgrid section"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
    <p className="muted tiny">Showing {visiblePriceItems.length} of {items.length} items. Search preserves every entered price; Save Supplier Price saves the entire supplier quote.</p>
    <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
    <tbody>{visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
-    <td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
+    <td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
     <td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>
     <td>{qty(i.requested_qty)}</td>
-    <td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></td>
-    <td><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></td>
+    <td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} data-rfq-price-item={i.id} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></td>
+    <td><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></td>
     <td>{sizeAlternativesEditor(i.id,v)}</td>
    </tr>})}</tbody></table></div>
 
@@ -1014,23 +1053,23 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     {visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8}}>
       <div style={{minWidth:0}}><strong style={{fontSize:14,lineHeight:1.3,display:'block',overflowWrap:'anywhere'}}>{itemTitle(i.requirement?.item||{})}</strong><span className="muted tiny">{qty(i.requested_qty)} {i.requirement?.item?.uom||''}</span></div>
-      <input aria-label={'Unit price for '+itemTitle(i.requirement?.item||{})} className="input stock-entry" style={{width:'100%',minWidth:0,padding:'9px 7px'}} inputMode="decimal" disabled={!canEdit} placeholder="Rs." value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/>
-      <label title="Include in order" style={{display:'flex',alignItems:'center',justifyContent:'center'}}><input aria-label={'Order '+itemTitle(i.requirement?.item||{})} type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></label>
+      <input aria-label={'Unit price for '+itemTitle(i.requirement?.item||{})} className="input stock-entry" style={{width:'100%',minWidth:0,padding:'9px 7px'}} inputMode="decimal" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} data-rfq-price-item={i.id} placeholder="Rs." value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/>
+      <label title="Include in order" style={{display:'flex',alignItems:'center',justifyContent:'center'}}><input aria-label={'Order '+itemTitle(i.requirement?.item||{})} type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} onChange={e=>togglePoItem(i,e.target.checked)}/></label>
      </div>
      <details style={{marginTop:3}}><summary className="muted tiny" style={{cursor:'pointer',padding:'5px 0'}}>Details / remarks / sizes {(v.remarks||(v.variants||[]).length)?'●':''}</summary>
-      <div className="field" style={{marginTop:8}}><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
+      <div className="field" style={{marginTop:8}}><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
       <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
      </details>
     </div>})}
    </div>
 
-   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{pricedCount} priced · {unpricedCount} awaiting price · Saving does not create an order.</span></div>
+   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy||loadingQuote||quoteLoadError||quoteOcrBusy} onClick={saveQuote}>{busy?'Saving…':'Save Supplier Price'}</button>}<span className="muted tiny">{pricedCount} priced · {unpricedCount} awaiting price · Saving does not create an order.</span></div>
    {comparison.length>0&&<div className="section" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
     <button className="btn good" type="button" disabled={busy} onClick={buildAwardReview}>Next: Review Quoted Items →</button>
     {selectedUnpriced.length>0&&<><button className="btn small" disabled={busy} onClick={selectOnlyPricedItems}>Select Priced Items Only ({pricedCount})</button><span className="muted tiny">{selectedUnpriced.length} unpriced item(s) are still selected. You can untick them individually or use this button before reviewing.</span></>}
    </div>}
 
-   <div ref={comparisonRef} style={{scrollMarginTop:96}}><RfqComparisonSheet onBackToEntry={()=>priceEntryRef.current?.scrollIntoView({block:'start'})} items={items} comparison={comparison} invitations={invite} supplierName={supplierName} canEdit={canEdit} busy={busy} onOrderSelection={togglePoItem} onReview={async()=>{if(selectedUnpriced.length){const next=await selectOnlyPricedItems();if(next)buildAwardReview(next)}else buildAwardReview()}}/></div>
+   <div ref={comparisonRef} style={{scrollMarginTop:96}}><RfqComparisonSheet onBackToEntry={()=>priceEntryRef.current?.scrollIntoView({block:'start'})} items={items} comparison={comparison} invitations={invite} supplierName={supplierName} canEdit={canEdit} busy={busy||loadingQuote||quoteOcrBusy} onEditPrice={editComparisonPrice} onOrderSelection={togglePoItem} onReview={async()=>{if(selectedUnpriced.length){const next=await selectOnlyPricedItems(false);if(next)buildAwardReview(next)}else buildAwardReview()}}/></div>
 
    {active?.status==='awarded'&&items.some(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))&&<div className="section" style={{padding:12,border:'1px solid var(--border, #334155)',borderRadius:12}}>
    <strong>Outstanding items need a follow-up RFQ</strong>
