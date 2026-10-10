@@ -232,7 +232,6 @@ try{
     assert.equal(await price.inputValue(),'123.45','Successful additions preserve the existing price draft')
     assert.equal(await quoteSelect.inputValue(),supplier.id,'Adding a supplier keeps the selected quotation')
     assert.equal(await newSelect.locator('option[value="'+newSupplier.id+'"]').count(),0,'Already invited suppliers cannot be selected again')
-    const attachment=page.locator('input[type="file"]').first()
     await attachment.setInputFiles({name:'supplier-A.pdf',mimeType:'application/pdf',buffer:Buffer.from('Fixture attachment, never uploaded')})
     quoteReadFailure=newSupplier.id
     await quoteSelect.selectOption(newSupplier.id)
