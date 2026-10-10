@@ -28,3 +28,12 @@ test('comparison includes 100 items, overlapping quotes, ties, zero prices and e
  assert.equal(quoteSheetRows(items,quotes,'','priced').length,2)
  assert.equal(quoteSheetRows(items,quotes,'CODE-1','priced').length,1)
 })
+
+test('review removes unpriced rows without reselecting deliberate exclusions',async()=>{
+ const {pricedReviewSelection}=await import('../lib/rfq-sheet.js')
+ const input=[{id:'a',selected_for_po:true},{id:'b',selected_for_po:false},{id:'c',selected_for_po:true}]
+ const quotes=[{rfq_item_id:'a'},{rfq_item_id:'b'}]
+ assert.deepEqual(pricedReviewSelection(input,quotes).map(x=>x.selected_for_po),[true,false,false])
+ assert.deepEqual(pricedReviewSelection(input,quotes,true).map(x=>x.selected_for_po),[true,true,false])
+ assert.equal(input[2].selected_for_po,true,'The helper does not mutate stored selections')
+})
