@@ -4,3 +4,5 @@ export function wahaImagePayload(args:{session?:string;phone:unknown;filename:st
  session:string;chatId:string;file:{mimetype:string;filename:string;data:string};caption:string
 }
 export function extractWahaMessageId(data:unknown):string|null
+
+export function hasGatewayPermission(permissions:unknown,key:string):boolean

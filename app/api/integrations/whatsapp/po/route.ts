@@ -1,6 +1,6 @@
 import {createClient} from '@supabase/supabase-js'
 import {createHash} from 'node:crypto'
-import {extractWahaMessageId,verifyPng,wahaImagePayload} from '@/lib/waha-rfq'
+import {extractWahaMessageId,verifyPng,wahaImagePayload,hasGatewayPermission} from '@/lib/waha-rfq'
 
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -36,7 +36,7 @@ async function authorize(request:Request){
  if(!profile?.active||!['admin','procurement'].includes(profile.role))return {error:error('You do not have permission to send supplier requests.',403)}
  const {data:permissions,error:permissionError}=await db.rpc('proc_my_permissions_v1')
  if(permissionError)return {error:error('Could not verify purchase-order permissions.',503)}
- if(!Array.isArray(permissions)||!permissions.includes('procurement.orders.edit'))return {error:error('You do not have permission to send purchase orders.',403)}
+ if(!hasGatewayPermission(permissions,'procurement.orders.edit'))return {error:error('You do not have permission to send purchase orders.',403)}
  return {db,user}
 }
 
