@@ -41,6 +41,15 @@ begin
  if result->>'status'<>'prepared' then raise exception 'RFQ prematurely sent'; end if;
  select id into strict ria from public.proc_rfq_items where rfq_id=test_rfq_id and requirement_id=ra;
  select id into strict rib from public.proc_rfq_items where rfq_id=test_rfq_id and requirement_id=rb;
+ result:=public.proc_set_rfq_supplier_items_v1(test_rfq_id,sa,array[ria]);
+ if result->'requested_item_ids'<>jsonb_build_array(ria) then raise exception 'Request selection not saved'; end if;
+ failure:=null;
+ begin perform public.proc_set_rfq_supplier_items_v1(test_rfq_id,sa,array[gen_random_uuid()]); exception when others then failure:=sqlerrm; end;
+ if failure is null or failure not like '%does not belong%' then raise exception 'Foreign RFQ item accepted'; end if;
+ failure:=null;
+ begin perform public.proc_set_rfq_supplier_items_v1(test_rfq_id,sa,'{}'::uuid[]); exception when others then failure:=sqlerrm; end;
+ if failure is null then raise exception 'Empty supplier request accepted'; end if;
+ insert into certification_results values('supplier requests: selected items saved; foreign and empty selections blocked',true);
  dispatch_id:=public.proc_whatsapp_claim_dispatch(test_rfq_id,sa,'default',repeat('a',64),'Certification fixture; no gateway called');
  failure:=null;
  begin perform public.proc_whatsapp_claim_dispatch(test_rfq_id,sa,'default',repeat('a',64),'Duplicate fixture');
@@ -51,6 +60,9 @@ begin
  insert into certification_results values('security: atomic dispatch claim, duplicate block and immutable completion',true);
  perform public.proc_mark_rfq_supplier_sent_v1(test_rfq_id,sa);
  perform public.proc_mark_rfq_supplier_sent_v1(test_rfq_id,sb);
+ failure:=null;
+ begin perform public.proc_set_rfq_supplier_items_v1(test_rfq_id,sa,array[rib]); exception when others then failure:=sqlerrm; end;
+ if failure is null or failure not like '%already sent%' then raise exception 'Sent request changed'; end if;
  insert into certification_results values('2: approval, prepared RFQ and explicit sent confirmation',true);
 
  execute 'reset role';
@@ -69,11 +81,13 @@ begin
  if failure is null then raise exception 'NaN quotation accepted'; end if;
  insert into certification_results values('security: cancelled RFQ stays closed and non-finite quotes are rejected',true);
 
+ failure:=null;
+ begin perform public.proc_finalize_award_plan_v2(test_rfq_id,jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'quote_line_id',gen_random_uuid(),'qty',10))); exception when others then failure:=sqlerrm; end;
+ if failure is null or failure not like '%valid supplier quotation is required%' then raise exception 'Unpriced item reached award: %',failure; end if;
  perform public.proc_save_quote_v3(test_rfq_id,sa,'CERT-A',jsonb_build_array(
   jsonb_build_object('rfq_item_id',ria,'unit_price',100,'available_qty',10),
   jsonb_build_object('rfq_item_id',rib,'unit_price',210,'available_qty',10)));
  perform public.proc_save_quote_v3(test_rfq_id,sb,'CERT-B',jsonb_build_array(
-  jsonb_build_object('rfq_item_id',ria,'unit_price',110,'available_qty',10),
   jsonb_build_object('rfq_item_id',rib,'unit_price',200,'available_qty',10)));
  select quote_line_id into strict qa from public.proc_v_quote_comparison where rfq_item_id=ria and landed_rank=1;
  select quote_line_id into strict qb from public.proc_v_quote_comparison where rfq_item_id=rib and landed_rank=1;
@@ -93,7 +107,8 @@ begin
  begin perform public.proc_save_quote_v3(test_rfq_id,sa,'AWARDED',jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'unit_price',1,'available_qty',10)));
  exception when others then failure:=sqlerrm; end;
  if failure is null or failure not like '%Cannot edit quotations%' then raise exception 'Awarded RFQ quotation edit accepted'; end if;
- insert into certification_results values('3: per-item best prices, supplier POs, totals and duplicate award blocked',true);
+ if (select quote_exception_reason from public.proc_rfqs where id=test_rfq_id) is not null then raise exception 'Single quote required fabricated exception'; end if;
+ insert into certification_results values('3: one quote sufficient, partial supplier quotes, best prices, supplier POs, totals and duplicate award blocked',true);
 
  for row_po in select (x->>'po_id')::uuid as id from jsonb_array_elements(result) x loop
   test_po_id:=row_po.id;

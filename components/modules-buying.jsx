@@ -4,6 +4,8 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
+import {matchesRfqItem,supplierRequestItems} from '@/lib/rfq-sheet'
+import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
 import {InfoButton} from './help-ui'
@@ -405,8 +407,6 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
 }
 
 export function Rfqs({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
- const quoteCfg=features.find(x=>x.feature_key==='quotes.minimum_quotes')?.config||{}
- const minQuotes=Math.max(1,Number(quoteCfg.minimum_quotes||2))
  const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
  const awardReviewEnabled=features.find(x=>x.feature_key==='quotes.award_review')?.enabled!==false
 
@@ -418,11 +418,13 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  const[addSupplierId,setAddSupplierId]=useState(''),[scopeOverride,setScopeOverride]=useState(''),[addingSupplier,setAddingSupplier]=useState(false)
  const[supplier,setSupplier]=useState(''),[quoteRef,setQuoteRef]=useState(''),[validUntil,setValidUntil]=useState(''),[prices,setPrices]=useState({}),[file,setFile]=useState(null),[quoteOcrBusy,setQuoteOcrBusy]=useState(false)
  const[freight,setFreight]=useState('0'),[minOrder,setMinOrder]=useState('0'),[busy,setBusy]=useState(false)
- const[awardOpen,setAwardOpen]=useState(false),[awardPlan,setAwardPlan]=useState([]),[quoteException,setQuoteException]=useState(''),[sendMenuId,setSendMenuId]=useState('')
+ const[awardOpen,setAwardOpen]=useState(false),[awardPlan,setAwardPlan]=useState([]),[sendMenuId,setSendMenuId]=useState('')
  const[browserRfqReady,setBrowserRfqReady]=useState(null),[browserRfqPreparing,setBrowserRfqPreparing]=useState('')
  const[gateway,setGateway]=useState({configured:false,connected:false,sendingEnabled:false,dispatches:[]}),[gatewayBusy,setGatewayBusy]=useState('')
  const[pairState,setPairState]=useState({status:'NOT_CONFIGURED',qr:null,code:null}),[pairPhone,setPairPhone]=useState('+94'),[pairBusy,setPairBusy]=useState(false)
+ const[priceSearch,setPriceSearch]=useState(''),[priceFilter,setPriceFilter]=useState('all'),[supplierScopes,setSupplierScopes]=useState([])
  const pageSize=100
+ const visiblePriceItems=items.filter(i=>matchesRfqItem(i,priceSearch)).filter(i=>priceFilter==='requested'?supplierRequestItems(items,invite.find(x=>x.supplier_id===supplier),supplierScopes).some(x=>x.id===i.id):priceFilter==='missing'?String(prices[i.id]?.price??'').trim()==='':priceFilter==='priced'?String(prices[i.id]?.price??'').trim()!=='':true)
  const pricedItemIds=new Set(comparison.map(x=>x.rfq_item_id))
  const pricedCount=items.filter(i=>pricedItemIds.has(i.id)).length
  const unpricedCount=items.length-pricedCount
@@ -459,17 +461,19 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
  async function open(r){
   const request=++opening.current
   quoteLoading.current++
-  setItems([]);setInvite([]);setComparison([]);setSupplier('')
+  setItems([]);setInvite([]);setComparison([]);setSupplier('');setPriceSearch('');setPriceFilter('all');setSupplierScopes([])
   setAddSupplierId('');setScopeOverride('')
-  setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setQuoteException(r.quote_exception_reason||'');setSendMenuId('');setBrowserRfqReady(null);setGateway({configured:false,connected:false,sendingEnabled:false,dispatches:[]});void refreshGatewayStatus(r.id);if(profile?.role==='admin')void loadPairStatus()
-  const[a,b,c,d]=await Promise.all([
+  setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setSendMenuId('');setBrowserRfqReady(null);setGateway({configured:false,connected:false,sendingEnabled:false,dispatches:[]});void refreshGatewayStatus(r.id);if(profile?.role==='admin')void loadPairStatus()
+  const[a,b,c,d,e]=await Promise.all([
    allRows(()=>supabase.from('proc_rfq_items').select('*,requirement:proc_requirements(*,item:proc_items(*))').eq('rfq_id',r.id).order('id')),
    allRows(()=>supabase.from('proc_rfq_suppliers').select('*').eq('rfq_id',r.id).order('id')),
    allRows(()=>supabase.from('proc_v_quote_comparison').select('*').eq('rfq_id',r.id).order('rfq_item_id').order('landed_unit_cost').order('supplier_id')),
-   allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name').order('id'))
+   allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name').order('id')),
+   allRows(()=>supabase.from('proc_supplier_scopes').select('*').order('id'))
   ])
   if(request!==opening.current)return
-  if(a.error)return fail(a.error);if(b.error)return fail(b.error);if(c.error)return fail(c.error);if(d.error)return fail(d.error)
+  if(a.error)return fail(a.error);if(b.error)return fail(b.error);if(c.error)return fail(c.error);if(d.error)return fail(d.error);if(e.error)return fail(e.error)
+  setSupplierScopes(e.data||[])
   setSuppliers(d.data||[])
   setItems(a.data||[]);setInvite(b.data||[]);setComparison(c.data||[])
   const first=b.data?.[0]?.supplier_id||'';setSupplier(first)
@@ -653,8 +657,10 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
    const enable=items.filter(i=>pricedItemIds.has(i.id)&&i.selected_for_po===false).map(i=>i.id)
    if(ids.length){const x=await supabase.from('proc_rfq_items').update({selected_for_po:false}).in('id',ids).eq('rfq_id',active.id);if(x.error)throw x.error}
    if(enable.length){const x=await supabase.from('proc_rfq_items').update({selected_for_po:true}).in('id',enable).eq('rfq_id',active.id);if(x.error)throw x.error}
-   setItems(v=>v.map(i=>({...i,selected_for_po:pricedItemIds.has(i.id)})))
+   const next=items.map(i=>({...i,selected_for_po:pricedItemIds.has(i.id)}))
+   setItems(next)
    flash('Only items with received supplier prices are selected. Review the selections before creating orders.')
+   return next
   }catch(e){fail(e);await open(active)}finally{setBusy(false)}
  }
 
@@ -662,9 +668,9 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   const m=Math.max(Number(multiple||1),0.001)
   return Math.ceil((Number(n||0)-1e-9)/m)*m
  }
- function buildAwardReview(){
+ function buildAwardReview(selectedItems=null){
   if(!canEdit||!active)return
-  const selected=items.filter(i=>i.selected_for_po!==false)
+  const selected=(Array.isArray(selectedItems)?selectedItems:items).filter(i=>i.selected_for_po!==false)
   if(!selected.length)return fail(new Error(t('validation.order_item','Select at least one item for the supplier order.')))
   if(!comparison.length)return fail(new Error(t('validation.enter_prices','Enter supplier prices before reviewing awards.')))
   const missing=selected.filter(i=>!comparison.some(c=>c.rfq_item_id===i.id))
@@ -775,10 +781,6 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   if(!window.confirm('FINAL PURCHASE ORDER CONFIRMATION\\n\\n'+awardPlan.length+' allocation(s) for '+awardSuppliers.length+' supplier(s).\\n'+supplierLines+'\\nEstimated landed goods value: '+money(awardEstimate)+'\\n\\n'+(remaining?remaining+' unselected item(s) will NOT be ordered. The current RFQ will be marked awarded; create a new RFQ later for outstanding requirements.\\n\\n':'')+'Proceed to create purchase orders?'))return
   setBusy(true)
   try{
-   if(quoteException.trim()){
-    const q=await supabase.from('proc_rfqs').update({quote_exception_reason:quoteException.trim(),updated_at:new Date().toISOString()}).eq('id',active.id)
-    if(q.error)throw q.error
-   }
    const p=await supabase.rpc('proc_finalize_award_plan_v2',{p_rfq_id:active.id,p_allocations:awardPlan.map(x=>({
     rfq_item_id:x.rfq_item_id,quote_line_id:x.quote_line_id,qty:Number(x.qty),override_reason:x.override_reason||null
    }))})
@@ -791,19 +793,20 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
 
  function downloadRequest(inv){
   if(!active)return
-  const supplierRow=suppliers.find(x=>x.id===inv.supplier_id)
-  if(!supplierRow)return
-  exportSupplierPriceRequestPdf({rfq:active,items,supplier:supplierRow,company,footer})
+  try{exportSupplierPriceRequestPdf({...supplierRequestArgs(inv),footer})}catch(e){fail(e)}
  }
  function supplierRequestArgs(inv){
   const supplierRow=suppliers.find(x=>x.id===inv.supplier_id)
-  return {rfq:active,items,supplier:supplierRow,company}
+  const requested=supplierRequestItems(items,inv,supplierScopes)
+  if(!requested.length)throw new Error('No items match this supplier. Choose and save request items before sending.')
+  return {rfq:active,items:requested,supplier:supplierRow,company}
  }
  function sendRequest(inv){
   if(!active)return
   const s=suppliers.find(x=>x.id===inv.supplier_id)
   if(!s)return
-  const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
+  let msg
+  try{msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))}catch(e){return fail(e)}
   const url=whatsappUrl(s.whatsapp||s.phone,msg)
   if(url)window.open(url,'_blank','noopener,noreferrer')
   else navigator.clipboard.writeText(msg).then(()=>flash('Reply-ready RFQ text copied. Send it to '+s.name+', then confirm Sent.')).catch(fail)
@@ -922,7 +925,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   }catch(e){fail(e)}
  }
  function copyReplyText(inv){
-  const msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))
+  let msg
+  try{msg=buildSupplierQuoteReplyText(supplierRequestArgs(inv))}catch(e){return fail(e)}
   navigator.clipboard.writeText(msg).then(()=>flash('Supplier reply template copied.')).catch(fail)
  }
  async function confirmSent(inv){
@@ -974,7 +978,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
   <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
    {profile?.role==='admin'&&<details className="section"><summary><strong>WhatsApp Gateway Setup (Administrator)</strong></summary><div className="notice section"><p className="muted tiny">Unregulated third-party WhatsApp Web automation may restrict your account. Use a separate procurement number. Pairing is optional; no messages are sent merely by connecting.</p><div className="toolbar"><span>Session: <strong>{pairState.status}</strong></span><button className="btn small" disabled={pairBusy} onClick={()=>loadPairStatus()}>Refresh Pairing Status</button><button className="btn small" disabled={pairBusy||pairState.status==='WORKING'} onClick={()=>pairAction('start')}>Start Session</button></div>{pairState.status!=='WORKING'&&<div className="formgrid section"><div className="field"><label>Dedicated WhatsApp number</label><input className="input" inputMode="tel" autoComplete="off" value={pairPhone} onChange={e=>setPairPhone(e.target.value)} placeholder="+94771234567"/></div><div className="field"><label>Link with phone number</label><button className="btn" disabled={pairBusy||pairState.status==='NOT_CONFIGURED'||pairState.status==='OFFLINE'} onClick={()=>pairAction('code')}>Request Pairing Code</button></div></div>}{pairState.code&&<p><strong>WhatsApp pairing code: {pairState.code}</strong><span className="muted tiny"> · Enter it using WhatsApp → Linked Devices. Do not share this code.</span></p>}{pairState.qr&&<div className="section"><p className="muted tiny">Alternative: scan this QR using WhatsApp → Linked Devices on a separate device. Refresh if it expires.</p><img src={pairState.qr} alt="WhatsApp linked-device pairing QR" width="240" height="240" style={{maxWidth:'100%',height:'auto'}}/></div>}{pairState.status==='WORKING'&&<p className="muted tiny">WhatsApp session linked. Sending can be enabled by the owner after a private test and migration check.</p>}</div></details>}
 
-   <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier responses · {pricedCount}/{items.length} items priced · {unpricedCount} awaiting prices. Preferred supplier comparison minimum: {minQuotes}.</p></div><div className="toolbar">{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Quoted Items ({pricedCount}) →</button>}</div></div>
+   <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier responses · {pricedCount}/{items.length} items priced · {unpricedCount} awaiting prices. One valid supplier price per item is enough to create an order.</p></div><div className="toolbar">{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Quoted Items ({pricedCount}) →</button>}</div></div>
 
    {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="mobile-data-card" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Send a real attached PNG and caption through the private gateway (once configured and linked). Gateway acceptance is not proof of delivery. Check WhatsApp before confirming Sent; never retry unknown attempts blindly. The browser-only manual fallback remains available.</div><div className="toolbar section"><span className="muted tiny">WhatsApp gateway: {gateway.connected?'Connected':gateway.configured?'Not linked / offline':'Not configured'}</span><button className="btn small" onClick={()=>refreshGatewayStatus(active.id)}>Refresh Status</button></div><div className="toolbar section"><button className="btn small primary" disabled={Boolean(gatewayBusy)} onClick={()=>{const previous=gateway.dispatches?.find(d=>d.supplier_id===x.supplier_id);if(!canEdit)return fail(new Error('Your account cannot edit this RFQ. Sign in with an authorized procurement account.'));if(!gateway.connected)return fail(new Error('WhatsApp gateway is disconnected. Tap Refresh Status.'));if(!gateway.sendingEnabled)return fail(new Error('WhatsApp sending is disabled in Railway configuration. Tap Refresh Status after deployment.'));if(previous)return fail(new Error('An attempt already exists ('+previous.status+'). Check WhatsApp and dispatch history before retrying.'));sendAttachedPngViaGateway(x)}}>{gatewayBusy===x.id?'Sending PNG…':'Send Attached PNG + Caption'}</button><button className="btn small" onClick={()=>{const current=window.localStorage.getItem('gh_rfq_whatsapp_caption_template')||'General Hardware — Supplier Price Request\\nRFQ: {rfq_number}\\nDue: {due_date}\\nPlease check the attached RFQ image and reply with your unit rates.';const next=window.prompt('Edit the default caption template. Use {supplier_name}, {rfq_number}, {due_date}. Saved on this device.',current);if(next!==null){if(!next.trim()||next.length>2000)return fail(new Error('Template must be 1–2000 characters.'));window.localStorage.setItem('gh_rfq_whatsapp_caption_template',next);flash('WhatsApp template saved on this device.')}}}>Edit Message Template</button>{gateway.dispatches?.filter(d=>d.supplier_id===x.supplier_id).map(d=><span key={d.id} className="muted tiny">Gateway: {d.status} · {new Date(d.created_at).toLocaleString()} {d.status==='unknown'?'— check WhatsApp before any resend':''}</span>)}</div><div className="muted tiny section">Manual fallback (no gateway): Download the image, open this supplier's chat, and attach it from Downloads.</div><div className="toolbar section"><button className="btn small primary" disabled={browserRfqPreparing===x.id} onClick={()=>prepareBrowserRfq(x)}>{browserRfqPreparing===x.id?'Preparing PNG…':'1 · Download PNG for WhatsApp'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text Only</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG Only</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div>{browserRfqReady?.invitationId===x.id&&<div className="section"><div className="muted tiny">PNG download started: <strong>{browserRfqReady.filename}</strong>. Option A: open WhatsApp with the RFQ text ready, send the text and then attach the PNG from Downloads. Both messages go to this supplier.</div><div className="toolbar section"><a className="btn small primary" href={browserSupplierWhatsappUrl(x,true)} target="_blank" rel="noopener noreferrer">2 · Open WhatsApp + Text · {supplierName(x.supplier_id)}</a></div><div className="muted tiny section">Option B (one image with a caption): copy the RFQ message, open the same supplier chat without prefilled text, attach the saved PNG, paste the copied message as its caption and send.</div><div className="toolbar section"><button className="btn small" onClick={()=>copyBrowserRfqCaption(x)}>Copy PNG Caption</button><a className="btn small" href={browserSupplierWhatsappUrl(x,false)} target="_blank" rel="noopener noreferrer">Open Supplier Chat for Caption</a></div></div>}</div>}</div>)}</div></div>}
 
@@ -991,9 +995,12 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     <div className="field"><label htmlFor="rfq-quote-supplier">{label('supplier','Supplier')}</label><select id="rfq-quote-supplier" className="select" value={supplier} onChange={e=>loadExistingQuote(active.id,e.target.value)}>{invite.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.status}</option>)}</select></div>
     {show('attachment')&&canEdit&&<div className="field"><label>Supplier quotation attachment (optional)</label><input className="input" type="file" accept="application/pdf,image/*" onChange={e=>setFile(e.target.files?.[0]||null)}/>{file&&<button type="button" className="btn small section" disabled={quoteOcrBusy} onClick={readQuoteAutomatically}>{quoteOcrBusy?'Reading quotation…':'Read Prices Automatically'}</button>}</div>}
    </div>
+   {invite.find(x=>x.supplier_id===supplier)&&<SupplierRequestSelection key={active.id+'-'+supplier+'-'+JSON.stringify(invite.find(x=>x.supplier_id===supplier)?.requested_item_ids)} items={items} invitation={invite.find(x=>x.supplier_id===supplier)} scopes={supplierScopes} disabled={busy||!canEdit||!['pending','prepared'].includes(invite.find(x=>x.supplier_id===supplier)?.status)} onSave={async ids=>{setBusy(true);try{const r=await supabase.rpc('proc_set_rfq_supplier_items_v1',{p_rfq_id:active.id,p_supplier_id:supplier,p_item_ids:ids});if(r.error)throw r.error;setInvite(v=>v.map(x=>x.supplier_id===supplier?r.data:x));setBrowserRfqReady(null);flash('Supplier request items saved. Exports and messages now use this selection.')}catch(e){fail(e)}finally{setBusy(false)}}}/>}
    <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
+   <div className="formgrid section"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
+   <p className="muted tiny">Showing {visiblePriceItems.length} of {items.length} items. Search preserves every entered price; Save Supplier Price saves the entire supplier quote.</p>
    <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
-   <tbody>{items.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
+   <tbody>{visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
     <td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
     <td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>
     <td>{qty(i.requested_qty)}</td>
@@ -1004,7 +1011,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
 
    <div className="mobile-card-list section">
     <div className="muted tiny" style={{marginBottom:8}}>Quick price entry · tap Details only for remarks or alternative sizes</div>
-    {items.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
+    {visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8}}>
       <div style={{minWidth:0}}><strong style={{fontSize:14,lineHeight:1.3,display:'block',overflowWrap:'anywhere'}}>{itemTitle(i.requirement?.item||{})}</strong><span className="muted tiny">{qty(i.requested_qty)} {i.requirement?.item?.uom||''}</span></div>
       <input aria-label={'Unit price for '+itemTitle(i.requirement?.item||{})} className="input stock-entry" style={{width:'100%',minWidth:0,padding:'9px 7px'}} inputMode="decimal" disabled={!canEdit} placeholder="Rs." value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/>
@@ -1023,6 +1030,8 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
     {selectedUnpriced.length>0&&<><button className="btn small" disabled={busy} onClick={selectOnlyPricedItems}>Select Priced Items Only ({pricedCount})</button><span className="muted tiny">{selectedUnpriced.length} unpriced item(s) are still selected. You can untick them individually or use this button before reviewing.</span></>}
    </div>}
 
+   <RfqComparisonSheet items={items} comparison={comparison} invitations={invite} supplierName={supplierName} canEdit={canEdit} busy={busy} onOrderSelection={togglePoItem} onReview={async()=>{if(selectedUnpriced.length){const next=await selectOnlyPricedItems();if(next)buildAwardReview(next)}else buildAwardReview()}}/>
+
    {active?.status==='awarded'&&items.some(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))&&<div className="section" style={{padding:12,border:'1px solid var(--border, #334155)',borderRadius:12}}>
    <strong>Outstanding items need a follow-up RFQ</strong>
    <p className="muted tiny">The original RFQ and purchase orders stay unchanged. Prepare a new RFQ for outstanding requirements, then review its suppliers and quantities before sending.</p>
@@ -1038,7 +1047,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
      {awardUnselected.length>0&&<div className="muted tiny" style={{marginTop:8}}>Unselected items remain outstanding in stock requirements. This RFQ will close when orders are created; request new quotations for remaining items through a new RFQ.</div>}
      <div className="muted tiny" style={{marginTop:5}}>Estimated landed goods excludes possible supplier-level freight adjustments. Confirm final PO totals in Orders.</div>
     </div>
-    <details className="section"><summary className="muted tiny" style={{cursor:'pointer'}}>Advanced: quotation minimum exception</summary><div className="field" style={{marginTop:8}}><label>Reason for proceeding without enough supplier quotations</label><input className="input" value={quoteException} onChange={e=>setQuoteException(e.target.value)} placeholder="Enter a reason only when making an exception."/></div></details>
+
     <div className="section" style={{display:'grid',gap:6}}>{items.filter(i=>i.selected_for_po!==false).map(item=>{const plans=awardPlan.filter(p=>p.rfq_item_id===item.id),speed=itemNeedsSpeed(item.id);return <div key={item.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0',minWidth:0}}>
      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:8,flexWrap:'wrap'}}><strong style={{fontSize:14,overflowWrap:'anywhere'}}>{itemTitle(item.requirement?.item||{})}</strong><span className="muted tiny">Outstanding {qty(Math.min(Number(item.requested_qty||0),Math.max(Number(item.requirement?.adjusted_qty||0)-Number(item.requirement?.ordered_qty||0),0)))}{speed?' · Urgent':''}</span></div>
      {plans.map(row=><div key={row.id} style={{marginTop:5}}>
