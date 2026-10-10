@@ -330,3 +330,9 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 /* Git integration production trigger · 2026-10-07 20:54 LK */
 
 .metric-link{font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%;min-width:0;transition:border-color .15s,background .15s}.metric-link:hover{border-color:var(--brand);background:#17263a}.metric-link:focus-visible{outline:3px solid var(--brand);outline-offset:3px}.metric-action{display:block;margin-top:10px;color:var(--brand2);font-size:12px;font-weight:700}
+
+/* Keep action labels and the header inside narrow phone and tablet layouts. */
+.sectionhead{min-width:0;flex-wrap:wrap}.sectionhead>div{min-width:0}
+.toolbar{min-width:0}.toolbar .btn{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.topbar-left{flex:1;overflow:hidden}.topbar-left>div,.topbar h2{min-width:0}.top-actions,.mobile-menu-btn{flex-shrink:0}
+@media(max-width:700px){.sectionhead{grid-template-columns:minmax(0,1fr)}}
