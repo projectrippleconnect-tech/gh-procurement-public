@@ -178,6 +178,11 @@ try{
    if(heading==='Receive Goods')poFixtureStatus='sent'
    await navigate(label)
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
+   if(heading==='Review'){
+    await page.getByRole('button',{name:item.description+' · '+item.size,exact:true}).filter({visible:true}).first().click()
+    await page.getByRole('heading',{name:item.description+' · '+item.size,exact:true}).waitFor()
+    await page.locator('.modal').getByRole('button',{name:'Close',exact:true}).click()
+   }
    if(heading==='RFQs & Quotes'){
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
