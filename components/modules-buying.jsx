@@ -468,6 +468,7 @@ export function Rfqs({initialFilter='',profile,fields,features=[],company,footer
 
  async function open(r,preferredSupplier='',preserveDraft=true){
   if(preserveDraft)rememberQuoteDraft()
+  preferredSupplier=preferredSupplier||(active?.id===r.id?supplier:'')
   const request=++opening.current
   quoteLoading.current++
   setItems([]);setInvite([]);setComparison([]);setSupplier('');setPriceSearch('');setPriceFilter('all');setSupplierScopes([])
