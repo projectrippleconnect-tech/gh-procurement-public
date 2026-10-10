@@ -37,6 +37,13 @@ try{
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
   const errors=[],queries=[],receipts=[]
+  async function requireQuery(predicate,message){
+   for(let attempt=0;attempt<200;attempt++){
+    if(queries.some(predicate))return
+    await page.waitForTimeout(50)
+   }
+   assert.fail(message)
+  }
   const savedQuotes=new Map()
   let quoteReadFailure=null
   let grantedPermissions=permissions
@@ -118,8 +125,7 @@ try{
    await page.getByRole('button',{name:card,exact:true}).click()
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
    await page.waitForFunction(()=>!document.querySelector('.login-shell'))
-   await page.waitForTimeout(250)
-   assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&(!field||u.searchParams.get(field)===value)),card+' must query its matching records')
+   await requireQuery(u=>u.pathname.endsWith('/'+table)&&(!field||u.searchParams.get(field)===value),card+' must query its matching records')
    if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
    await navigate('⌂ Home')
   }
@@ -128,8 +134,7 @@ try{
    queries.length=0
    await page.getByRole('button',{name:new RegExp('^'+button)}).click()
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
-   await page.waitForTimeout(250)
-   assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get(field)?.startsWith('lt.')&&u.searchParams.get('status')==='in.(sent,partially_received)'.replace('partially_received',table==='proc_rfqs'?'partially_quoted':'partially_received')),button+' must filter by due date and active status')
+   await requireQuery(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get(field)?.startsWith('lt.')&&u.searchParams.get('status')==='in.(sent,partially_received)'.replace('partially_received',table==='proc_rfqs'?'partially_quoted':'partially_received'),button+' must filter by due date and active status')
    await navigate('⌂ Home')
   }
   await page.screenshot({path:'test-results/'+width+'-Dashboard.png',fullPage:true})
