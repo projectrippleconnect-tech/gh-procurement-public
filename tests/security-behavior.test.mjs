@@ -10,6 +10,17 @@ function moduleAt(path,scope={}){
  new Function('module','exports',...Object.keys(scope),code)(m,m.exports,...Object.values(scope))
  return m.exports
 }
+test('production CSP authorizes nonce scripts without unrestricted inline execution',()=>{
+ const {contentSecurityPolicy}=moduleAt('lib/content-security-policy.ts')
+ const policy=contentSecurityPolicy({nonce:'fixtureRandomNonce=='})
+ const scripts=policy.split('; ').find(x=>x.startsWith('script-src '))
+ assert.match(scripts,/'nonce-fixtureRandomNonce=='/)
+ assert.match(scripts,/'strict-dynamic'/)
+ assert.match(scripts,/'wasm-unsafe-eval'/)
+ assert.doesNotMatch(scripts,/'unsafe-inline'|'unsafe-eval'/)
+ assert.doesNotMatch(contentSecurityPolicy(),/'nonce-/)
+ assert.throws(()=>contentSecurityPolicy({nonce:"x'; script-src *"}),/Invalid CSP nonce/)
+})
 test('CSV cells cannot execute supplier-provided spreadsheet formulas',async()=>{
  let exported
  const helpers=moduleAt('lib/helpers.ts',{URL:{createObjectURL(blob){exported=blob;return 'blob:fixture'},revokeObjectURL(){}},
