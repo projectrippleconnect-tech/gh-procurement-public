@@ -173,6 +173,8 @@ try{
   }
   await page.screenshot({path:'test-results/'+width+'-Dashboard.png',fullPage:true})
   for(const [label,heading] of [['✓ Stock Entry','Stock Entry'],['≡ Review','Review'],['Q RFQs & Quotes','RFQs & Quotes'],['PO Orders','Orders'],['⇩ Receive Goods','Receive Goods']]){
+   if(heading==='Orders')poFixtureStatus='approved'
+   if(heading==='Receive Goods')poFixtureStatus='sent'
    await navigate(label)
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
    if(heading==='RFQs & Quotes'){
