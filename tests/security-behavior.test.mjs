@@ -59,3 +59,14 @@ test('complete dataset queries traverse the API cap and do not return partial su
  assert.equal(failed.error,failure)
  assert.deepEqual(failed.data,[])
 })
+
+
+test('search filter punctuation stays inside quoted PostgREST values',async()=>{
+ const {containsAny}=await import('../lib/query-pages.js')
+ for(const term of ['bolt, nut','ATLAS (120)','2 inch \"paper\"',String.raw`pipe\joint`,'size.eq.0),active.eq.false']){
+  const filter=containsAny(['description','item_code','size'],term)
+  const values=filter.match(/\"(?:[^\"\\]|\\.)*\"/g)
+  assert.equal(values.length,3)
+  for(const value of values)assert.equal(JSON.parse(value),'%'+term+'%')
+ }
+})
