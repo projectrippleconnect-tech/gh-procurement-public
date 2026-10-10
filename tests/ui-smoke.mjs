@@ -77,7 +77,7 @@ try{
    let data=[]
    if(url.pathname.includes('/auth/'))data=user
    else if(name==='proc_profiles')data=[profile]
-   else if(name==='proc_my_permissions_v1')data=grantedPermissions
+   else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
    else if(name==='proc_v_requirements')data=[requirement]
    else if(name==='proc_rfqs')data=[{...rfq,status:rfqStatus}]
