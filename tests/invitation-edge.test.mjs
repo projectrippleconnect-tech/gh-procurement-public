@@ -5,23 +5,25 @@ import vm from 'node:vm'
 
 const source=readFileSync(new URL('../supabase/functions/proc-invite-user/index.ts',import.meta.url),'utf8').replace(/^import .*\n/,'')
 const destination='https://gh-procurement-production.up.railway.app/?recovery=1'
-function harness({existing=null,allowed=true,emailError=null,linkError=null,missingHash=false}={}){
+function harness({existing=null,allowed=true,emailError=null,linkError=null,missingHash=false,resetTargetActive=true}={}){
   let handler
   const calls=[]
   const service={
     auth:{
       admin:{
         listUsers:async()=>({data:{users:existing?[existing]:[]},error:null}),
+        getUserById:async(id)=>{calls.push({kind:'getUserById',id});return {data:{user:{id,email:'recipient@example.test'}},error:null}},
         inviteUserByEmail:async(email,options)=>{calls.push({kind:'invite',email,options});return {data:{user:{id:'recipient'}},error:emailError}},
         generateLink:async(options)=>{calls.push({kind:'link',options});return {data:{user:{id:'recipient'},properties:{action_link:'https://auth.example.test/verify?token=test-only',...(!missingHash?{hashed_token:'test-hash-only'}:{})}},error:linkError}}
       },
       resetPasswordForEmail:async(email,options)=>{calls.push({kind:'reset',email,options});return {error:emailError}}
     },
     from(table){
+      let filter={}
       const q={
-        select(){return q},eq(){return q},ilike(){return q},
+        select(){return q},eq(key,value){filter[key]=value;return q},ilike(){return q},
         async maybeSingle(){
-          const data=table==='proc_profiles'?{role_key:'admin',active:true}
+          const data=table==='proc_profiles'?(filter.id==='admin'?{role_key:'admin',active:true}:{id:filter.id,role_key:'viewer',active:resetTargetActive,deleted_at:null})
             :table==='proc_role_permissions'?(allowed?{permission_key:'admin.users.manage'}:null)
             :table==='proc_roles'?{enabled:true,base_role:'viewer',name:'Viewer'}:null
           return {data,error:null}
@@ -38,8 +40,8 @@ function harness({existing=null,allowed=true,emailError=null,linkError=null,miss
     createClient:(_url,key)=>key==='service'?service:{auth:{getUser:async()=>({data:{user:{id:'admin'}},error:null})}},
     Response,Date
   })
-  const invoke=async(auth=true,delivery='email')=>{
-    const response=await handler({method:'POST',headers:new Headers(auth?{Authorization:'Bearer test'}:{}),json:async()=>({email:'recipient@example.test',display_name:'Recipient',role_key:'viewer',delivery})})
+  const invoke=async(auth=true,delivery='email',payload={})=>{
+    const response=await handler({method:'POST',headers:new Headers(auth?{Authorization:'Bearer test'}:{}),json:async()=>({email:'recipient@example.test',display_name:'Recipient',role_key:'viewer',user_id:'00000000-0000-4000-8000-000000000012',delivery,...payload})})
     return {status:response.status,body:await response.json(),cacheControl:response.headers.get('Cache-Control')}
   }
   return {calls,invoke}
@@ -117,4 +119,38 @@ test('older auth servers without a token hash keep the managed Supabase verifica
   const h=harness({missingHash:true});const result=await h.invoke(true,'link')
   assert.equal(result.status,200)
   assert.equal(result.body.setup_link,'https://auth.example.test/verify?token=test-only')
+})
+
+test('admin can generate an existing user recovery link with no SMTP, no role changes and no record writes',async()=>{
+ const h=harness({emailError:new Error('email rate limit exceeded')})
+ const response=await h.invoke(true,'reset_link')
+ assert.equal(response.status,200)
+ assert.equal(response.body.email,'recipient@example.test')
+ assert.equal(response.body.setup_link,destination+'#token_hash=test-hash-only&type=recovery')
+ assert.equal(response.cacheControl,'no-store')
+ assert.equal(h.calls.filter(c=>c.kind==='link').length,1)
+ assert.equal(h.calls.find(c=>c.kind==='link').options.type,'recovery')
+ assert.equal(h.calls.some(c=>['reset','invite','insert','upsert','update'].includes(c.kind)),false)
+ assert.equal(h.calls.some(c=>c.table==='proc_user_invites'),false)
+})
+test('recovery-link generation rejects missing permission, inactive users and malformed identities',async()=>{
+ const denied=harness({allowed:false})
+ assert.equal((await denied.invoke(true,'reset_link')).status,403)
+ assert.equal(denied.calls.length,0)
+ const inactive=harness({resetTargetActive:false})
+ assert.equal((await inactive.invoke(true,'reset_link')).status,400)
+ assert.equal(inactive.calls.some(c=>c.kind==='link'),false)
+ const malformed=harness()
+ assert.equal((await malformed.invoke(true,'reset_link',{user_id:'not-a-user-id'})).status,400)
+ assert.equal(malformed.calls.length,0)
+ const anonymous=harness()
+ assert.equal((await anonymous.invoke(false,'reset_link')).status,401)
+ assert.equal(anonymous.calls.length,0)
+})
+test('recovery-link generation fails closed without a hashed token',async()=>{
+ const h=harness({missingHash:true})
+ const r=await h.invoke(true,'reset_link')
+ assert.equal(r.status,400)
+ assert.match(r.body.error,/secure recovery link/)
+ assert.equal(h.calls.some(c=>c.kind==='reset'),false)
 })
