@@ -4,7 +4,7 @@ import {useCallback,useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {downloadCsv,money,qty} from '@/lib/helpers'
 import {exportTablePdf} from '@/lib/pdf'
-import {Badge,DataTable,Toggle,Empty} from './ui'
+import {Badge,DataTable,Toggle,Empty,Err} from './ui'
 import {InfoButton} from './help-ui'
 
 const REPORT_DEFS={
@@ -188,9 +188,10 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
  const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false)
  const[setupLink,setSetupLink]=useState(null)
+ const[deleteTarget,setDeleteTarget]=useState(null),[deleteConfirmation,setDeleteConfirmation]=useState(''),[deleteBusy,setDeleteBusy]=useState(false),[deleteError,setDeleteError]=useState('')
  const hasAdmin=can('admin.users.manage')||can('admin.roles.manage')||can('admin.configure_app')||can('admin.audit.view')
  const load=useCallback(async()=>{if(!hasAdmin)return;try{
-  const[a,b,d,e,r]=await Promise.all([supabase.from('proc_profiles').select('*').order('display_name'),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),supabase.from('proc_user_directory').select('*'),supabase.from('proc_roles').select('*').order('name')])
+  const[a,b,d,e,r]=await Promise.all([supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name'),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),supabase.from('proc_user_directory').select('*'),supabase.from('proc_roles').select('*').order('name')])
   if(a.error)throw a.error;if(b.error)throw b.error;if(d.error)throw d.error;if(e.error)throw e.error;if(r.error)throw r.error;setUsers(a.data||[]);setAudit(b.data||[]);setInvites(d.data||[]);setDirectory(e.data||[]);setRoles(r.data||[])
  }catch(e){fail(e)}},[hasAdmin,fail])
  useEffect(()=>{load()},[load])
@@ -205,6 +206,18 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
   await role(u.id,'viewer')
  }
  async function active(u,v){if(u.id===profile.id&&!v)return fail(new Error(t('validation.self_deactivate','You cannot deactivate your own account.')));const r=await supabase.from('proc_profiles').update({active:v}).eq('id',u.id);if(r.error)fail(r.error);else{flash(t('admin.user_access_updated','User access updated.'));load()}}
+ async function deleteUser(){
+  if(!deleteTarget||deleteTarget.id===profile.id)return
+  setDeleteBusy(true);setDeleteError('')
+  try{
+   const r=await supabase.rpc('proc_admin_delete_user_v1',{p_user_id:deleteTarget.id,p_confirmation:deleteConfirmation})
+   if(r.error)throw r.error
+   if(!r.data?.ok)throw new Error('User deletion was not completed.')
+   setUsers(rows=>rows.filter(u=>u.id!==deleteTarget.id));setSetupLink(null);setDeleteTarget(null);setDeleteConfirmation('')
+   flash('User deleted from GH Procurement. Past procurement records are retained.')
+   await load()
+  }catch(e){setDeleteError(e.message||'User deletion failed.')}finally{setDeleteBusy(false)}
+ }
  async function inviteUser(delivery='email',target=invite){
   if(!target.display_name.trim())return fail(new Error(t('admin.enter_user_name','Enter the user name.')))
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target.email.trim()))return fail(new Error(t('admin.enter_valid_email','Enter a valid email address.')))
@@ -296,8 +309,10 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
   <div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.users','Users')}</h3><p>{t('admin.users_hint','Role-based procurement access. Change roles, disable access instantly, or send a password-reset link.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
    {key:'display_name',label:t('common.user','User')},{key:'email',label:t('common.email','Email'),render:u=>emailFor(u)||'—'},{key:'role',label:t('common.role','Role'),render:u=><div className="toolbar role-user-actions"><select className="select compact-select" value={u.role_key||u.role} disabled={u.id===profile.id&&(u.role_key||u.role)==='admin'} onChange={e=>role(u.id,e.target.value)}>{roles.filter(r=>r.enabled||(u.role_key||u.role)===r.role_key).map(r=><option key={r.role_key} value={r.role_key}>{r.name}</option>)}</select>{u.id!==profile.id&&(u.role_key||u.role)!=='viewer'&&<button type="button" className="btn small" onClick={()=>removeUserRole(u)}>{t('admin.set_viewer','Remove role / set Viewer')}</button>}</div>},
    {key:'active',label:t('common.access','Access'),render:u=><Toggle checked={u.active} disabled={u.id===profile.id} label={u.active?'Active':'Disabled'} onChange={v=>active(u,v)}/>},
-   {key:'security',label:t('common.security','Security'),render:u=><button className="btn small" disabled={!emailFor(u)} onClick={()=>sendReset(u)}>{t('admin.send_reset','Send Reset Link')}</button>}
-  ]} rows={users} mobileCards/></div>
+   {key:'security',label:t('common.security','Security'),render:u=><button className="btn small" disabled={!emailFor(u)} onClick={()=>sendReset(u)}>{t('admin.send_reset','Send Reset Link')}</button>},
+   {key:'delete',label:'',render:u=>profile.role==='admin'&&<button className="btn small bad" disabled={u.id===profile.id||deleteBusy} onClick={()=>{setDeleteTarget(u);setDeleteConfirmation('');setDeleteError('')}} aria-label={'Delete user '+u.display_name}>Delete user</button>}
+  ]} rows={users}/></div>
+  {deleteTarget&&<div className="modal-backdrop"><div className="modal card" role="dialog" aria-modal="true" aria-labelledby="delete-user-title"><div className="modal-head"><h3 id="delete-user-title">Delete user · {deleteTarget.display_name}</h3><button className="btn small" disabled={deleteBusy} onClick={()=>setDeleteTarget(null)}>Cancel</button></div><p>This removes the user from GH Procurement and immediately blocks procurement access. Past orders, stock entries and audit history remain. Access to other GH apps is retained.</p><p>Type <b>DELETE {deleteTarget.display_name}</b> to confirm.</p><label className="field">Delete user confirmation<input className="input" aria-label="Delete user confirmation" autoComplete="off" value={deleteConfirmation} disabled={deleteBusy} onChange={e=>setDeleteConfirmation(e.target.value)}/></label><Err v={deleteError}/><button className="btn bad section" disabled={deleteBusy||deleteConfirmation!=='DELETE '+deleteTarget.display_name} onClick={deleteUser}>{deleteBusy?'Deleting…':'Confirm delete user'}</button></div></div>}
   </>}
   {can('admin.audit.view')&&<div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.audit','Audit Trail')}</h3><p>{t('admin.audit_hint','Last 100 server-generated changes.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
    {key:'created_at',label:'Time',render:r=>new Date(r.created_at).toLocaleString()},{key:'table_name',label:'Area'},{key:'action',label:'Action'},{key:'user_id',label:'User ID',render:r=><span className="mono tiny">{r.user_id||'system'}</span>}

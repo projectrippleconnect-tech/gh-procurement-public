@@ -57,6 +57,7 @@ export function LoginScreen({initialError=''}) {
  if(mode==='recovery')return <div className="login-shell"><div className="card login">
    <div className="logo">GH</div><h1>Set a new password</h1><p>Choose a strong password for your approved GH account.</p>
    <div className="stack"><input className="input" type="password" autoComplete="new-password" placeholder="New password (12+ with upper/lowercase, number & symbol)" value={password} onChange={e=>setPassword(e.target.value)}/><input className="input" type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)}/><Err v={error}/>{notice&&<div className="success">{notice}</div>}<button className="btn primary" disabled={busy} onClick={updatePassword}>{busy?'Updating…':'Update password'}</button></div>
+   <button className="link-button section" disabled={busy} onClick={()=>window.location.replace('/')}>Back to sign in</button>
  </div></div>
 
  if(mode==='done')return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>Password updated</h1><p>Your password is now changed.</p><div className="success">{notice}</div><button className="btn primary section" onClick={()=>window.location.replace('/')}>Continue</button></div></div>

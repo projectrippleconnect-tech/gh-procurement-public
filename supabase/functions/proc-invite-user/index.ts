@@ -115,6 +115,8 @@ Deno.serve(async req=>{
       role,
       role_key:roleKey,
       active:true,
+      deleted_at:null,
+      deleted_by:null,
       updated_at:new Date().toISOString()
     },{onConflict:'id'})
     if(procProfileError)throw procProfileError

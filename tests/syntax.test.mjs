@@ -24,6 +24,6 @@ test('browser and build scripts pass native JavaScript syntax validation',()=>{
 test('auth state notifications do not await calls on the locked client',()=>{
   const app=readFileSync('components/procurement-app.jsx','utf8')
   assert.doesNotMatch(app,/onAuthStateChange\(async/)
-  const callback=app.slice(app.indexOf('onAuthStateChange('),app.indexOf('return()=>data.subscription.unsubscribe()'))
+  const callback=app.slice(app.indexOf('const receiveSession='),app.indexOf('// Keep this callback synchronous:'))
   assert.doesNotMatch(callback,/await|ensure\(|loadConfig\(|loadPermissions\(/)
 })
