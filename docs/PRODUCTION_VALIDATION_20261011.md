@@ -34,6 +34,13 @@ This is a verified improvement release, not proof of zero defects. Real email de
 
 Supabase's project-level advisor continues to report disabled breached-password protection and callable privileged functions. Callable functions require individual authorization review; the warning alone is not evidence of a vulnerability. Procurement role-boundary and API privilege tests passed. Performance notices for unindexed foreign keys, repeated Auth checks and multiple permissive policies were outside the proc_ tables; existing procurement indexes were retained.
 
-## Release checks still to record
+## Published release and deployment state
 
-Final build/browser results, published repository commit, invitation Edge Function version, Railway release health, public assets and unauthenticated endpoint protection will be recorded after publication.
+- PR #37 merged at 74c30cb8a7e4e03da005fc7fdb5029d4c0af5d8e. The manually approved release marker commit is 59da2830aad0db7e86d8cfafa94034709cd3f9d4.
+- Final clean npm ci, 87 tests, TypeScript, production build and expanded browser suite passed. Both GitHub workflows passed, including the installed-Chrome browser suite.
+- Invitation Edge Function proc-invite-user version 9 is ACTIVE with JWT verification enabled. Unauthenticated POST returned 401; OPTIONS returned 200.
+- Railway production source change is staged in patch 1e5882f7-2084-4160-8a42-ffc3e35971dd, changing only the pinned source commit to 59da2830aad0db7e86d8cfafa94034709cd3f9d4. The staged change is non-destructive.
+- Railway accept-deploy was attempted after explicit user authorization. The connector returned: "Cancelled — the user did not approve this action. No changes were made." The deployment was not applied, and no alternate route was used to bypass this refusal.
+- Read-back confirmed the patch remains STAGED. Live /api/health returned ok:true, database:connected, schema_ready:true and version 070f02681fee3f23988922ccd59f1b943c1988ba at 2026-10-11T14:00:49Z. This is the previous web release, not the new hardened web build.
+- Post-test catalogue and profile counts remain 1,192 and 2 respectively.
+- Next action: approve/apply the staged Railway production change, observe terminal SUCCESS, then verify the new health version, local OCR assets and unauthenticated web endpoints. Full release certification remains subject to the live-auth, external-delivery, restoration and sustained-load gaps above.
