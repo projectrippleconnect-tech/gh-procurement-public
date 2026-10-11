@@ -91,6 +91,19 @@ begin
   jsonb_build_object('rfq_item_id',rib,'unit_price',200,'available_qty',10)));
  select quote_line_id into strict qa from public.proc_v_quote_comparison where rfq_item_id=ria and landed_rank=1;
  select quote_line_id into strict qb from public.proc_v_quote_comparison where rfq_item_id=rib and landed_rank=1;
+ failure:=null;
+ begin perform public.proc_finalize_award_plan_v1(test_rfq_id,'[]'::jsonb); exception when insufficient_privilege then failure:=sqlerrm; end;
+ if failure is null then raise exception 'Browser could bypass current award validation'; end if;
+ execute 'reset role';
+ update public.proc_quotes set valid_until=current_date-1 where rfq_id=test_rfq_id;
+ execute 'set local role authenticated';
+ failure:=null;
+ begin perform public.proc_finalize_award_plan_v2(test_rfq_id,jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'quote_line_id',qa,'qty',10))); exception when others then failure:=sqlerrm; end;
+ if failure is null or failure not like '%valid supplier quotation is required%' then raise exception 'Expired quotation reached award: %',failure; end if;
+ execute 'reset role';
+ update public.proc_quotes set valid_until=null where rfq_id=test_rfq_id;
+ execute 'set local role authenticated';
+ insert into certification_results values('security: legacy award inaccessible and expired quotations blocked',true);
  result:=public.proc_finalize_award_plan_v2(test_rfq_id,jsonb_build_array(
   jsonb_build_object('rfq_item_id',ria,'quote_line_id',qa,'qty',10),
   jsonb_build_object('rfq_item_id',rib,'quote_line_id',qb,'qty',10)));
