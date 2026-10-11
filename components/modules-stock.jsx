@@ -108,6 +108,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   try{local=JSON.parse(localStorage.getItem(draftKey)||'{}')}catch{}
   let chosen=local
   if(serverDrafts){
+   try{
    const r=await supabase.from('proc_stock_count_drafts').select('*').eq('owner_id',profile.id).maybeSingle()
    if(r.error)throw r.error
    if(r.data){
@@ -122,6 +123,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
      savedAt:r.data.updated_at
     }
    }
+   }catch(e){fail(new Error('Account draft could not be loaded. Restored the draft saved on this device. '+(e.message||'')))}
   }
   setEntry(chosen.entry||{});setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
   if(chosen.filters){
