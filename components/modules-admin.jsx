@@ -134,16 +134,19 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  async function createRole(){
+  if(busy)return
   const name=window.prompt(t('admin.new_role_name','New role name'))
   if(!name?.trim())return
-  const template=selected||'viewer'
-  try{const r=await supabase.rpc('proc_admin_create_role_v1',{p_name:name.trim(),p_clone_from:template,p_description:null});if(r.error)throw r.error;flash(t('admin.role_created','Role created.'));await load();if(r.data?.role_key)setSelected(r.data.role_key);onChanged?.()}catch(e){fail(e)}
+  const template=role&&!role.protected&&role.enabled?selected:'viewer'
+  setBusy(true)
+  try{const r=await supabase.rpc('proc_admin_create_role_v1',{p_name:name.trim(),p_clone_from:template,p_description:null});if(r.error)throw r.error;flash(t('admin.role_created','Role created.'));await load();if(r.data?.role_key)setSelected(r.data.role_key);onChanged?.()}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function duplicate(){
-  if(!role)return
+  if(!role||role.protected||busy)return
   const name=window.prompt(t('admin.duplicate_role_name','Name for duplicated role'),role.name+' Copy')
   if(!name?.trim())return
-  try{const r=await supabase.rpc('proc_admin_duplicate_role_v1',{p_role_key:role.role_key,p_name:name.trim()});if(r.error)throw r.error;flash(t('admin.role_duplicated','Role duplicated.'));await load();if(r.data?.role_key)setSelected(r.data.role_key);onChanged?.()}catch(e){fail(e)}
+  setBusy(true)
+  try{const r=await supabase.rpc('proc_admin_duplicate_role_v1',{p_role_key:role.role_key,p_name:name.trim()});if(r.error)throw r.error;flash(t('admin.role_duplicated','Role duplicated.'));await load();if(r.data?.role_key)setSelected(r.data.role_key);onChanged?.()}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function remove(){
   if(!role||role.protected)return
@@ -151,7 +154,7 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
   try{const r=await supabase.rpc('proc_admin_delete_role_v1',{p_role_key:role.role_key});if(r.error)throw r.error;flash(t('admin.role_deleted','Role deleted.'));setSelected('admin');await load();onChanged?.()}catch(e){fail(e)}
  }
  return <div className="card pad section">
-  <div className="sectionhead"><div><h3>{t('admin.roles_title','Roles & Permissions')} <InfoButton topic="roles_permissions" language={language}/></h3><p>{t('admin.roles_subtitle','Create roles and control exactly what each role can do.')}</p></div><div className="role-actions"><button className="btn" onClick={createRole}>{t('admin.create_role','Create Role')}</button><button className="btn" disabled={!role} onClick={duplicate}>{t('admin.duplicate','Duplicate')}</button></div></div>
+  <div className="sectionhead"><div><h3>{t('admin.roles_title','Roles & Permissions')} <InfoButton topic="roles_permissions" language={language}/></h3><p>{t('admin.roles_subtitle','Create roles and control exactly what each role can do.')}</p>{role?.protected&&<p className="muted tiny">Super Admin cannot be duplicated. Create Role starts with Viewer access; select a staff role to copy its permissions.</p>}</div><div className="role-actions"><button className="btn" disabled={busy} onClick={createRole}>{t('admin.create_role','Create Role')}</button><button className="btn" disabled={!role||role.protected||busy} onClick={duplicate}>{t('admin.duplicate','Duplicate')}</button></div></div>
   <div className="role-editor-grid">
    <div className="role-list">{roles.map(r=><button type="button" className={selected===r.role_key?'active':''} key={r.role_key} onClick={()=>setSelected(r.role_key)}><span><b>{r.name}</b><small>{r.enabled?t('common.enabled','Enabled'):t('common.disabled','Disabled')}</small></span>{r.protected&&<Badge>protected</Badge>}</button>)}</div>
    {role&&draft&&<div>
