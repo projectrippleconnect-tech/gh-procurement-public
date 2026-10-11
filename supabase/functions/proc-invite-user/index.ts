@@ -41,6 +41,33 @@ Deno.serve(async req=>{
     }
 
     const body=await req.json().catch(()=>({}))
+    // Administrator-generated password recovery without a mail send.
+    // Only existing active GH Procurement users are eligible. No role,
+    // profile, invitation, or account metadata is changed by this branch.
+    if(body.delivery==='reset_link'){
+      const targetId=String(body.user_id||'').trim()
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId)){
+        return new Response(JSON.stringify({error:'Invalid user selection.'}),{status:400,headers:{...cors,'Content-Type':'application/json','Cache-Control':'no-store'}})
+      }
+      const {data:target,error:targetError}=await service.from('proc_profiles').select('id,active,deleted_at').eq('id',targetId).maybeSingle()
+      if(targetError)throw targetError
+      if(!target?.active||target.deleted_at){
+        return new Response(JSON.stringify({error:'Only active GH Procurement users can receive a recovery link.'}),{status:400,headers:{...cors,'Content-Type':'application/json','Cache-Control':'no-store'}})
+      }
+      const {data:authTarget,error:authError}=await service.auth.admin.getUserById(targetId)
+      if(authError)throw authError
+      const targetEmail=String(authTarget?.user?.email||'').trim().toLowerCase()
+      if(!targetEmail)throw new Error('This user has no recoverable email address.')
+      const redirectTo='https://gh-procurement-production.up.railway.app/?recovery=1'
+      const {data:recovery,error:linkError}=await service.auth.admin.generateLink({type:'recovery',email:targetEmail,options:{redirectTo}})
+      if(linkError)throw linkError
+      const hash=recovery?.properties?.hashed_token
+      if(!hash)throw new Error('Could not generate a secure recovery link. Please retry.')
+      const setupLink=redirectTo+'#token_hash='+encodeURIComponent(hash)+'&type=recovery'
+      return new Response(JSON.stringify({ok:true,email:targetEmail,setup_link:setupLink,message:'Recovery link generated without sending email. Share it privately with the intended user.'}),{
+        status:200,headers:{...cors,'Content-Type':'application/json','Cache-Control':'no-store'}
+      })
+    }
     const email=String(body.email||'').trim().toLowerCase()
     const displayName=String(body.display_name||'').trim()
     const roleKey=String(body.role_key||body.role||'viewer').trim()
