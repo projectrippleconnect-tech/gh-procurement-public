@@ -218,6 +218,7 @@ try{
   console.log('PASS in-app back/forward, draft preservation and branched history at '+width+'px')
   await navigate('⚙ Admin')
   const adminPanels=page.locator('details.admin-accordion > summary')
+  await adminPanels.first().waitFor()
   assert.ok(await adminPanels.count()>=8,'Admin sections are short expandable rows')
   assert.equal(await page.locator('details.admin-accordion[open]').count(),0,'Admin starts collapsed')
   await adminPanels.filter({hasText:/^Invite User$/}).click()
