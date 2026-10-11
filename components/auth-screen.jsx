@@ -25,21 +25,29 @@ export function LoginScreen({initialError=''}) {
  const [recoveryStatus,setRecoveryStatus]=useState('checking')
 
  async function signIn(){
+  if(busy)return
   if(!email||!password)return setError('Enter your email and password.')
   setBusy(true);setError('');setNotice('')
-  const {error:e}=await supabase.auth.signInWithPassword({email:email.trim(),password})
-  setBusy(false); if(e)setError(e.message)
+  try{
+   const {error:e}=await supabase.auth.signInWithPassword({email:email.trim(),password})
+   if(e)throw e
+  }catch(e){setError(e?.message||'Sign-in failed. Check your connection and try again.')}
+  finally{setBusy(false)}
  }
  async function forgot(){
+  if(busy)return
   if(!email)return setError('Enter your email address first.')
   setBusy(true);setError('');setNotice('')
-  const {error:e}=await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:window.location.origin+'/?recovery=1'})
-  setBusy(false)
-  if(e)setError(e.message)
-  else setNotice('If this email belongs to an approved GH account, a password-reset email has been sent.')
+  try{
+   const {error:e}=await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:window.location.origin+'/?recovery=1'})
+   if(e)throw e
+   setNotice('If this email belongs to an approved GH account, a password-reset email has been sent.')
+  }catch(e){setError(e?.message||'Password recovery failed. Check your connection and try again.')}
+  finally{setBusy(false)}
  }
 
  async function updatePassword(){
+  if(busy)return
   if(recoveryStatus!=='ready')return setError('This setup link is not verified. Ask your administrator for a new link.')
   const issue=passwordIssue(password)
   if(issue)return setError(issue)
@@ -132,15 +140,18 @@ export function ChangePassword({open,onClose,flash,fail}){
  const[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[showPasswords,setShowPasswords]=useState(false)
  if(!open)return null
  async function save(){
+  if(busy)return
   if(!current)return fail(new Error('Enter your current password.'))
   const issue=passwordIssue(password)
   if(issue)return fail(new Error(issue))
   if(password!==confirm)return fail(new Error('New passwords do not match.'))
   setBusy(true)
-  const {error}=await supabase.auth.updateUser({password,current_password:current})
-  setBusy(false)
-  if(error)return fail(error)
-  setCurrent('');setPassword('');setConfirm('');flash('Password changed successfully.');onClose()
+  try{
+   const {error}=await supabase.auth.updateUser({password,current_password:current})
+   if(error)throw error
+   setCurrent('');setPassword('');setConfirm('');flash('Password changed successfully.');onClose()
+  }catch(e){fail(e)}
+  finally{setBusy(false)}
  }
  return <div className="modal-backdrop"><div className="modal card"><div className="modal-head"><h3>Account security</h3><button className="btn small" onClick={onClose}>Close</button></div><div className="stack">
   <div className="notice">For security, confirm your current password before choosing a new one.</div>

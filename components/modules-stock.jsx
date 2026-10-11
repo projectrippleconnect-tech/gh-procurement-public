@@ -7,6 +7,7 @@ import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows} from '@/lib/query-pages'
+import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 
@@ -175,17 +176,19 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   if(initialFilter!=='due'&&cat&&list.length&&!list.includes(cat))setCat(list.includes('GENERAL')?'GENERAL':list[0])
  }catch(e){fail(e)}})()},[fail])
 
- const load=useCallback(async()=>{setLoading(true);try{
+ const stockLoadRevision=useRef(0)
+ const load=useCallback(async()=>{const revision=++stockLoadRevision.current;setLoading(true);try{
   const pageChunk=500
-  const cap=dueOnly?dailyTarget:5000
+  const cap=dueOnly?dailyTarget:Infinity
   let all=[],total=0,offset=0
   while(all.length<cap){
-   let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').range(offset,Math.min(offset+pageChunk-1,cap-1))
+   let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,Math.min(offset+pageChunk-1,cap-1))
    if(cat)q=q.eq('category',cat)
    if(movement)q=q.eq('movement',movement)
    if(mainGroup)q=q.eq('main_group',mainGroup)
    if(dueOnly)q=q.eq('is_due',true)
    const r=await q;if(r.error)throw r.error
+   if(revision!==stockLoadRevision.current)return
    if(offset===0)total=r.count??0
    const batch=r.data||[]
    all=all.concat(batch)
@@ -195,8 +198,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   setDueTotal(total||all.length)
   setItems(all)
   setCursor(0);setBrowsePage(0)
- }catch(e){fail(e)}finally{setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,fail])
- useEffect(()=>{load()},[load])
+ }catch(e){if(revision===stockLoadRevision.current)fail(e)}finally{if(revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,fail])
+ useEffect(()=>{load();return()=>{stockLoadRevision.current++}},[load])
 
  useEffect(()=>{
   if(!searchOpen||typeof window==='undefined'||!window.visualViewport){setSearchViewport(null);return}
@@ -386,11 +389,13 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  }
 
  async function submit(){
-  const checked=Object.entries(entry).filter(([,v])=>v!==undefined&&v!=='')
+  if(busy)return
+  const {counted,checked,remaining}=stockCountBatch(entry)
   if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one current-stock quantity.')))
-  if(checked.some(([,v])=>!Number.isFinite(Number(v))||Number(v)<0))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
+  if(counted.some(([,v])=>!Number.isFinite(Number(v))||Number(v)<0))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
   const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
-  if(!confirm(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix))return
+  const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
+  if(!confirm(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote))return
 
   setBusy(true);let path=null
   try{
@@ -398,6 +403,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     path='stock-counts/'+Date.now()+'-'+sheetFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')
     const u=await supabase.storage.from('gh-procurement').upload(path,sheetFile);if(u.error)throw u.error
    }
+   await draftWrites.current
    await ensureServerCountStart()
    const lines=checked.map(([item_id,v])=>({item_id,current_stock:Number(v)}))
    const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:path})
@@ -411,7 +417,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
    else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
    else message+=checked.length+' item(s) saved for procurement review.'
-   flash(message)
+   flash(message+(remaining?' '+remaining+' counted item(s) remain safely in your draft. Submit the next batch when ready.':''))
    await load()
    if(historyOpen)await loadStockHistory()
   }catch(e){

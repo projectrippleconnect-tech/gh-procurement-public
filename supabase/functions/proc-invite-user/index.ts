@@ -36,7 +36,11 @@ Deno.serve(async req=>{
       ?await service.from('proc_role_permissions').select('permission_key').eq('role_key',callerProfile.role_key).eq('permission_key','admin.users.manage').eq('allowed',true).maybeSingle()
       :{data:null,error:null}
     if(permissionError)throw permissionError
-    if(!callerProfile?.active||!callerPermission){
+    const {data:callerRole,error:callerRoleError}=callerProfile?.role_key
+      ?await service.from('proc_roles').select('enabled').eq('role_key',callerProfile.role_key).maybeSingle()
+      :{data:null,error:null}
+    if(callerRoleError)throw callerRoleError
+    if(!callerProfile?.active||!callerRole?.enabled||!callerPermission){
       return new Response(JSON.stringify({error:'User-management permission required'}),{status:403,headers:{...cors,'Content-Type':'application/json'}})
     }
 
@@ -81,7 +85,14 @@ Deno.serve(async req=>{
     const role=targetRole.base_role
 
     let existingUser=null
-    for(let page=1;page<=5&&!existingUser;page++){
+    const {data:directoryUser,error:directoryLookupError}=await service.from('proc_user_directory').select('user_id').eq('email',email).maybeSingle()
+    if(directoryLookupError)throw directoryLookupError
+    if(directoryUser?.user_id){
+      const {data:knownUser,error:knownUserError}=await service.auth.admin.getUserById(directoryUser.user_id)
+      if(knownUserError)throw knownUserError
+      if(String(knownUser?.user?.email||'').toLowerCase()===email)existingUser=knownUser.user
+    }
+    for(let page=1;!existingUser;page++){
       const {data,error}=await service.auth.admin.listUsers({page,perPage:200})
       if(error)throw error
       existingUser=(data.users||[]).find(u=>String(u.email||'').toLowerCase()===email)||null
@@ -126,7 +137,8 @@ Deno.serve(async req=>{
       setupEmailSent=true
     }
 
-    const {data:existingAppUser}=await service.from('app_users').select('custom_data').eq('id',authUser.id).maybeSingle()
+    const {data:existingAppUser,error:existingAppUserError}=await service.from('app_users').select('custom_data').eq('id',authUser.id).maybeSingle()
+    if(existingAppUserError)throw existingAppUserError
     const {error:appUserError}=await service.from('app_users').upsert({
       id:authUser.id,
       email,
@@ -162,7 +174,8 @@ Deno.serve(async req=>{
     },{onConflict:'user_id'})
     if(directoryError)throw directoryError
 
-    const {data:pending}=await service.from('proc_user_invites').select('id').eq('status','pending').ilike('email',email).maybeSingle()
+    const {data:pending,error:pendingError}=await service.from('proc_user_invites').select('id').eq('status','pending').ilike('email',email).maybeSingle()
+    if(pendingError)throw pendingError
     const invitePayload={
       email,display_name:displayName,role,role_key:roleKey,
       status:(invited||setupEmailSent||setupLink)?'pending':'accepted',

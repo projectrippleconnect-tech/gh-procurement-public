@@ -32,7 +32,7 @@ try{
  }
  assert.notEqual(htmlResponses[0],htmlResponses[1],'Nonce must change between HTML requests')
  console.log('PASS request-specific CSP nonce, script authorization and client-header override protection')
- browser=await chromium.launch({headless:true,...(process.env.GH_UI_BROWSER_CHANNEL?{channel:process.env.GH_UI_BROWSER_CHANNEL}:{})})
+ browser=await chromium.launch({headless:true,...(process.env.GH_UI_BROWSER_CHANNEL?{channel:process.env.GH_UI_BROWSER_CHANNEL}:{}),...(process.env.GH_UI_BROWSER_EXECUTABLE?{executablePath:process.env.GH_UI_BROWSER_EXECUTABLE,args:['--no-sandbox','--disable-dev-shm-usage']}: {})})
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
@@ -69,7 +69,7 @@ try{
   const draftSaves=[]
   let grantedPermissions=permissions
   let currentProfile=profile
-  let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false
+  let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false,rfqItemCount=100
   const poGatewayRequests=[]
   const setupRequests=[],resetLinkRequests=[]
   let staffInvites=[],staffProfiles=[profile],deleteFailure=true
@@ -133,7 +133,7 @@ try{
     invitations=[...invitations,invitation]
     data={invitation,rfq_status:rfqStatus,added:true}
    }
-   else if(name==='proc_rfq_items')data=Array.from({length:100},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true}))
+   else if(name==='proc_rfq_items')data=Array.from({length:rfqItemCount},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true}))
    else if(name==='proc_v_quote_comparison')data=[{rfq_item_id:'00000000-0000-4000-8000-000000000008',supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-fixture',unit_price:100,landed_unit_cost:100,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1}]
    else if(name==='proc_quotes'){const id=url.searchParams.get('supplier_id')?.slice(3);if(id===quoteReadFailure){quoteReadFailure=null;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture quote load failure'})});return}data=savedQuotes.get(id)||null}
    else if(name==='proc_quote_lines'){const id=url.searchParams.get('quote_id')?.slice(3);data=[...savedQuotes.values()].find(q=>q.id===id)?.lines||[]}
@@ -770,6 +770,48 @@ try{
   assert.equal(await back.isDisabled(),true,'Initial stock screen is a valid history root')
   await page.screenshot({path:'test-results/'+width+'-stock-handler-home.png',fullPage:true})
   console.log('PASS stock handler begins with populated stock view, no dashboard permission, and clean navigation at '+width+'px')
+  if(width===320){
+   currentProfile=profile;grantedPermissions=permissions;rfqItemCount=205
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await navigate('Q RFQs & Quotes')
+   await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.getByRole('button',{name:'View Price Comparison',exact:true}).click()
+   const comparison=page.getByRole('region',{name:'Scrollable supplier prices',exact:true})
+   assert.equal(await comparison.locator('tbody tr').count(),100)
+   await page.getByRole('button',{name:'Next items',exact:true}).click()
+   await page.getByText('Page 2 of 3',{exact:false}).waitFor()
+   assert.equal(await comparison.locator('tbody tr').count(),100)
+   await page.getByRole('button',{name:'Next items',exact:true}).click()
+   assert.equal(await comparison.locator('tbody tr').count(),5)
+   await page.getByLabel('Search comparison items',{exact:true}).fill('Bathroom fixture 204')
+   assert.equal(await comparison.locator('tbody tr').count(),1,'Search covers records on every page')
+   await page.getByLabel('Search comparison items',{exact:true}).fill('')
+   assert.equal(await comparison.locator('tbody tr').count(),100,'Search reset returns to the first page')
+   console.log('PASS 205-item comparison pagination and full-dataset search at 320px')
+   rfqItemCount=100
+  }
+  const roleCases=[
+   {role:'receiver',grants:['procurement.orders.view','receiving.manage','receiving.view'],landing:'Receive Goods'},
+   {role:'document_assistant',grants:['price_lists.manage','price_lists.view'],landing:'Price Lists'},
+   {role:'stock_checker',grants:['company_lists.view','items.view','stock.count.enter','stock.count.view','stock.search','urgent.manage','urgent.view'],landing:'Stock Entry'},
+   {role:'viewer',grants:['dashboard.view','invoices.view','items.view','price_lists.view','procurement.orders.view','procurement.rfq.view','reports.view','suppliers.view'],landing:'Home'},
+   {role:'procurement',grants:[...permissions,'suppliers.view','price_lists.view','reports.view'],landing:'Home'},
+   {role:'admin',grants:[...permissions,'admin.roles.manage','company_lists.view','suppliers.view','price_lists.view','reports.view'],landing:'Home'}
+  ]
+  const moduleViews=[['dashboard.view','⌂ Home'],['stock.count.view','✓ Stock Entry'],['urgent.view','! Exceptions'],['company_lists.view','CL Company Lists'],['suppliers.view','♢ Suppliers'],['price_lists.view','₨ Price Lists'],['procurement.requirements.view','≡ Review'],['procurement.rfq.view','Q RFQs & Quotes'],['procurement.orders.view','PO Orders'],['invoices.view','▤ Invoices'],['receiving.view','⇩ Receive Goods'],['items.view','□ Items'],['reports.view','↗ Reports']]
+  for(const staff of roleCases){
+   currentProfile={...profile,role:staff.role,role_key:staff.role}
+   grantedPermissions=staff.grants
+   await page.reload()
+   await page.waitForFunction(label=>document.querySelector('.topbar h2')?.textContent===label,staff.landing)
+   for(const [permission,label] of moduleViews){
+    if(!staff.grants.includes(permission))continue
+    await navigate(label)
+    await page.locator('.content > section:not([hidden])').waitFor({state:'visible'})
+    await page.waitForFunction(()=>{const section=document.querySelector('.content > section:not([hidden])');return section&&section.textContent.trim().length>30&&!section.textContent.includes('Loading screen…')})
+   }
+   console.log('PASS permitted section navigation for '+staff.role+' at '+width+'px')
+  }
   assert.deepEqual(errors,[],'Browser errors at '+width)
   assert.deepEqual(policyViolations,[],'Procurement, PDF and OCR actions must not violate CSP at '+width)
   console.log('PASS four-stage navigation and no horizontal overflow at '+width+'px')
