@@ -1,18 +1,30 @@
 'use client'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
+import dynamic from 'next/dynamic'
 import {supabase} from '@/lib/supabase'
 import {NAV,Err} from './ui'
 import {LoginScreen,ChangePassword} from './auth-screen'
-import {Dashboard,StockCheck,Items} from './modules-stock'
-import {Requirements,Suppliers,Rfqs} from './modules-buying'
-import {UrgentActions} from './modules-urgent'
-import {CompanyLists,CompanyPriceLists} from './modules-company'
-import {PurchaseOrders,Invoices,Receiving} from './modules-documents'
-import {Reports,Admin} from './modules-admin'
 import {createTranslator,navText} from '@/lib/i18n'
 import {HelpCenter} from './help-ui'
 import {withStartupDeadline} from '@/lib/workspace-startup.mjs'
+
+// Keep purchasing and PDF code out of the initial sign-in download.
+const screenLoading=()=> <p role="status">Loading screen…</p>
+const Dashboard=dynamic(()=>import('./modules-stock').then(m=>m.Dashboard),{loading:screenLoading})
+const StockCheck=dynamic(()=>import('./modules-stock').then(m=>m.StockCheck),{loading:screenLoading})
+const Items=dynamic(()=>import('./modules-stock').then(m=>m.Items),{loading:screenLoading})
+const Requirements=dynamic(()=>import('./modules-buying').then(m=>m.Requirements),{loading:screenLoading})
+const Suppliers=dynamic(()=>import('./modules-buying').then(m=>m.Suppliers),{loading:screenLoading})
+const Rfqs=dynamic(()=>import('./modules-buying').then(m=>m.Rfqs),{loading:screenLoading})
+const UrgentActions=dynamic(()=>import('./modules-urgent').then(m=>m.UrgentActions),{loading:screenLoading})
+const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:screenLoading})
+const CompanyPriceLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyPriceLists),{loading:screenLoading})
+const PurchaseOrders=dynamic(()=>import('./modules-documents').then(m=>m.PurchaseOrders),{loading:screenLoading})
+const Invoices=dynamic(()=>import('./modules-documents').then(m=>m.Invoices),{loading:screenLoading})
+const Receiving=dynamic(()=>import('./modules-documents').then(m=>m.Receiving),{loading:screenLoading})
+const Reports=dynamic(()=>import('./modules-admin').then(m=>m.Reports),{loading:screenLoading})
+const Admin=dynamic(()=>import('./modules-admin').then(m=>m.Admin),{loading:screenLoading})
 
 export default function ProcurementApp(){
  const[session,setSession]=useState(null),[profile,setProfile]=useState(null),[view,setView]=useState('dashboard')
