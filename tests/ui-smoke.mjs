@@ -65,6 +65,8 @@ try{
   }
   const savedQuotes=new Map()
   let quoteReadFailure=null
+  let draftSaveFailure=false
+  const draftSaves=[]
   let grantedPermissions=permissions
   let poFixtureStatus='sent',poLargeExport=false
   const poGatewayRequests=[]
@@ -108,7 +110,14 @@ try{
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
    else if(name==='proc_settings')data=[{key:'company_profile',value:{name:'General Hardware',town:'Nawalapitiya'}}]
-   else if(name==='proc_stock_count_drafts')data=[]
+   else if(name==='proc_feature_settings')data=[{feature_key:'stock.server_drafts',enabled:true}]
+   else if(name==='proc_stock_count_drafts'){
+    if(req.method()==='POST'){
+     draftSaves.push(req.postDataJSON())
+     if(draftSaveFailure)return route.fulfill({status:503,json:{message:'Fixture draft sync unavailable'}})
+    }
+    data=[]
+   }
    if(req.headers()['accept']?.includes('vnd.pgrst.object')&&Array.isArray(data))data=data[0]||null
    await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':'0-0/1'},body:JSON.stringify(data)})
   })
@@ -158,6 +167,19 @@ try{
    queries.length=0
    await page.getByRole('button',{name:card,exact:true}).click()
    await page.getByRole('heading',{name:heading,exact:true}).first().waitFor()
+   if(heading==='Stock Entry'){
+    await page.getByText('Draft saved to your account.',{exact:true}).waitFor()
+    draftSaveFailure=true
+    const stockInput=page.locator('.guided-entry input, .browse-stock-input').filter({visible:true}).first()
+    await stockInput.fill('7')
+    await page.getByText('Saved on this device · account sync failed.',{exact:true}).waitFor()
+    assert.equal(await page.evaluate(id=>JSON.parse(localStorage.getItem('gh-stock-count-draft:'+id)).entry['00000000-0000-4000-8000-000000000003'],id),'7','Failed sync retains local input')
+    draftSaveFailure=false
+    await page.getByRole('button',{name:'Retry draft save',exact:true}).click()
+    await page.getByText('Draft saved to your account.',{exact:true}).waitFor()
+    assert.equal(draftSaves.at(-1).entry[item.item_id],'7','Retry persists the latest input')
+    assert.equal(await stockInput.inputValue(),'7','Retry keeps the typed quantity')
+   }
    await page.waitForFunction(()=>!document.querySelector('.login-shell'))
    await requireQuery(u=>u.pathname.endsWith('/'+table)&&(!field||u.searchParams.get(field)===value),card+' must query its matching records')
    if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
