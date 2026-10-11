@@ -43,6 +43,9 @@ begin
     end if;
     if r.role_key not in ('admin','procurement') then
       failure:=null;
+      begin perform public.proc_finalize_award_plan_v2(gen_random_uuid(),'[]'::jsonb); exception when others then failure:=sqlerrm; end;
+      if failure is distinct from 'Permission denied: procurement.orders.create' then raise exception 'Award boundary failed for %: %',r.role_key,failure; end if;
+      failure:=null;
       begin perform public.proc_create_rfq_v4('{}'::uuid[],'{}'::uuid[]); exception when others then failure:=sqlerrm; end;
       if failure is distinct from 'Not authorized' then raise exception 'RFQ boundary failed for %: %',r.role_key,failure; end if;
     end if;

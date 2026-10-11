@@ -28,6 +28,12 @@ begin
       raise exception 'Browser dispatch mutation privilege: %',p;
     end if;
   end loop;
+  if has_function_privilege('authenticated','public.proc_finalize_award_plan_v1(uuid,jsonb)','EXECUTE') then
+    raise exception 'Legacy award implementation exposed to browser clients';
+  end if;
+  if not has_function_privilege('authenticated','public.proc_finalize_award_plan_v2(uuid,jsonb)','EXECUTE') then
+    raise exception 'Current award entrypoint removed';
+  end if;
 end $test$;
 select 'PASS: all procurement tables retain RLS; API table-control privileges denied; dispatch audit read preserved' as result;
 rollback;
