@@ -206,7 +206,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
 
   {canAutomation&&<div className="card pad section">
    <div className="sectionhead"><div><h3>Automation Exceptions</h3><p>Only tasks that could not safely continue automatically appear here.</p></div><Badge>{jobs.length} open</Badge></div>
-   {jobs.length===0?<Empty>No automation exceptions.</Empty>:<div className="stack section">{jobs.map(j=><div className="mobile-data-card" key={j.id}>
+   {jobs.length===0?<Empty>No automation exceptions.</Empty>:<div className="stack section">{jobs.map(j=><div className="procurement-data-row" key={j.id}>
     <div className="stock-card-title"><div><strong>{String(j.job_type).replaceAll('_',' ')}</strong><div className="muted tiny">{j.entity_type} · {new Date(j.updated_at).toLocaleString()}</div></div><Badge>{j.status}</Badge></div>
     {j.last_error&&<div className="notice section">{j.last_error}</div>}
     <div className="toolbar section">{['stock_continue','award_retry'].includes(j.job_type)?<button className="btn small primary" disabled={busy} onClick={()=>retryAutomation(j)}>Retry Now</button>:j.job_type==='rfq_send'?<span className="muted tiny">Action: open Supplier Prices → send the prepared RFQ → Confirm Sent.</span>:j.job_type==='rfq_reminder'?<span className="muted tiny">Action: open Supplier Prices → send a WhatsApp reminder to the waiting supplier.</span>:j.job_type==='po_send'?<span className="muted tiny">Action: open Orders → send the approved PO → Confirm Sent.</span>:j.job_type==='po_delivery_overdue'?<span className="muted tiny">Action: follow up with the supplier and update Receive Goods when delivery arrives.</span>:<span className="muted tiny">Review this exception before continuing.</span>}</div>

@@ -68,7 +68,7 @@ try{
   let draftSaveFailure=false
   const draftSaves=[]
   let grantedPermissions=permissions
-  let poFixtureStatus='sent',poLargeExport=false
+  let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false
   const poGatewayRequests=[]
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
@@ -105,7 +105,10 @@ try{
    else if(name==='proc_purchase_orders')data=[{...po,status:poFixtureStatus},otherPo]
    else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
    else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
-   else if(name==='proc_po_lines')data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):[{id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}]
+   else if(name==='proc_po_lines'){
+    const first={id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}
+    data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):receivingManyRows?[first,...Array.from({length:8},(_,i)=>({...first,id:'receiving-line-'+i,item:{...item,description:'Receiving fixture '+(i+2)}}))]:[first]
+   }
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
@@ -402,10 +405,27 @@ try{
     grantedPermissions=permissions
    }
    if(heading==='Receive Goods'){
+    receivingManyRows=width<=700
     page.on('dialog',dialog=>dialog.accept())
     const selector=page.getByLabel('Purchase Order',{exact:true})
     await selector.selectOption(po.id)
     await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+    if(width<=700){
+     const receivingRows=page.getByRole('region',{name:'Receiving item rows',exact:true})
+     await receivingRows.locator('.receive-entry-row').first().waitFor()
+     assert.equal(await receivingRows.locator('.receive-entry-row').count(),9,'Nine receiving items remain visible as rows')
+     const heights=await receivingRows.locator('.receive-entry-row').evaluateAll(rows=>rows.map(r=>r.getBoundingClientRect().height))
+     assert.ok(heights.every(h=>h<=110),'Closed receiving rows must be compact: '+heights.join(','))
+     const firstRow=receivingRows.locator('.receive-entry-row').first()
+     await firstRow.getByLabel('Received '+item.description+' · '+item.size,{exact:true}).fill('5')
+     assert.equal(await firstRow.getByLabel('Accepted '+item.description+' · '+item.size,{exact:true}).inputValue(),'5','Row receipt entry preserves automatic acceptance')
+     await firstRow.locator('summary').click()
+     await firstRow.getByLabel('Rejected '+item.description+' · '+item.size,{exact:true}).fill('1')
+     assert.equal(await firstRow.getByLabel('Accepted '+item.description+' · '+item.size,{exact:true}).inputValue(),'4','Expanded damage entry preserves acceptance math')
+     await firstRow.getByLabel('Rejection reason '+item.description+' · '+item.size,{exact:true}).fill('Damaged packaging')
+     await firstRow.locator('summary').click()
+     console.log('PASS nine compact receiving rows, inline quantities and expandable rejection at '+width+'px')
+    }
     const receivedInput=page.locator('.content > section:not([hidden]) input').filter({visible:true})
     // Draft survives a full page reload and retains the selected account/PO scope.
     await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
@@ -430,6 +450,7 @@ try{
     assert.equal(receipts.length,3,'Three receiving attempts were issued')
     assert.notEqual(receipts[0].p_receipt_key,receipts[1].p_receipt_key,'Different POs get different receipt keys')
     assert.equal(receipts[0].p_receipt_key,receipts[2].p_receipt_key,'Retrying the same PO reuses its receipt key')
+    receivingManyRows=false
    }
    if(heading==='Orders'){
     poFixtureStatus='approved';poLargeExport=width===320
