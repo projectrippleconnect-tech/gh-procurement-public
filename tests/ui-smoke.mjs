@@ -70,7 +70,7 @@ try{
   let grantedPermissions=permissions
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false
   const poGatewayRequests=[]
-  const setupRequests=[]
+  const setupRequests=[],resetLinkRequests=[]
   let staffInvites=[],staffProfiles=[profile],deleteFailure=true
   const deleteRequests=[]
   const destructiveRequests=[]
@@ -106,11 +106,18 @@ try{
    else if(name==='proc_roles')data=[{role_key:'viewer',base_role:'viewer',name:'Viewer',enabled:true},{role_key:'admin',base_role:'admin',name:'Admin',enabled:true}]
    else if(name==='proc_user_invites')data=staffInvites
    else if(name==='proc-invite-user'){
-    const body=req.postDataJSON();setupRequests.push(body)
-    assert.equal(body.delivery,'link','Setup-link flow does not use SMTP')
-    staffProfiles=[profile,{id:'00000000-0000-4000-8000-000000000012',display_name:body.display_name,role:body.role_key,role_key:body.role_key,active:true}]
-    staffInvites=[{invited_user_id:'00000000-0000-4000-8000-000000000012',id:'staff-invite',email:body.email,display_name:body.display_name,role:body.role_key,role_key:body.role_key,status:'pending',invited_at:new Date().toISOString()}]
-    data={ok:true,setup_link:'https://auth.example.invalid/verify?token=fixture-setup-only',message:'One-time setup link generated.'}
+    const body=req.postDataJSON()
+    if(body.delivery==='reset_link'){
+     resetLinkRequests.push(body)
+     assert.equal(body.user_id,'00000000-0000-4000-8000-000000000012')
+     data={ok:true,setup_link:'https://gh-procurement-production.up.railway.app/?recovery=1#token_hash=fixture-reset&type=recovery',email:'staff@example.invalid',message:'Recovery link generated without sending email.'}
+    }else{
+     setupRequests.push(body)
+     assert.equal(body.delivery,'link','Setup-link flow does not use SMTP')
+     staffProfiles=[profile,{id:'00000000-0000-4000-8000-000000000012',display_name:body.display_name,role:body.role_key,role_key:body.role_key,active:true}]
+     staffInvites=[{invited_user_id:'00000000-0000-4000-8000-000000000012',id:'staff-invite',email:body.email,display_name:body.display_name,role:body.role_key,role_key:body.role_key,status:'pending',invited_at:new Date().toISOString()}]
+     data={ok:true,setup_link:'https://auth.example.invalid/verify?token=fixture-setup-only',message:'One-time setup link generated.'}
+    }
    }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
@@ -268,7 +275,28 @@ try{
   console.log('PASS admin setup-link generation, fresh pending link and token storage isolation at '+width+'px')
   await adminPanels.filter({hasText:/^Users$/}).click()
   assert.equal(await page.locator('details.admin-accordion[open]').count(),1,'Opening Users closes Invite User')
+  const mobileUsers=width<=760
+  const staffRow=page.locator('.admin-user-row').filter({hasText:'Fixture staff'})
+  if(mobileUsers){
+   assert.equal(await page.locator('.admin-users-mobile').isVisible(),true,'Mobile directory uses a compact row list')
+   assert.equal(await page.locator('.admin-users-desktop').isVisible(),false,'Clipped desktop table is absent on mobile')
+   assert.equal(await page.locator('.admin-user-row').count(),2,'Each user takes only one collapsed row')
+   const rect=await page.locator('.admin-users-mobile').boundingBox()
+   assert.ok(rect&&rect.x>=0&&rect.x+rect.width<=width+1,'Staff list fits the mobile viewport')
+   await page.locator('.admin-user-row').filter({hasText:'Fixture Administrator'}).locator('summary').click()
+  }
   assert.equal(await page.getByRole('button',{name:'Delete user Fixture Administrator',exact:true}).isDisabled(),true)
+  if(mobileUsers)await staffRow.locator('summary').click()
+  const staffReset=page.getByRole('button',{name:'Generate Reset Link',exact:true}).filter({visible:true})
+  await staffReset.last().click()
+  const recovery=page.getByLabel('Generated recovery link',{exact:true})
+  await recovery.waitFor()
+  assert.match(await recovery.inputValue(),/token_hash=fixture-reset&type=recovery/)
+  assert.equal(resetLinkRequests.length,1,'Recovery uses the admin edge function once')
+  assert.equal(setupRequests.length,2,'Recovery does not create or re-invite the staff member')
+  assert.equal(await page.getByRole('button',{name:'Copy link',exact:true}).isEnabled(),true)
+  await page.getByRole('button',{name:'Dismiss',exact:true}).click()
+  assert.equal(await recovery.count(),0,'Sensitive recovery links can be dismissed')
   await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).click()
   const deleteDialog=page.getByRole('dialog',{name:'Delete user · Fixture staff',exact:true})
   await deleteDialog.getByText('⚠ Warning · delete user',{exact:true}).waitFor()
