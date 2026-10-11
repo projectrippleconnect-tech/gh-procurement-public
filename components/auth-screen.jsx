@@ -100,7 +100,7 @@ export function LoginScreen({initialError=''}) {
 
  if(mode==='recovery')return <div className="login-shell"><div className="card login">
    <div className="logo">GH</div><h1>Set a new password</h1><p>Choose a strong password for your approved GH account.</p>
-   <div className="stack"><input className="input" type="password" autoComplete="new-password" placeholder="New password (12+ with upper/lowercase, number & symbol)" value={password} onChange={e=>setPassword(e.target.value)}/><input className="input" type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)}/><Err v={error}/>{notice&&<div className="success">{notice}</div>}<button className="btn primary" disabled={busy} onClick={updatePassword}>{busy?'Updating…':'Update password'}</button></div>
+   {recoveryStatus==='checking'?<p role="status">Verifying secure setup link…</p>:recoveryStatus==='invalid'?<><Err v={error}/><p className="muted">Ask an administrator to generate a new setup link. Open the full link directly in Chrome on this device.</p></>:<div className="stack"><input className="input" type={showPasswords?'text':'password'} autoComplete="new-password" placeholder="New password (12+ with upper/lowercase, number & symbol)" value={password} onChange={e=>setPassword(e.target.value)}/><input className="input" type={showPasswords?'text':'password'} autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)}/><label className="password-visibility"><input type="checkbox" checked={showPasswords} onChange={e=>setShowPasswords(e.target.checked)}/> Show passwords</label><Err v={error}/>{notice&&<div className="success">{notice}</div>}<button className="btn primary" disabled={busy} onClick={updatePassword}>{busy?'Updating…':'Update password'}</button></div>}
    <button className="link-button section" disabled={busy} onClick={()=>window.location.replace('/')}>Back to sign in</button>
  </div></div>
 
@@ -110,7 +110,7 @@ export function LoginScreen({initialError=''}) {
    <div className="logo">GH</div><h1>GH Procurement</h1><p>Secure procurement, supplier comparison, purchase orders and stock receiving.</p>
    <div className="stack">
     <input className="input" type="email" autoComplete="username" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)}/>
-    {mode==='login'&&<input className="input" type="password" autoComplete="current-password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&signIn()}/>}
+    {mode==='login'&&<><input className="input" type={showPasswords?'text':'password'} autoComplete="current-password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&signIn()}/><label className="password-visibility"><input type="checkbox" checked={showPasswords} onChange={e=>setShowPasswords(e.target.checked)}/> Show password</label></>}
     <Err v={error}/>{notice&&<div className="success">{notice}</div>}
     {mode==='login'?<>
       <button className="btn primary" disabled={busy} onClick={signIn}>{busy?'Signing in…':'Sign in'}</button>
@@ -125,7 +125,7 @@ export function LoginScreen({initialError=''}) {
 }
 
 export function ChangePassword({open,onClose,flash,fail}){
- const[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false)
+ const[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[showPasswords,setShowPasswords]=useState(false)
  if(!open)return null
  async function save(){
   if(!current)return fail(new Error('Enter your current password.'))
@@ -140,9 +140,10 @@ export function ChangePassword({open,onClose,flash,fail}){
  }
  return <div className="modal-backdrop"><div className="modal card"><div className="modal-head"><h3>Account security</h3><button className="btn small" onClick={onClose}>Close</button></div><div className="stack">
   <div className="notice">For security, confirm your current password before choosing a new one.</div>
-  <input className="input" type="password" placeholder="Current password" value={current} onChange={e=>setCurrent(e.target.value)}/>
-  <input className="input" type="password" placeholder="New password (12+ with upper/lowercase, number & symbol)" value={password} onChange={e=>setPassword(e.target.value)}/>
-  <input className="input" type="password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)}/>
+  <input className="input" type={showPasswords?'text':'password'} placeholder="Current password" value={current} onChange={e=>setCurrent(e.target.value)}/>
+  <input className="input" type={showPasswords?'text':'password'} placeholder="New password (12+ with upper/lowercase, number & symbol)" value={password} onChange={e=>setPassword(e.target.value)}/>
+  <input className="input" type={showPasswords?'text':'password'} placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)}/>
+  <label className="password-visibility"><input type="checkbox" checked={showPasswords} onChange={e=>setShowPasswords(e.target.checked)}/> Show passwords</label>
   <button className="btn primary" disabled={busy} onClick={save}>{busy?'Updating…':'Change password'}</button>
  </div></div></div>
 }
