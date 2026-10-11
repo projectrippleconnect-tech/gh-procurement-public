@@ -93,6 +93,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
  const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
+ const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
+ const draftWrites=useRef(Promise.resolve())
  const[ocrBusy,setOcrBusy]=useState(false),[ocrProgress,setOcrProgress]=useState(null),[ocrRows,setOcrRows]=useState([])
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
@@ -106,6 +108,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   try{local=JSON.parse(localStorage.getItem(draftKey)||'{}')}catch{}
   let chosen=local
   if(serverDrafts){
+   try{
    const r=await supabase.from('proc_stock_count_drafts').select('*').eq('owner_id',profile.id).maybeSingle()
    if(r.error)throw r.error
    if(r.data){
@@ -120,6 +123,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
      savedAt:r.data.updated_at
     }
    }
+   }catch(e){fail(new Error('Account draft could not be loaded. Restored the draft saved on this device. '+(e.message||'')))}
   }
   setEntry(chosen.entry||{});setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
   if(chosen.filters){
@@ -136,18 +140,29 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   const filters={cat,movement,mainGroup,dueOnly}
   const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
   // Save locally immediately so leaving the screen cannot cancel the last keystroke.
-  try{localStorage.setItem(draftKey,JSON.stringify(payload))}catch{console.warn('Local stock draft could not be saved')}
-  const t=setTimeout(async()=>{
+  let localSaved=false,cancelled=false
+  try{localStorage.setItem(draftKey,JSON.stringify(payload));localSaved=true}catch{console.warn('Local stock draft could not be saved')}
+  setDraftSave({local:localSaved,server:serverDrafts?'saving':'disabled'})
+  const timer=setTimeout(()=>{
    if(serverDrafts){
-    const r=await supabase.from('proc_stock_count_drafts').upsert({
-     owner_id:profile.id,entry,skipped:[...skipped],cursor,filters,
-     count_started_at:startedAt.current,updated_at:savedAt
-    },{onConflict:'owner_id'})
-    if(r.error)console.warn('Stock draft autosave failed',r.error)
+    // Serialize writes so an older, slower request cannot overwrite newer input.
+    draftWrites.current=draftWrites.current.catch(()=>{}).then(async()=>{
+     if(cancelled)return
+     try{
+      const r=await supabase.from('proc_stock_count_drafts').upsert({
+       owner_id:profile.id,entry,skipped:[...skipped],cursor,filters,
+       count_started_at:payload.startedAt,updated_at:savedAt
+      },{onConflict:'owner_id'})
+      if(r.error)throw r.error
+      if(!cancelled)setDraftSave({local:localSaved,server:'saved'})
+     }catch{
+      if(!cancelled)setDraftSave({local:localSaved,server:'failed'})
+     }
+    })
    }
   },650)
-  return()=>clearTimeout(t)
- },[entry,cursor,skipped,cat,movement,mainGroup,dueOnly,draftReady,serverDrafts,profile.id,draftKey])
+  return()=>{cancelled=true;clearTimeout(timer)}
+ },[entry,cursor,skipped,cat,movement,mainGroup,dueOnly,draftReady,serverDrafts,profile.id,draftKey,draftRetry])
 
  useEffect(()=>{(async()=>{try{
   const r=await supabase.rpc('proc_item_filter_options_v1')
@@ -388,7 +403,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    const automation=r.data?.automation||null
    const next={...entry};checked.forEach(([id])=>delete next[id])
    setEntry(next);setSkipped(new Set());setCursor(0)
-   if(!Object.keys(next).length){localStorage.removeItem(draftKey);startedAt.current=null;if(serverDrafts)await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}
+   if(!Object.keys(next).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
    setSheetFile(null);setOcrRows([])
    let message='Stock submitted. '
    if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
@@ -407,8 +422,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   if(!Object.keys(entry).length&&!skipped.size)return
   if(!confirm('Discard all unsent stock entries on this device/account?'))return
   setEntry({});setSkipped(new Set());setCursor(0);setSheetFile(null);setOcrRows([]);startedAt.current=null
-  localStorage.removeItem(draftKey)
+  try{localStorage.removeItem(draftKey)}catch{}
   if(serverDrafts){
+   await draftWrites.current
    const r=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)
    if(r.error)return fail(r.error)
   }
@@ -553,7 +569,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     })}
    </div>
    <div className="stock-pagination dense-pagination bottom"><button className="btn small" disabled={browsePage<=0} onClick={()=>setBrowsePage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><strong>{t('common.page','Page')} {browsePage+1} {t('common.of','of')} {browsePages}</strong><button className="btn small" disabled={browsePage>=browsePages-1} onClick={()=>setBrowsePage(x=>Math.min(browsePages-1,x+1))}>{t('common.next','Next')}</button></div>
-   <div className="stock-draft-note"><span>✓</span><span>{t('stock.saved_draft','Your entered values are saved automatically while you work.')}</span>{(Object.keys(entry).length>0||skipped.size>0)&&<button type="button" className="btn small bad" onClick={discardDraft}>Discard Draft</button>}</div>
+   <div className="stock-draft-note" role="status" aria-live="polite"><span>{draftSave.server==='saved'||(draftSave.local&&draftSave.server==='disabled')?'✓':'•'}</span><span>{!draftReady?'Loading saved draft…':draftSave.server==='saving'?(draftSave.local?'Saved on this device · syncing…':'Saving draft…'):draftSave.server==='saved'?'Draft saved to your account.':draftSave.server==='failed'?(draftSave.local?'Saved on this device · account sync failed.':'Draft could not be saved. Keep this screen open and retry.'):draftSave.local?'Draft saved on this device.':'Draft could not be saved on this device. Keep this screen open and retry.'}</span>{draftReady&&(draftSave.server==='failed'||!draftSave.local)&&draftSave.server!=='saving'&&<button type="button" className="btn small" onClick={()=>setDraftRetry(v=>v+1)}>Retry draft save</button>}{(Object.keys(entry).length>0||skipped.size>0)&&<button type="button" className="btn small bad" onClick={discardDraft}>Discard Draft</button>}</div>
   </>}</div>}
 
   {searchOpen&&<div className="stock-search-overlay" style={searchViewport?{height:searchViewport.height+'px',top:searchViewport.top+'px'}:undefined}>
