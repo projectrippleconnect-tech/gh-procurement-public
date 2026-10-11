@@ -73,7 +73,13 @@ Deno.serve(async req=>{
       })
       if(error)throw error
       authUser=data.user
-      setupLink=data.properties?.action_link
+      // Send staff directly to this application's recovery screen. A token hash
+      // stays in the URL fragment (not HTTP logs) until verifyOtp exchanges it.
+      const tokenHash=data.properties?.hashed_token
+      const linkType=existingUser?'recovery':'invite'
+      setupLink=tokenHash
+        ?redirectTo+'#token_hash='+encodeURIComponent(tokenHash)+'&type='+linkType
+        :data.properties?.action_link
       if(!setupLink)throw new Error('The setup link could not be generated.')
       invited=!existingUser
     }else if(!authUser){

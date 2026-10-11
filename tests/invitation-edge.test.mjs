@@ -5,7 +5,7 @@ import vm from 'node:vm'
 
 const source=readFileSync(new URL('../supabase/functions/proc-invite-user/index.ts',import.meta.url),'utf8').replace(/^import .*\n/,'')
 const destination='https://gh-procurement-production.up.railway.app/?recovery=1'
-function harness({existing=null,allowed=true,emailError=null,linkError=null}={}){
+function harness({existing=null,allowed=true,emailError=null,linkError=null,missingHash=false}={}){
   let handler
   const calls=[]
   const service={
@@ -13,7 +13,7 @@ function harness({existing=null,allowed=true,emailError=null,linkError=null}={})
       admin:{
         listUsers:async()=>({data:{users:existing?[existing]:[]},error:null}),
         inviteUserByEmail:async(email,options)=>{calls.push({kind:'invite',email,options});return {data:{user:{id:'recipient'}},error:emailError}},
-        generateLink:async(options)=>{calls.push({kind:'link',options});return {data:{user:{id:'recipient'},properties:{action_link:'https://auth.example.test/verify?token=test-only'}},error:linkError}}
+        generateLink:async(options)=>{calls.push({kind:'link',options});return {data:{user:{id:'recipient'},properties:{action_link:'https://auth.example.test/verify?token=test-only',...(!missingHash?{hashed_token:'test-hash-only'}:{})}},error:linkError}}
       },
       resetPasswordForEmail:async(email,options)=>{calls.push({kind:'reset',email,options});return {error:emailError}}
     },
@@ -83,7 +83,7 @@ test('setup links create new invite accounts without sending email',async()=>{
   const h=harness({emailError:new Error('SMTP disabled')});const result=await h.invoke(true,'link')
   assert.equal(result.status,200);assert.equal(h.calls[0].kind,'link')
   assert.equal(h.calls[0].options.type,'invite');assert.equal(h.calls[0].options.options.redirectTo,destination)
-  assert.equal(result.body.setup_link,'https://auth.example.test/verify?token=test-only')
+  assert.equal(result.body.setup_link,destination+'#token_hash=test-hash-only&type=invite')
   assert.equal(result.cacheControl,'no-store')
   assert.equal(h.calls.some(c=>['invite','reset'].includes(c.kind)),false)
   const record=h.calls.find(c=>c.table==='proc_user_invites').payload
@@ -96,7 +96,7 @@ test('existing accounts get recovery setup links even after a failed redirect si
   const h=harness({existing:{id:'recipient',email:'recipient@example.test',last_sign_in_at:'2026-10-11'}})
   const result=await h.invoke(true,'link')
   assert.equal(result.status,200);assert.equal(h.calls[0].options.type,'recovery')
-  assert.ok(result.body.setup_link);assert.equal(h.calls.some(c=>['invite','reset'].includes(c.kind)),false)
+  assert.equal(result.body.setup_link,destination+'#token_hash=test-hash-only&type=recovery');assert.equal(h.calls.some(c=>['invite','reset'].includes(c.kind)),false)
 })
 test('setup link generation failures do not write invitation success',async()=>{
   const h=harness({linkError:new Error('Link generation failed')})
@@ -111,4 +111,10 @@ test('setup links require authentication',async()=>{
 })
 test('unknown delivery methods cannot generate credentials',async()=>{
   const h=harness();assert.equal((await h.invoke(true,'unknown')).status,400);assert.equal(h.calls.length,0)
+})
+
+test('older auth servers without a token hash keep the managed Supabase verification link',async()=>{
+  const h=harness({missingHash:true});const result=await h.invoke(true,'link')
+  assert.equal(result.status,200)
+  assert.equal(result.body.setup_link,'https://auth.example.test/verify?token=test-only')
 })
