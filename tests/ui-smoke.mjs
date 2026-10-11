@@ -71,7 +71,10 @@ try{
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false
   const poGatewayRequests=[]
   const setupRequests=[]
-  let staffInvites=[]
+  let staffInvites=[],staffProfiles=[profile],deleteFailure=true
+  const deleteRequests=[]
+  let stallStartup=false,releaseStartup,stalledReturned=false
+  const startupGate=new Promise(resolve=>{releaseStartup=resolve})
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('pageerror',e=>errors.push(e.message))
@@ -80,13 +83,20 @@ try{
    queries.push(url)
    let data=[]
    if(url.pathname.includes('/auth/'))data=user
-   else if(name==='proc_profiles')data=[profile]
+   else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[profile]:staffProfiles}
+   else if(name==='proc_admin_delete_user_v1'){
+    const body=req.postDataJSON();deleteRequests.push(body)
+    assert.equal(body.p_confirmation,'DELETE Fixture staff')
+    if(deleteFailure){deleteFailure=false;return route.fulfill({status:400,json:{message:'Fixture delete failure'}})}
+    staffProfiles=staffProfiles.filter(u=>u.id!==body.p_user_id);staffInvites=staffInvites.map(i=>({...i,status:'revoked'}));data={ok:true,user_id:body.p_user_id}
+   }
    else if(name==='proc_roles')data=[{role_key:'viewer',base_role:'viewer',name:'Viewer',enabled:true},{role_key:'admin',base_role:'admin',name:'Admin',enabled:true}]
    else if(name==='proc_user_invites')data=staffInvites
    else if(name==='proc-invite-user'){
     const body=req.postDataJSON();setupRequests.push(body)
     assert.equal(body.delivery,'link','Setup-link flow does not use SMTP')
-    staffInvites=[{id:'staff-invite',email:body.email,display_name:body.display_name,role:body.role_key,role_key:body.role_key,status:'pending',invited_at:new Date().toISOString()}]
+    staffProfiles=[profile,{id:'00000000-0000-4000-8000-000000000012',display_name:body.display_name,role:body.role_key,role_key:body.role_key,active:true}]
+    staffInvites=[{invited_user_id:'00000000-0000-4000-8000-000000000012',id:'staff-invite',email:body.email,display_name:body.display_name,role:body.role_key,role_key:body.role_key,status:'pending',invited_at:new Date().toISOString()}]
     data={ok:true,setup_link:'https://auth.example.invalid/verify?token=fixture-setup-only',message:'One-time setup link generated.'}
    }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
@@ -149,7 +159,26 @@ try{
    const html=await response.text()
    await route.fulfill({response,body:html.replace('</head>','<script>window.__ghUntrustedInlineExecuted=true</script></head>')})
   })
-  await page.goto(root)
+  // The setup URL must show the password form even with an existing session.
+  await page.goto(root+'/?recovery=1')
+  await page.getByRole('heading',{name:'Set a new password',exact:true}).waitFor()
+  assert.equal(await page.getByText('Loading secure workspace…',{exact:true}).count(),0)
+  await page.getByPlaceholder('New password (12+ with upper/lowercase, number & symbol)',{exact:true}).fill('FixturePassword123!')
+  await page.getByPlaceholder('Confirm new password',{exact:true}).fill('FixturePassword123!')
+  await page.getByRole('button',{name:'Update password',exact:true}).click()
+  await page.getByRole('heading',{name:'Password updated',exact:true}).waitFor()
+  await page.screenshot({path:'test-results/'+width+'-password-setup.png'})
+  if(width===390)stallStartup=true
+  await page.getByRole('button',{name:'Continue',exact:true}).click()
+  if(width===390){
+   await page.getByRole('heading',{name:'Access unavailable',exact:true}).waitFor({timeout:25000})
+   await page.getByText(/workspace is taking too long/).waitFor()
+   stallStartup=false;releaseStartup()
+   for(let attempt=0;attempt<100&&!stalledReturned;attempt++)await page.waitForTimeout(25)
+   await page.waitForTimeout(100)
+   assert.equal(await page.getByRole('heading',{name:'Home',exact:true}).count(),0,'Late access result cannot bypass the failed startup')
+   await page.getByRole('button',{name:'Retry',exact:true}).click()
+  }
   await page.unroute(root+'/')
   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
   for(let attempt=0;attempt<200&&!policyViolations.length;attempt++)await page.waitForTimeout(25)
@@ -202,6 +231,26 @@ try{
   await page.screenshot({path:'test-results/'+width+'-setup-link.png',fullPage:true})
   await page.getByRole('button',{name:'Dismiss',exact:true}).click()
   console.log('PASS admin setup-link generation, fresh pending link and token storage isolation at '+width+'px')
+  assert.equal(await page.getByRole('button',{name:'Delete user Fixture Administrator',exact:true}).isDisabled(),true)
+  await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).click()
+  const deleteDialog=page.getByRole('dialog',{name:'Delete user · Fixture staff',exact:true})
+  await deleteDialog.getByRole('button',{name:'Cancel',exact:true}).click()
+  assert.equal(deleteRequests.length,0,'Cancel does not delete a user')
+  await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).click()
+  const deleteButton=deleteDialog.getByRole('button',{name:'Confirm delete user',exact:true})
+  assert.equal(await deleteButton.isDisabled(),true)
+  await page.getByLabel('Delete user confirmation',{exact:true}).fill('DELETE WRONG')
+  assert.equal(await deleteButton.isDisabled(),true)
+  await page.getByLabel('Delete user confirmation',{exact:true}).fill('DELETE Fixture staff')
+  await deleteButton.click()
+  await deleteDialog.getByText('Fixture delete failure',{exact:true}).waitFor()
+  assert.equal(await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).count(),1,'Failure retains the user')
+  await deleteButton.click()
+  await deleteDialog.waitFor({state:'hidden'})
+  assert.equal(await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).count(),0,'Deleted user leaves the list')
+  assert.equal(deleteRequests.length,2)
+  await page.screenshot({path:'test-results/'+width+'-user-deleted.png',fullPage:true})
+  console.log('PASS recovery setup, protected deletion, cancellation, failure/retry and user-list removal at '+width+'px')
   await page.getByRole('heading',{name:'Data Management · Admin only',exact:true}).waitFor()
   await page.getByRole('button',{name:'Preview affected records',exact:true}).click()
   await page.getByLabel('Reset confirmation',{exact:true}).waitFor()

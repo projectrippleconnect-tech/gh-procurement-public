@@ -88,6 +88,8 @@ test('setup links create new invite accounts without sending email',async()=>{
   assert.equal(h.calls.some(c=>['invite','reset'].includes(c.kind)),false)
   const record=h.calls.find(c=>c.table==='proc_user_invites').payload
   assert.equal(record.status,'pending');assert.equal(record.accepted_at,null)
+  const profile=h.calls.find(c=>c.table==='proc_profiles').payload
+  assert.equal(profile.deleted_at,null);assert.equal(profile.deleted_by,null)
   assert.equal(h.calls.filter(c=>c.payload).some(c=>JSON.stringify(c.payload).includes('token=test-only')),false)
 })
 test('existing accounts get recovery setup links even after a failed redirect signed them in',async()=>{

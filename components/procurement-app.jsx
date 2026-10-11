@@ -12,6 +12,7 @@ import {PurchaseOrders,Invoices,Receiving} from './modules-documents'
 import {Reports,Admin} from './modules-admin'
 import {createTranslator,navText} from '@/lib/i18n'
 import {HelpCenter} from './help-ui'
+import {withStartupDeadline} from '@/lib/workspace-startup.mjs'
 
 export default function ProcurementApp(){
  const[session,setSession]=useState(null),[profile,setProfile]=useState(null),[view,setView]=useState('dashboard')
@@ -19,6 +20,7 @@ export default function ProcurementApp(){
  const[visited,setVisited]=useState(()=>new Set(['dashboard']))
  const[navigation,setNavigation]=useState({filter:'',revision:0})
  const[boot,setBoot]=useState(true),[notice,setNotice]=useState(''),[error,setError]=useState(''),[recovery,setRecovery]=useState(false)
+ const[bootError,setBootError]=useState(''),[startupAttempt,setStartupAttempt]=useState(0)
  const[modules,setModules]=useState([]),[fields,setFields]=useState([]),[features,setFeatures]=useState([]),[settings,setSettings]=useState({})
  const[permissions,setPermissions]=useState(new Set()),[permissionsLoaded,setPermissionsLoaded]=useState(false),[language,setLanguage]=useState(()=>typeof window!=='undefined'?(localStorage.getItem('gh-procurement-language')||'en'):'en')
  const[mobileMenu,setMobileMenu]=useState(false),[securityOpen,setSecurityOpen]=useState(false),[helpOpen,setHelpOpen]=useState(false)
@@ -32,11 +34,11 @@ export default function ProcurementApp(){
  const ensure=useCallback(async s=>{
   const x=await supabase.from('proc_profiles').select('*').eq('id',s.user.id).maybeSingle()
   if(x.error)throw x.error
-  if(x.data){if(!x.data.active)throw new Error('Your GH Procurement access is disabled.');const accepted=await supabase.rpc('proc_mark_own_invite_accepted');if(accepted.error)console.warn('Invite acceptance status not updated',accepted.error);return x.data}
+  if(x.data){if(!x.data.active)throw new Error('Your GH Procurement access is disabled.');return x.data}
   const r=await supabase.rpc('proc_ensure_profile')
   if(r.error)throw r.error
   const p=Array.isArray(r.data)?r.data[0]:r.data
-  if(!p?.active)throw new Error('Your GH Procurement access is disabled.');const accepted=await supabase.rpc('proc_mark_own_invite_accepted');if(accepted.error)console.warn('Invite acceptance status not updated',accepted.error);return p
+  if(!p?.active)throw new Error('Your GH Procurement access is disabled.');return p
  },[])
 
  const loadPermissions=useCallback(async()=>{
@@ -66,32 +68,51 @@ export default function ProcurementApp(){
   setModules(config.modules);setFields(config.fields);setFeatures(config.features);setSettings(config.settings)},[])
 
  useEffect(()=>{
-  if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recovery')==='1')setRecovery(true)
-  // Keep this callback synchronous: Supabase holds its auth lock while it runs.
-  const{data}=supabase.auth.onAuthStateChange((event,s)=>{
-   if(event==='PASSWORD_RECOVERY')setRecovery(true)
+  let cancelled=false,authReady=false
+  const setupPage=new URLSearchParams(window.location.search).get('recovery')==='1'
+  if(setupPage){setRecovery(true);setBoot(false)}
+  const timer=setTimeout(()=>{if(!cancelled&&!authReady&&!setupPage){setBootError('Sign-in is taking too long to respond. Check your connection and try again.');setBoot(false)}},15000)
+  const receiveSession=(event,s)=>{
+   if(cancelled)return
+   authReady=true;clearTimeout(timer);setBootError('')
+   if(event==='PASSWORD_RECOVERY'){setRecovery(true);setBoot(false)}
    setSession(s)
    if(!s){const initialHistory={entries:[{view:'dashboard',filter:''}],index:0};historyRef.current=initialHistory;setScreenHistory(initialHistory);setView('dashboard');setVisited(new Set(['dashboard']));setViewFilters({});setViewKeys({});scrollPositions.current={};hydratedUser.current=null;setProfile(null);setModules([]);setFields([]);setFeatures([]);setSettings({});setPermissions(new Set());setPermissionsLoaded(false);setBoot(false)}
+  }
+  // Keep this callback synchronous: Supabase holds its auth lock while it runs.
+  const{data}=supabase.auth.onAuthStateChange(receiveSession)
+  // Also resolve explicitly in case the initial auth event is delayed or missed.
+  supabase.auth.getSession().then(({data,error})=>{
+   if(error)throw error
+   if(!authReady)receiveSession('INITIAL_SESSION',data.session)
+  }).catch(e=>{
+   if(!cancelled&&!authReady){clearTimeout(timer);setBootError(e.message);setBoot(false)}
   })
-  return()=>data.subscription.unsubscribe()
- },[])
+  return()=>{cancelled=true;clearTimeout(timer);data.subscription.unsubscribe()}
+ },[startupAttempt])
 
  useEffect(()=>{
-  if(!session||recovery)return
+  if(recovery){setBoot(false);return}
+  if(!session)return
   let cancelled=false
   const initial=hydratedUser.current!==session.user.id
-  if(initial){setBoot(true);setProfile(null);setPermissions(new Set());setPermissionsLoaded(false);lastActivity.current=Date.now()}
+  if(initial){setBoot(true);setBootError('');setProfile(null);setPermissions(new Set());setPermissionsLoaded(false);lastActivity.current=Date.now()}
   async function hydrate(){
    try{
-    const next=await ensure(session)
-    const [config,allowed]=await Promise.all([loadConfig(),loadPermissions()])
+    const {next,config,allowed}=await withStartupDeadline((async()=>{
+     const [next,config]=await Promise.all([ensure(session),loadConfig()])
+     const allowed=await loadPermissions()
+     return {next,config,allowed}
+    })())
     if(!cancelled){applyConfig(config);setPermissions(allowed);setPermissionsLoaded(true);setProfile(next);hydratedUser.current=session.user.id;setError('')}
+    // Invitation bookkeeping must not delay access to the workspace.
+    if(!cancelled)supabase.rpc('proc_mark_own_invite_accepted').then(r=>{if(r.error)console.warn('Invite acceptance status not updated',r.error)}).catch(()=>{})
    }catch(e){if(!cancelled){hydratedUser.current=null;setProfile(null);setPermissions(new Set());setPermissionsLoaded(false);setError(e.message)}}
    finally{if(!cancelled)setBoot(false)}
   }
   hydrate()
   return()=>{cancelled=true}
- },[session,recovery,ensure,loadConfig,loadPermissions,applyConfig])
+ },[session,recovery,ensure,loadConfig,loadPermissions,applyConfig,startupAttempt])
 
  useEffect(()=>{
   if(!session||!profile)return
@@ -193,10 +214,12 @@ export default function ProcurementApp(){
   if(!visibleNav.some(n=>n[0]===view))setView(primaryNav[0]?.[0]||visibleNav[0][0])
  },[visibleNav,primaryNav,view,profile])
 
- if(boot)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>GH Procurement</h1><p>{t('app.loading_secure','Loading secure workspace…')}</p></div></div>
  if(recovery)return <LoginScreen initialError={error}/>
+ const retryStartup=()=>{setBootError('');setError('');setBoot(true);setStartupAttempt(x=>x+1)}
+ if(boot)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>GH Procurement</h1><p>{t('app.loading_secure','Loading secure workspace…')}</p></div></div>
+ if(bootError)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>Connection interrupted</h1><p>{bootError}</p><button className="btn primary" onClick={retryStartup}>Retry</button></div></div>
  if(!session)return <LoginScreen initialError={error}/>
- if(!profile)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>{t('app.access_unavailable','Access unavailable')}</h1><p>{error||t('app.account_not_enabled','Your account is not enabled for GH Procurement.')}</p><button className="btn" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div>
+ if(!profile)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>{t('app.access_unavailable','Access unavailable')}</h1><p>{error||t('app.account_not_enabled','Your account is not enabled for GH Procurement.')}</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>
 
  const title=visibleNav.find(x=>x[0]===view)?.[2]||'GH Procurement'
  const company=settings.company_profile||{name:'General Hardware',town:'Nawalapitiya',country:'Sri Lanka'}
