@@ -223,8 +223,17 @@ export default function ProcurementApp(){
 
  useEffect(()=>{
   if(!profile||!visibleNav.length)return
-  if(!visibleNav.some(n=>n[0]===view))setView(primaryNav[0]?.[0]||visibleNav[0][0])
+  if(visibleNav.some(n=>n[0]===view))return
+  // Restricted roles may not have Dashboard access. Selecting the correct
+  // view alone will not render lazy screens: the screen must be marked visited.
+  const next=primaryNav[0]?.[0]||visibleNav[0][0]
+  setVisited(current=>new Set([...current,next]))
+  const initialHistory={entries:[{view:next,filter:''}],index:0}
+  historyRef.current=initialHistory
+  setScreenHistory(initialHistory)
+  setView(next)
  },[visibleNav,primaryNav,view,profile])
+ const hasAuthorizedWorkspace=visibleNav.length>0
 
  if(recovery)return <LoginScreen initialError={error}/>
  const retryStartup=()=>{setBootError('');setError('');setBoot(true);setStartupAttempt(x=>x+1)}
@@ -232,6 +241,7 @@ export default function ProcurementApp(){
  if(bootError)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>Connection interrupted</h1><p>{bootError}</p><button className="btn primary" onClick={retryStartup}>Retry</button></div></div>
  if(!session)return <LoginScreen initialError={error}/>
  if(!profile)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>{t('app.access_unavailable','Access unavailable')}</h1><p>{error||t('app.account_not_enabled','Your account is not enabled for GH Procurement.')}</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>
+ if(!hasAuthorizedWorkspace)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>No permitted workspace</h1><p>Your account is active, but no procurement screens are currently enabled for your role. Ask an administrator to review your role permissions.</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>Sign out</button></div></div></div>
 
  const title=visibleNav.find(x=>x[0]===view)?.[2]||'GH Procurement'
  const company=settings.company_profile||{name:'General Hardware',town:'Nawalapitiya',country:'Sri Lanka'}
@@ -282,6 +292,7 @@ export default function ProcurementApp(){
    <header className="topbar"><div className="topbar-left"><button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
    <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button></nav>
    <div className="content">
+     {!visibleNav.some(n=>n[0]===view)&&<p role="status" className="muted">Opening your permitted workspace…</p>}
     <section hidden={view!=='dashboard'} key={'dashboard-'+(viewKeys['dashboard']||0)}>{visited.has('dashboard')&&visibleNav.some(n=>n[0]==='dashboard')&&<Dashboard {...p} initialFilter={viewFilters['dashboard']||''}/>}</section>
     <section hidden={view!=='stock'} key={'stock-'+(viewKeys['stock']||0)}>{visited.has('stock')&&visibleNav.some(n=>n[0]==='stock')&&<StockCheck {...p} initialFilter={viewFilters['stock']||''}/>}</section>
     <section hidden={view!=='urgent_actions'} key={'urgent_actions-'+(viewKeys['urgent_actions']||0)}>{visited.has('urgent_actions')&&visibleNav.some(n=>n[0]==='urgent_actions')&&<UrgentActions {...p} initialFilter={viewFilters['urgent_actions']||''}/>}</section>
