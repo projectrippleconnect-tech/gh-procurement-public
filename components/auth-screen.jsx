@@ -21,6 +21,8 @@ export function LoginScreen({initialError=''}) {
  const [busy,setBusy]=useState(false)
  const [error,setError]=useState(initialError)
  const [notice,setNotice]=useState('')
+ const [showPasswords,setShowPasswords]=useState(false)
+ const [recoveryStatus,setRecoveryStatus]=useState('checking')
 
  async function signIn(){
   if(!email||!password)return setError('Enter your email and password.')
@@ -36,22 +38,64 @@ export function LoginScreen({initialError=''}) {
   if(e)setError(e.message)
   else setNotice('If this email belongs to an approved GH account, a password-reset email has been sent.')
  }
+
  async function updatePassword(){
+  if(recoveryStatus!=='ready')return setError('This setup link is not verified. Ask your administrator for a new link.')
   const issue=passwordIssue(password)
   if(issue)return setError(issue)
   if(password!==confirm)return setError('Passwords do not match.')
   setBusy(true);setError('');setNotice('')
-  const {error:e}=await supabase.auth.updateUser({password})
-  setBusy(false)
-  if(e)setError(e.message)
-  else {setNotice('Password updated successfully. You can continue to GH Procurement.');setMode('done')}
+  try{
+   const {data,error:sessionError}=await supabase.auth.getSession()
+   if(sessionError||!data?.session)throw new Error('Your secure setup session has expired. Ask your administrator for a fresh setup link.')
+   const {error:updateError}=await supabase.auth.updateUser({password})
+   if(updateError)throw updateError
+   setNotice('Password updated successfully. You can continue to GH Procurement.')
+   setMode('done')
+  }catch(e){setError(e?.message||'Password change failed. Please request a fresh setup link.')}
+  finally{setBusy(false)}
  }
  useEffect(()=>{
+   let active=true
+   const params=new URLSearchParams(window.location.search)
+   const hash=new URLSearchParams(window.location.hash.slice(1))
+   const isRecovery=params.get('recovery')==='1'||hash.has('token_hash')
    const {data}=supabase.auth.onAuthStateChange((event)=>{
      if(event==='PASSWORD_RECOVERY')setMode('recovery')
    })
-   if(new URLSearchParams(window.location.search).get('recovery')==='1')setMode('recovery')
-   return()=>data.subscription.unsubscribe()
+   if(isRecovery){
+    setMode('recovery')
+    // First-party links exchange a one-time token hash in this browser.
+    // Previous Supabase redirect links can still initialize through detectSessionInUrl.
+    ;(async()=>{
+     try{
+      if(params.has('error')||hash.has('error'))throw new Error('Invalid setup link')
+      const tokenHash=hash.get('token_hash')
+      if(tokenHash!==null){
+       const type=hash.get('type')
+       if(!tokenHash||!['invite','recovery'].includes(type))throw new Error('Invalid setup link')
+       const {data:verified,error:verifyError}=await supabase.auth.verifyOtp({token_hash:tokenHash,type})
+       if(verifyError)throw verifyError
+       if(!verified?.session)throw new Error('No secure session was created')
+      }else{
+       const {data:current,error:sessionError}=await supabase.auth.getSession()
+       if(sessionError)throw sessionError
+       if(!current?.session)throw new Error('No secure session was created')
+      }
+      if(active){setRecoveryStatus('ready');setError('')}
+     }catch{
+      if(active){
+       setRecoveryStatus('invalid')
+       setError('This password link has expired, was already used, or did not include a valid sign-in session. Ask your administrator for a fresh setup link and open it directly in Chrome.')
+      }
+     }finally{
+      // Scrub one-time verification credentials from the browser address bar.
+      if(active&&(hash.has('token_hash')||hash.has('access_token')||params.has('error')||hash.has('error')))
+       window.history.replaceState(null,'',window.location.pathname+'?recovery=1')
+     }
+    })()
+   }
+   return()=>{active=false;data.subscription.unsubscribe()}
  },[])
 
  if(mode==='recovery')return <div className="login-shell"><div className="card login">
