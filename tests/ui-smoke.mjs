@@ -36,7 +36,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
+ const permissions=['admin.configure_app','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -112,6 +112,7 @@ try{
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
+   else if(name==='proc_admin_reset_preview_v1')data={scope:req.postDataJSON().p_scope,counts:{proc_purchase_orders:2,proc_stock_balances:1},token:'fixture-preview-token'}
    else if(name==='proc_settings')data=[{key:'company_profile',value:{name:'General Hardware',town:'Nawalapitiya'}}]
    else if(name==='proc_feature_settings')data=[{feature_key:'stock.server_drafts',enabled:true}]
    else if(name==='proc_stock_count_drafts'){
@@ -173,6 +174,23 @@ try{
   assert.equal(await page.getByRole('button',{name:'Go forward',exact:true}).isDisabled(),true,'New navigation clears the forward branch')
   await navigate('⌂ Home')
   console.log('PASS in-app back/forward, draft preservation and branched history at '+width+'px')
+  await navigate('⚙ Admin')
+  await page.getByRole('heading',{name:'Data Management · Admin only',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Preview affected records',exact:true}).click()
+  await page.getByLabel('Reset confirmation',{exact:true}).waitFor()
+  const resetButton=page.getByRole('button',{name:'Reset system to zero',exact:true})
+  assert.equal(await resetButton.isDisabled(),true,'Reset requires exact confirmation and reason')
+  await page.getByLabel('Reset reason',{exact:true}).fill('Fixture reset review')
+  await page.getByLabel('Reset confirmation',{exact:true}).fill('CLEAR WRONG')
+  assert.equal(await resetButton.isDisabled(),true,'Wrong reset phrase cannot execute')
+  await page.getByLabel('Reset confirmation',{exact:true}).fill('CLEAR FULL')
+  assert.equal(await resetButton.isEnabled(),true,'Complete review permits a subsequent confirmation')
+  await page.getByLabel('Reset option',{exact:true}).selectOption('stock')
+  assert.equal(await page.getByLabel('Reset confirmation',{exact:true}).count(),0,'Changing reset scope invalidates the preview')
+  assert.equal(queries.some(u=>u.pathname.endsWith('/proc_admin_reset_data_v1')),false,'Preview does not clear any records')
+  await navigate('⌂ Home')
+  console.log('PASS admin reset preview, typed confirmation and scope invalidation at '+width+'px')
+
   for(const [card,heading,table,field,value] of [
    ['Active items','Items','proc_search_item_master_v2',null,null],
    ['Open requirements','Review','proc_v_requirements',null,null],
