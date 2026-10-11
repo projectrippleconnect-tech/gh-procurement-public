@@ -55,7 +55,15 @@ export default function ProcurementApp(){
   if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error;if(d.error)throw d.error
   return {modules:a.data||[],fields:b.data||[],features:c.data||[],settings:Object.fromEntries((d.data||[]).map(x=>[x.key,x.value]))}
  },[])
- const applyConfig=useCallback(config=>{setModules(config.modules);setFields(config.fields);setFeatures(config.features);setSettings(config.settings)},[])
+ const applyConfig=useCallback(config=>{
+  for(const [setting,prefix] of [['stock_reset_revision','gh-stock-count-draft:'],['procurement_reset_revision','gh_receiving_draft_v1:']]){
+   const revision=config.settings[setting]
+   if(revision&&localStorage.getItem('gh-'+setting)!==revision){
+    for(const key of Object.keys(localStorage)){if(key.startsWith(prefix))localStorage.removeItem(key)}
+    localStorage.setItem('gh-'+setting,revision)
+   }
+  }
+  setModules(config.modules);setFields(config.fields);setFeatures(config.features);setSettings(config.settings)},[])
 
  useEffect(()=>{
   if(typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recovery')==='1')setRecovery(true)
