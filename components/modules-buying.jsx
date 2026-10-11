@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {useDangerConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection} from '@/lib/rfq-sheet'
@@ -294,6 +295,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
 }
 
 export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t=(k,f)=>f||k}){
+ const confirmDanger=useDangerConfirmation()
  const canAdd=can('suppliers.add')
  const canEdit=can('suppliers.edit')
  const smartEnabled=features.find(x=>x.feature_key==='suppliers.smart_suggestions')?.enabled!==false
@@ -339,9 +341,11 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  }
  async function removeScope(id){
   if(!canEdit)return
-  const r=await supabase.from('proc_supplier_scopes').delete().eq('id',id)
-  if(r.error)return fail(r.error)
-  flash('Supplier coverage rule removed.');openCoverage(coverageSupplier)
+  await confirmDanger({title:'Remove supplier coverage',message:'Delete this coverage rule for '+coverageSupplier.name+'?',warning:'This changes which items are covered by this supplier. Check the selected rule before confirming.',confirmLabel:'Confirm remove rule',onConfirm:async()=>{
+   const r=await supabase.from('proc_supplier_scopes').delete().eq('id',id)
+   if(r.error)throw r.error
+   flash('Supplier coverage rule removed.');await openCoverage(coverageSupplier)
+  }})
  }
 
  async function add(){

@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {useDangerConfirmation} from './danger-confirmation'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {businessDate,money,qty} from '@/lib/helpers'
 import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
@@ -75,6 +76,7 @@ function ImageCropper({file,onReady,t=(k,f)=>f||k}){
 }
 
 export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
+ const confirmDanger=useDangerConfirmation()
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
@@ -139,9 +141,11 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
   if(x.error)fail(x.error);else{flash(key==='target_stock'?'Target stock updated.':'Reorder level updated.');loadRows()}
  }
  async function removeItem(r){
-  if(!confirm(t('confirm.company_remove','Remove this item from the active company list?')))return
-  const x=await supabase.from('proc_company_list_items').update({active:false,updated_at:new Date().toISOString()}).eq('id',r.id)
-  if(x.error)fail(x.error);else{flash('Company-list item removed.');loadRows()}
+  if(!canManage)return
+  await confirmDanger({title:'Remove company-list item',message:'Remove '+(r.item?.description||'this item')+' from the active company list?',warning:'The item will leave this company list. Its Item Master record is retained.',confirmLabel:'Confirm remove item',onConfirm:async()=>{
+   const x=await supabase.from('proc_company_list_items').update({active:false,updated_at:new Date().toISOString()}).eq('id',r.id)
+   if(x.error)throw x.error;flash('Company-list item removed.');await loadRows()
+  }})
  }
  async function submit(){
   if(!canCount)return

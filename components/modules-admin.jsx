@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {useDangerConfirmation} from './danger-confirmation'
 import {downloadCsv,money,qty} from '@/lib/helpers'
 import {exportTablePdf} from '@/lib/pdf'
 import {Badge,DataTable,Toggle,Empty,Err} from './ui'
@@ -172,19 +173,22 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
 
 
 function DataManagement({flash,fail}){
+ const confirmDanger=useDangerConfirmation()
  const[scope,setScope]=useState('full'),[preview,setPreview]=useState(null),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState(''),[busy,setBusy]=useState(false)
  const options={full:['Reset system to zero','Clears POs, RFQs, quotes, requests, invoices, receipts, stock history, drafts, current stock and company lists. Keeps items, suppliers, companies, users, roles, settings and audit logs.'],procurement:['Clear procurement records','Clears all POs, RFQs, quotes, requests, invoices, receipts and associated follow-ups. Current stock and stock history remain.'],stock:['Reset current stock to zero','Sets every current stock quantity to zero and clears stock-entry drafts. Keeps submitted counts and records the adjustment in stock history.'],lists:['Clear company lists','Clears company item lists, price lists and their document records. Items, companies and suppliers remain.']}
  async function review(){setBusy(true);setPreview(null);try{const r=await supabase.rpc('proc_admin_reset_preview_v1',{p_scope:scope});if(r.error)throw r.error;setPreview(r.data);setConfirmation('')}catch(e){fail(e)}finally{setBusy(false)}}
  async function clear(){
   if(!preview||confirmation!=='CLEAR '+scope.toUpperCase()||reason.trim().length<5)return
-  if(!window.confirm('Permanently '+options[scope][0].toLowerCase()+'? This cannot be undone in the app.'))return
-  setBusy(true)
-  try{const r=await supabase.rpc('proc_admin_reset_data_v1',{p_scope:scope,p_token:preview.token,p_confirmation:confirmation,p_reason:reason.trim()});if(r.error)throw r.error;setPreview(null);flash('Reset completed. Reloading current data.');window.location.reload()}catch(e){fail(e);setPreview(null)}finally{setBusy(false)}
+  await confirmDanger({title:options[scope][0],message:options[scope][1],details:Object.entries(preview.counts||{}).map(([key,count])=>key.replace(/^proc_/,'').replaceAll('_',' ')+': '+count).join(' · '),confirmLabel:'Confirm reset',onConfirm:async()=>{
+   setBusy(true)
+   try{const r=await supabase.rpc('proc_admin_reset_data_v1',{p_scope:scope,p_token:preview.token,p_confirmation:confirmation,p_reason:reason.trim()});if(r.error)throw r.error;setPreview(null);flash('Reset completed. Reloading current data.');window.location.reload()}finally{setBusy(false)}
+  }})
  }
- return <div className="card pad section"><h3>Data Management · Admin only</h3><p className="muted tiny">Clear operational data separately from deleting items. Ask other staff to finish editing before a reset. Export any reports you need first.</p><label className="field">Reset option<select className="select" aria-label="Reset option" value={scope} disabled={busy} onChange={e=>{setScope(e.target.value);setPreview(null);setConfirmation('')}}>{Object.entries(options).map(([key,value])=><option key={key} value={key}>{value[0]}</option>)}</select></label><p>{options[scope][1]}</p><button className="btn" disabled={busy} onClick={review}>Preview affected records</button>{preview&&<div className="section"><div className="stack">{Object.entries(preview.counts||{}).map(([key,count])=><div className="procurement-data-row toolbar" key={key}><span>{key.replace(/^proc_/,'').replaceAll('_',' ')}</span><b>{count}</b></div>)}</div><p className="notice">Permanent action. Items are retained. Type <b>CLEAR {scope.toUpperCase()}</b> to continue.</p><label className="field">Reason<input className="input" aria-label="Reset reason" value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/></label><label className="field section">Confirmation<input className="input" aria-label="Reset confirmation" value={confirmation} onChange={e=>setConfirmation(e.target.value)} disabled={busy} autoComplete="off"/></label><button className="btn bad section" disabled={busy||confirmation!=='CLEAR '+scope.toUpperCase()||reason.trim().length<5} onClick={clear}>{busy?'Working…':options[scope][0]}</button></div>}</div>
+ return <div className="card pad section"><h3>Data Management · Admin only</h3><div className="danger-warning"><b>⚠ Destructive operations</b><p>Review the affected records first. A warning and final confirmation appear before any data is cleared.</p></div><p className="muted tiny">Clear operational data separately from deleting items. Ask other staff to finish editing before a reset. Export any reports you need first.</p><label className="field">Reset option<select className="select" aria-label="Reset option" value={scope} disabled={busy} onChange={e=>{setScope(e.target.value);setPreview(null);setConfirmation('')}}>{Object.entries(options).map(([key,value])=><option key={key} value={key}>{value[0]}</option>)}</select></label><p>{options[scope][1]}</p><button className="btn" disabled={busy} onClick={review}>Preview affected records</button>{preview&&<div className="section"><div className="stack">{Object.entries(preview.counts||{}).map(([key,count])=><div className="procurement-data-row toolbar" key={key}><span>{key.replace(/^proc_/,'').replaceAll('_',' ')}</span><b>{count}</b></div>)}</div><p className="notice">Permanent action. Items are retained. Type <b>CLEAR {scope.toUpperCase()}</b> to continue.</p><label className="field">Reason<input className="input" aria-label="Reset reason" value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/></label><label className="field section">Confirmation<input className="input" aria-label="Reset confirmation" value={confirmation} onChange={e=>setConfirmation(e.target.value)} disabled={busy} autoComplete="off"/></label><button className="btn bad section" disabled={busy||confirmation!=='CLEAR '+scope.toUpperCase()||reason.trim().length<5} onClick={clear}>{busy?'Working…':options[scope][0]}</button></div>}</div>
 }
 
 export function Admin({profile,modules,fields,features=[],settings,onConfigChanged,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+ const confirmDanger=useDangerConfirmation()
  const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
  const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false)
  const[setupLink,setSetupLink]=useState(null)
@@ -239,14 +243,15 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  }
  async function revokeInvite(row){
   if(row.status!=='pending')return
-  if(!confirm(t('confirm.revoke_invite','Revoke this invitation and disable GH Procurement access for this invited account?')))return
+  return confirmDanger({title:'Revoke invitation',message:'Revoke the invitation for '+row.display_name+' ('+row.email+') and disable their GH Procurement access?',warning:'The person will no longer be able to use this invitation to access procurement.',confirmLabel:'Confirm revoke',onConfirm:async()=>{
   const r=await supabase.from('proc_user_invites').update({status:'revoked',updated_at:new Date().toISOString()}).eq('id',row.id)
-  if(r.error)return fail(r.error)
+  if(r.error)throw r.error
   if(row.invited_user_id){
    const p=await supabase.from('proc_profiles').update({active:false,updated_at:new Date().toISOString()}).eq('id',row.invited_user_id)
-   if(p.error)return fail(p.error)
+   if(p.error)throw p.error
   }
-  flash('Invitation revoked and procurement access disabled.');load()
+  flash('Invitation revoked and procurement access disabled.');await load()
+  }})
  }
  function emailFor(u){return directory.find(x=>x.user_id===u.id)?.email||invites.find(x=>x.invited_user_id===u.id)?.email||''}
  async function sendReset(u){
@@ -312,7 +317,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
    {key:'security',label:t('common.security','Security'),render:u=><button className="btn small" disabled={!emailFor(u)} onClick={()=>sendReset(u)}>{t('admin.send_reset','Send Reset Link')}</button>},
    {key:'delete',label:'',render:u=>profile.role==='admin'&&<button className="btn small bad" disabled={u.id===profile.id||deleteBusy} onClick={()=>{setDeleteTarget(u);setDeleteConfirmation('');setDeleteError('')}} aria-label={'Delete user '+u.display_name}>Delete user</button>}
   ]} rows={users}/></div>
-  {deleteTarget&&<div className="modal-backdrop"><div className="modal card" role="dialog" aria-modal="true" aria-labelledby="delete-user-title"><div className="modal-head"><h3 id="delete-user-title">Delete user · {deleteTarget.display_name}</h3><button className="btn small" disabled={deleteBusy} onClick={()=>setDeleteTarget(null)}>Cancel</button></div><p>This removes the user from GH Procurement and immediately blocks procurement access. Past orders, stock entries and audit history remain. Access to other GH apps is retained.</p><p>Type <b>DELETE {deleteTarget.display_name}</b> to confirm.</p><label className="field">Delete user confirmation<input className="input" aria-label="Delete user confirmation" autoComplete="off" value={deleteConfirmation} disabled={deleteBusy} onChange={e=>setDeleteConfirmation(e.target.value)}/></label><Err v={deleteError}/><button className="btn bad section" disabled={deleteBusy||deleteConfirmation!=='DELETE '+deleteTarget.display_name} onClick={deleteUser}>{deleteBusy?'Deleting…':'Confirm delete user'}</button></div></div>}
+  {deleteTarget&&<div className="modal-backdrop"><div className="modal card danger-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-title"><div className="modal-head"><h3 id="delete-user-title">Delete user · {deleteTarget.display_name}</h3><button className="btn small" disabled={deleteBusy} onClick={()=>setDeleteTarget(null)}>Cancel</button></div><div className="danger-warning"><b>⚠ Warning · delete user</b><p>Check the selected person carefully before confirming.</p></div><p>This removes the user from GH Procurement and immediately blocks procurement access. Past orders, stock entries and audit history remain. Access to other GH apps is retained.</p><p>Type <b>DELETE {deleteTarget.display_name}</b> to confirm.</p><label className="field">Delete user confirmation<input className="input" aria-label="Delete user confirmation" autoComplete="off" value={deleteConfirmation} disabled={deleteBusy} onChange={e=>setDeleteConfirmation(e.target.value)}/></label><Err v={deleteError}/><button className="btn bad section" disabled={deleteBusy||deleteConfirmation!=='DELETE '+deleteTarget.display_name} onClick={deleteUser}>{deleteBusy?'Deleting…':'Confirm delete user'}</button></div></div>}
   </>}
   {can('admin.audit.view')&&<div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.audit','Audit Trail')}</h3><p>{t('admin.audit_hint','Last 100 server-generated changes.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
    {key:'created_at',label:'Time',render:r=>new Date(r.created_at).toLocaleString()},{key:'table_name',label:'Area'},{key:'action',label:'Action'},{key:'user_id',label:'User ID',render:r=><span className="mono tiny">{r.user_id||'system'}</span>}

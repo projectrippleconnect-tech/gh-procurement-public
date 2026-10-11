@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {useDangerConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
 import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
@@ -11,6 +12,7 @@ import {InfoButton} from './help-ui'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
 export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+ const confirmDanger=useDangerConfirmation()
  const canEdit=can('procurement.orders.edit')
  const canApprove=can('procurement.orders.approve')
  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[page,setPage]=useState(0),[active,setActive]=useState(null),[lines,setLines]=useState([]),[filter,setFilter]=useState(['open','non_cancelled','overdue','pending_approval','approved','sent','partially_received','received','closed','cancelled'].includes(initialFilter)?initialFilter:'all'),[search,setSearch]=useState(''),[busy,setBusy]=useState(false),[poMeta,setPoMeta]=useState({expected_date:'',terms:'',notes:''})
@@ -82,9 +84,9 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  }
  async function clearOrder(){
   if(!active||(profile.role_key||profile.role)!=='admin')return
-  const confirmation=window.prompt('Clear '+active.po_no+'? Type the PO number. Orders with receipts or invoices must be cleared through Admin Data Management.');if(confirmation===null)return
-  const reason=window.prompt('Reason for clearing this order:');if(reason===null)return
-  setBusy(true);try{const r=await supabase.rpc('proc_admin_clear_po_v1',{p_po_id:active.id,p_confirmation:confirmation,p_reason:reason});if(r.error)throw r.error;setActive(null);setLines([]);flash('Order cleared. Purchase quantities released.');await load()}catch(e){fail(e)}finally{setBusy(false)}
+  await confirmDanger({title:'Clear purchase order',message:'Permanently clear '+active.po_no+' and release its purchase quantities? Orders with receipts or invoices must be cleared through Admin Data Management.',confirmation:active.po_no,requireReason:true,confirmLabel:'Confirm clear order',onConfirm:async({confirmation,reason})=>{
+   setBusy(true);try{const r=await supabase.rpc('proc_admin_clear_po_v1',{p_po_id:active.id,p_confirmation:confirmation,p_reason:reason});if(r.error)throw r.error;setActive(null);setLines([]);flash('Order cleared. Purchase quantities released.');await load()}finally{setBusy(false)}
+  }})
  }
  async function action(type){
   if(!active)return
