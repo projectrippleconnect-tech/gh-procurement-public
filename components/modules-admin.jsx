@@ -190,7 +190,7 @@ function DataManagement({flash,fail}){
 export function Admin({profile,modules,fields,features=[],settings,onConfigChanged,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
  const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
- const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false)
+ const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false),[resetBusy,setResetBusy]=useState(null)
  const[setupLink,setSetupLink]=useState(null)
  const[deleteTarget,setDeleteTarget]=useState(null),[deleteConfirmation,setDeleteConfirmation]=useState(''),[deleteBusy,setDeleteBusy]=useState(false),[deleteError,setDeleteError]=useState('')
  const hasAdmin=can('admin.users.manage')||can('admin.roles.manage')||can('admin.configure_app')||can('admin.audit.view')
@@ -254,13 +254,18 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
   }})
  }
  function emailFor(u){return directory.find(x=>x.user_id===u.id)?.email||invites.find(x=>x.invited_user_id===u.id)?.email||''}
- async function sendReset(u){
-  const email=emailFor(u)
-  if(!email)return fail(new Error(t('validation.no_email','No email is stored for this user yet.')))
-  const redirectTo=typeof window!=='undefined'?window.location.origin+'/?recovery=1':undefined
-  const r=await supabase.auth.resetPasswordForEmail(email,{redirectTo})
-  if(r.error)return fail(r.error)
-  flash('Password reset email sent to '+email+'.')
+ async function generateResetLink(u){
+  if(!u.active)return fail(new Error('Enable this user before generating a recovery link.'))
+  setResetBusy(u.id);setSetupLink(null)
+  try{
+   const r=await supabase.functions.invoke('proc-invite-user',{body:{delivery:'reset_link',user_id:u.id}})
+   if(r.error)throw r.error
+   if(r.data?.error)throw new Error(r.data.error)
+   if(!r.data?.setup_link)throw new Error('The recovery link was not generated.')
+   setSetupLink({url:r.data.setup_link,email:r.data.email,source:'user',id:u.id})
+   flash('One-time recovery link generated without sending email. Copy and share it privately.')
+  }catch(e){fail(e)}
+  finally{setResetBusy(null)}
  }
  async function moduleToggle(m,v){if(m.module_key==='admin'&&!v)return fail(new Error(t('validation.admin_module','Admin cannot be disabled; otherwise there would be no way to restore configuration.')));const r=await supabase.from('proc_module_settings').update({enabled:v,updated_at:new Date().toISOString()}).eq('module_key',m.module_key);if(r.error)fail(r.error);else{flash('Tab visibility updated.');onConfigChanged()}}
  async function moduleSave(m,patch){const r=await supabase.from('proc_module_settings').update({...patch,updated_at:new Date().toISOString()}).eq('module_key',m.module_key);if(r.error)fail(r.error);else{flash('Module settings updated.');onConfigChanged()}}
@@ -307,17 +312,34 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
     <div className="field"><label>{t('common.email','Email')}</label><input className="input" type="email" value={invite.email} onChange={e=>setInvite(x=>({...x,email:e.target.value}))} placeholder="user@example.com"/></div>
     <div className="field"><label>{t('common.role','Role')}</label><select className="select" value={invite.role} onChange={e=>setInvite(x=>({...x,role:e.target.value}))}>{roles.filter(r=>r.enabled).map(r=><option key={r.role_key} value={r.role_key}>{r.name}</option>)}</select></div>
    </div>
-   {setupLink&&<div className="section"><label htmlFor="invitation-setup-link">One-time setup link for {setupLink.email}</label><p>Share only with this person. The link expires according to the authentication settings and can be used once. Generate a fresh link if needed.</p><div className="row"><input id="invitation-setup-link" className="input" readOnly value={setupLink.url} onFocus={e=>e.target.select()}/><button className="btn primary" onClick={copySetupLink}>Copy setup link</button><button className="btn" onClick={()=>setSetupLink(null)}>Dismiss</button></div></div>}
+   {setupLink&&setupLink.source!=='user'&&<div className="section"><label htmlFor="invitation-setup-link">One-time setup link for {setupLink.email}</label><p>Share only with this person. The link expires according to the authentication settings and can be used once. Generate a fresh link if needed.</p><div className="row"><input id="invitation-setup-link" className="input" readOnly value={setupLink.url} onFocus={e=>e.target.select()}/><button className="btn primary" onClick={copySetupLink}>Copy setup link</button><button className="btn" onClick={()=>setSetupLink(null)}>Dismiss</button></div></div>}
    {invites.some(x=>x.status==='pending')&&<div className="section"><h4>{t('admin.pending_invites','Pending Invitations')}</h4><DataTable columns={[
     {key:'display_name',label:'Name'},{key:'email',label:'Email'},{key:'role',label:'Role',render:r=><Badge>{r.role}</Badge>},{key:'invited_at',label:'Invited',render:r=>new Date(r.invited_at).toLocaleString()},{key:'status',label:'Status',render:r=><Badge>{r.status}</Badge>},{key:'action',label:'',render:r=><div className="row"><button className="btn small" disabled={inviteBusy} onClick={()=>inviteUser('link',r)}>Generate link</button><button className="btn small bad" onClick={()=>revokeInvite(r)}>Revoke</button></div>}
    ]} rows={invites.filter(x=>x.status==='pending')}/></div>}
   </div></details>
-  <details name="gh-admin-section" className="admin-accordion"><summary>Users</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.users','Users')}</h3><p>{t('admin.users_hint','Role-based procurement access. Change roles, disable access instantly, or send a password-reset link.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
+  <details name="gh-admin-section" className="admin-accordion"><summary>Users</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.users','Users')}</h3><p>Staff access and recovery. Generate a one-time link without email limits; open a user row to manage access.</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   {setupLink?.source==='user'&&<div className="admin-reset-link section" role="status"><b>One-time recovery link for {setupLink.email}</b><p className="muted tiny">No email was sent. Share this link privately with this user only. The link is single-use and expires.</p><input className="input" aria-label="Generated recovery link" readOnly value={setupLink.url} onFocus={e=>e.target.select()}/><div className="row"><button className="btn primary" onClick={copySetupLink}>Copy link</button><button className="btn" onClick={()=>setSetupLink(null)}>Dismiss</button></div></div>}
+   <div className="admin-users-desktop"><DataTable columns={[
    {key:'display_name',label:t('common.user','User')},{key:'email',label:t('common.email','Email'),render:u=>emailFor(u)||'—'},{key:'role',label:t('common.role','Role'),render:u=><div className="toolbar role-user-actions"><select className="select compact-select" value={u.role_key||u.role} disabled={u.id===profile.id&&(u.role_key||u.role)==='admin'} onChange={e=>role(u.id,e.target.value)}>{roles.filter(r=>r.enabled||(u.role_key||u.role)===r.role_key).map(r=><option key={r.role_key} value={r.role_key}>{r.name}</option>)}</select>{u.id!==profile.id&&(u.role_key||u.role)!=='viewer'&&<button type="button" className="btn small" onClick={()=>removeUserRole(u)}>{t('admin.set_viewer','Remove role / set Viewer')}</button>}</div>},
    {key:'active',label:t('common.access','Access'),render:u=><Toggle checked={u.active} disabled={u.id===profile.id} label={u.active?'Active':'Disabled'} onChange={v=>active(u,v)}/>},
-   {key:'security',label:t('common.security','Security'),render:u=><button className="btn small" disabled={!emailFor(u)} onClick={()=>sendReset(u)}>{t('admin.send_reset','Send Reset Link')}</button>},
-   {key:'delete',label:'',render:u=>profile.role==='admin'&&<button className="btn small bad" disabled={u.id===profile.id||deleteBusy} onClick={()=>{setDeleteTarget(u);setDeleteConfirmation('');setDeleteError('')}} aria-label={'Delete user '+u.display_name}>Delete user</button>}
-  ]} rows={users}/></div></details>
+   {key:'security',label:t('common.security','Security'),render:u=><button className="btn small" disabled={!u.active||resetBusy!==null} onClick={()=>generateResetLink(u)}>{resetBusy===u.id?'Generating…':'Generate Reset Link'}</button>},
+   {key:'delete',label:'',render:u=>(profile.role_key||profile.role)==='admin'&&<button className="btn small bad" disabled={u.id===profile.id||deleteBusy} onClick={()=>{setDeleteTarget(u);setDeleteConfirmation('');setDeleteError('')}} aria-label={'Delete user '+u.display_name}>Delete user</button>}
+  ]} rows={users}/>
+   </div><div className="admin-users-mobile" aria-label="Mobile staff management">
+    {users.length===0?<Empty>No staff accounts found.</Empty>:users.map(u=><details name="gh-user-actions" className="admin-user-row" key={u.id}>
+     <summary><span className="admin-user-identity"><strong>{u.display_name||'Unnamed staff'}</strong><small>{u.role_key||u.role||'Viewer'} · {u.active?'Active':'Disabled'}</small></span><span className="admin-user-expand" aria-hidden="true">▾</span></summary>
+     <div className="admin-user-expanded">
+      <p className="muted tiny admin-user-email">{emailFor(u)||'Email not listed'}</p>
+      <label className="field">Role<select className="select" aria-label={'Role for '+u.display_name} value={u.role_key||u.role} disabled={u.id===profile.id&&(u.role_key||u.role)==='admin'} onChange={e=>role(u.id,e.target.value)}>{roles.filter(r=>r.enabled||(u.role_key||u.role)===r.role_key).map(r=><option key={r.role_key} value={r.role_key}>{r.name}</option>)}</select></label>
+      <div className="admin-user-access"><b>Account access</b><Toggle checked={u.active} disabled={u.id===profile.id} label={u.active?'Active':'Disabled'} onChange={v=>active(u,v)}/></div>
+      <div className="admin-user-buttons">
+       <button className="btn primary" disabled={!u.active||resetBusy!==null} onClick={()=>generateResetLink(u)}>{resetBusy===u.id?'Generating…':'Generate Reset Link'}</button>
+       {u.id!==profile.id&&(u.role_key||u.role)!=='viewer'&&<button className="btn" onClick={()=>removeUserRole(u)}>Set Viewer</button>}
+       {(profile.role_key||profile.role)==='admin'&&<button className="btn bad" disabled={u.id===profile.id||deleteBusy} onClick={()=>{setDeleteTarget(u);setDeleteConfirmation('');setDeleteError('')}} aria-label={'Delete user '+u.display_name}>Delete user</button>}
+      </div>
+     </div>
+    </details>)}
+   </div></div></details>
   {deleteTarget&&<div className="modal-backdrop"><div className="modal card danger-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-title"><div className="modal-head"><h3 id="delete-user-title">Delete user · {deleteTarget.display_name}</h3><button className="btn small" disabled={deleteBusy} onClick={()=>setDeleteTarget(null)}>Cancel</button></div><div className="danger-warning"><b>⚠ Warning · delete user</b><p>Check the selected person carefully before confirming.</p></div><p>This removes the user from GH Procurement and immediately blocks procurement access. Past orders, stock entries and audit history remain. Access to other GH apps is retained.</p><p>Type <b>DELETE {deleteTarget.display_name}</b> to confirm.</p><label className="field">Delete user confirmation<input className="input" aria-label="Delete user confirmation" autoComplete="off" value={deleteConfirmation} disabled={deleteBusy} onChange={e=>setDeleteConfirmation(e.target.value)}/></label><Err v={deleteError}/><button className="btn bad section" disabled={deleteBusy||deleteConfirmation!=='DELETE '+deleteTarget.display_name} onClick={deleteUser}>{deleteBusy?'Deleting…':'Confirm delete user'}</button></div></div>}
   </>}
   {can('admin.audit.view')&&<details name="gh-admin-section" className="admin-accordion"><summary>Audit Trail</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.audit','Audit Trail')}</h3><p>{t('admin.audit_hint','Last 100 server-generated changes.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
