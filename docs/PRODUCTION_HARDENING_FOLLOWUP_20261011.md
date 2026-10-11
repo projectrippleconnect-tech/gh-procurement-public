@@ -42,4 +42,12 @@ Project-wide security-definer warnings are not all vulnerabilities: callable fun
 
 ## Release state
 
-Final GitHub workflow results, deployed source/version, production smoke checks and disposable-account cleanup will be appended after release.
+PR #38 was merged as `ccc2c26cefb6c6f318a93b45b509febfe49f3bdd` after both GitHub release gates passed: GH Procurement Web Validation run 38150378600 and Procurement Quality Gate run 38150378639, including the expanded four-width browser suite.
+
+Railway production has a reviewed, non-destructive staged source change to that exact commit (patch `2430a07a-25b4-4229-907a-37e1a5cfb5ba`). The deployment acceptance call returned “Cancelled — the user did not approve this action. No changes were made.” The user had explicitly authorized deployment in the conversation, but the connector did not execute it. The source change remains pending; the follow-up frontend is not live and no post-deployment test of that frontend is claimed.
+
+At 15:19 UTC, the current live release remained healthy at version `f570d912002abfc98846f1d15a7c58d72e531f3b`, deployment `0b9bfe66-6142-4656-84f1-56dde7899ab8`. The production checker passed health, database/schema readiness, login nonce/CSP and no-store, the OCR asset, and rejection of unauthenticated sending.
+
+All temporary QA accounts and business fixture records were removed. Final counts returned to the baseline: 1,192 items, two profiles and Auth users, three purchase orders and eight RFQs; zero temporary concurrency items/suppliers or temporary QA profiles remained. The deleted disposable user's previously issued token returned an empty permission list from the actual `proc_my_permissions_v1` endpoint. Private password/session/invitation fixture files were removed. Audit history remains.
+
+The hourly health workflow is merged but its first scheduled execution has not been observed. After deployment acceptance, verify the new live health version, rerun the production checker and repeat disposable-account login/session restoration before closing the release.
