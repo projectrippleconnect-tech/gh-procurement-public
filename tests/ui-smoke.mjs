@@ -199,7 +199,7 @@ try{
   await page.getByRole('button',{name:'Generate link',exact:true}).click()
   await setupInput.waitFor()
   assert.equal(setupRequests.length,2,'Pending invitations can generate a fresh setup link')
-  await page.screenshot({path:out+'/setup-link-'+width+'.png',fullPage:true})
+  await page.screenshot({path:'test-results/'+width+'-setup-link.png',fullPage:true})
   await page.getByRole('button',{name:'Dismiss',exact:true}).click()
   console.log('PASS admin setup-link generation, fresh pending link and token storage isolation at '+width+'px')
   await page.getByRole('heading',{name:'Data Management · Admin only',exact:true}).waitFor()
