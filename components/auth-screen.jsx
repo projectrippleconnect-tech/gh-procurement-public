@@ -83,7 +83,9 @@ export function LoginScreen({initialError=''}) {
        if(!current?.session)throw new Error('No secure session was created')
       }
       if(active){setRecoveryStatus('ready');setError('')}
-     }catch{
+     }catch(e){
+      // Log only the error category; never log one-time setup tokens.
+      console.warn('GH password setup verification:',e?.code||e?.name||'verification_failed',e?.message||'')
       if(active){
        setRecoveryStatus('invalid')
        setError('This password link has expired, was already used, or did not include a valid sign-in session. Ask your administrator for a fresh setup link and open it directly in Chrome.')
