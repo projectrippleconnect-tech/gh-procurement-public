@@ -156,6 +156,23 @@ try{
    }
    await target.click()
   }
+  assert.equal(await page.getByRole('button',{name:'Go back',exact:true}).isDisabled(),true,'Initial screen has no back entry')
+  assert.equal(await page.getByRole('button',{name:'Go forward',exact:true}).isDisabled(),true,'Initial screen has no forward entry')
+  await navigate('✓ Stock Entry')
+  const historyStockInput=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
+  await historyStockInput.waitFor()
+  await historyStockInput.fill('8')
+  await navigate('Q RFQs & Quotes')
+  await page.getByRole('button',{name:'Go back',exact:true}).click()
+  await page.getByRole('heading',{name:'Stock Entry',exact:true}).first().waitFor()
+  assert.equal(await historyStockInput.inputValue(),'8','Back keeps the mounted stock draft')
+  await page.getByRole('button',{name:'Go forward',exact:true}).click()
+  await page.getByRole('heading',{name:'RFQs & Quotes',exact:true}).first().waitFor()
+  await page.getByRole('button',{name:'Go back',exact:true}).click()
+  await navigate('PO Orders')
+  assert.equal(await page.getByRole('button',{name:'Go forward',exact:true}).isDisabled(),true,'New navigation clears the forward branch')
+  await navigate('⌂ Home')
+  console.log('PASS in-app back/forward, draft preservation and branched history at '+width+'px')
   for(const [card,heading,table,field,value] of [
    ['Active items','Items','proc_search_item_master_v2',null,null],
    ['Open requirements','Review','proc_v_requirements',null,null],
