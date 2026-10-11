@@ -36,7 +36,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['admin.configure_app','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
+ const permissions=['admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -70,6 +70,8 @@ try{
   let grantedPermissions=permissions
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false
   const poGatewayRequests=[]
+  const setupRequests=[]
+  let staffInvites=[]
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('pageerror',e=>errors.push(e.message))
@@ -79,6 +81,14 @@ try{
    let data=[]
    if(url.pathname.includes('/auth/'))data=user
    else if(name==='proc_profiles')data=[profile]
+   else if(name==='proc_roles')data=[{role_key:'viewer',base_role:'viewer',name:'Viewer',enabled:true},{role_key:'admin',base_role:'admin',name:'Admin',enabled:true}]
+   else if(name==='proc_user_invites')data=staffInvites
+   else if(name==='proc-invite-user'){
+    const body=req.postDataJSON();setupRequests.push(body)
+    assert.equal(body.delivery,'link','Setup-link flow does not use SMTP')
+    staffInvites=[{id:'staff-invite',email:body.email,display_name:body.display_name,role:body.role_key,role_key:body.role_key,status:'pending',invited_at:new Date().toISOString()}]
+    data={ok:true,setup_link:'https://auth.example.invalid/verify?token=fixture-setup-only',message:'One-time setup link generated.'}
+   }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
    else if(name==='proc_v_requirements')data=[requirement]
@@ -175,6 +185,23 @@ try{
   await navigate('⌂ Home')
   console.log('PASS in-app back/forward, draft preservation and branched history at '+width+'px')
   await navigate('⚙ Admin')
+  await page.getByPlaceholder('Staff name',{exact:true}).fill('Fixture staff')
+  await page.getByPlaceholder('user@example.com',{exact:true}).fill('staff@example.invalid')
+  await page.getByRole('button',{name:'Generate setup link',exact:true}).click()
+  const setupInput=page.getByLabel('One-time setup link for staff@example.invalid',{exact:true})
+  await setupInput.waitFor()
+  assert.equal(await setupInput.inputValue(),'https://auth.example.invalid/verify?token=fixture-setup-only')
+  assert.equal(setupRequests.length,1)
+  assert.equal(await page.getByRole('button',{name:'Copy setup link',exact:true}).isEnabled(),true)
+  assert.equal(await page.evaluate(()=>JSON.stringify({...localStorage,...sessionStorage}).includes('fixture-setup-only')),false,'Setup token stays out of persisted browser storage')
+  await page.getByRole('button',{name:'Dismiss',exact:true}).click()
+  assert.equal(await setupInput.count(),0,'Admin can clear sensitive link from screen')
+  await page.getByRole('button',{name:'Generate link',exact:true}).click()
+  await setupInput.waitFor()
+  assert.equal(setupRequests.length,2,'Pending invitations can generate a fresh setup link')
+  await page.screenshot({path:out+'/setup-link-'+width+'.png',fullPage:true})
+  await page.getByRole('button',{name:'Dismiss',exact:true}).click()
+  console.log('PASS admin setup-link generation, fresh pending link and token storage isolation at '+width+'px')
   await page.getByRole('heading',{name:'Data Management · Admin only',exact:true}).waitFor()
   await page.getByRole('button',{name:'Preview affected records',exact:true}).click()
   await page.getByLabel('Reset confirmation',{exact:true}).waitFor()
