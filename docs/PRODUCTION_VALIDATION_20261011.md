@@ -43,4 +43,15 @@ Supabase's project-level advisor continues to report disabled breached-password 
 - Railway accept-deploy was attempted after explicit user authorization. The connector returned: "Cancelled — the user did not approve this action. No changes were made." The deployment was not applied, and no alternate route was used to bypass this refusal.
 - Read-back confirmed the patch remains STAGED. Live /api/health returned ok:true, database:connected, schema_ready:true and version 070f02681fee3f23988922ccd59f1b943c1988ba at 2026-10-11T14:00:49Z. This is the previous web release, not the new hardened web build.
 - Post-test catalogue and profile counts remain 1,192 and 2 respectively.
-- Next action: approve/apply the staged Railway production change, observe terminal SUCCESS, then verify the new health version, local OCR assets and unauthenticated web endpoints. Full release certification remains subject to the live-auth, external-delivery, restoration and sustained-load gaps above.
+- The initial approval block was subsequently resolved; see the final production verification below. Full release certification remains subject to the live-auth, external-delivery, restoration and sustained-load gaps above.
+
+## Final production verification — 11 October 2026
+
+- Railway deployment 0b9bfe66-6142-4656-84f1-56dde7899ab8 reached SUCCESS at 2026-10-11T14:30:08Z. It serves f570d912002abfc98846f1d15a7c58d72e531f3b, containing the merged PR #37 application code and validation record. No staged changes remain.
+- Railway's release build passed all 87 tests, TypeScript, dependency audit and production compilation. Runtime logs show successful Next.js startup.
+- Live /api/health returned HTTP 200 with ok:true, database:connected, schema_ready:true and the expected f570d912002abfc98846f1d15a7c58d72e531f3b release version.
+- The live login returned HTTP 200 with a nonce-based Content Security Policy and no-store caching. Actual Chromium checks passed at 390 and 1366 pixels: the login rendered, show-password checked/unchecked changed the input type correctly, there were no page errors and there was no horizontal overflow. These checks did not sign in to a real staff account.
+- The same-origin English OCR asset returned HTTP 200, 10,923,060 bytes, and successfully decompressed as gzip.
+- Unauthenticated POST to /api/integrations/whatsapp/rfq returned HTTP 401 without sending messages.
+- Production records remained 1,192 catalogue items, 2 profiles, 3 purchase orders and 8 RFQs after release verification.
+- Application URL: https://gh-procurement-production.up.railway.app/
