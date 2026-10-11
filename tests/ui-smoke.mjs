@@ -170,7 +170,7 @@ try{
    if(heading==='Stock Entry'){
     await page.getByText('Draft saved to your account.',{exact:true}).waitFor()
     draftSaveFailure=true
-    const stockInput=page.locator('.guided-entry input, .browse-stock-input').filter({visible:true}).first()
+    const stockInput=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
     await stockInput.fill('7')
     await page.getByText('Saved on this device · account sync failed.',{exact:true}).waitFor()
     assert.equal(await page.evaluate(id=>JSON.parse(localStorage.getItem('gh-stock-count-draft:'+id)).entry['00000000-0000-4000-8000-000000000003'],id),'7','Failed sync retains local input')
