@@ -46,11 +46,11 @@ export default function ProcurementApp(){
  const ensure=useCallback(async s=>{
   const x=await supabase.from('proc_profiles').select('*').eq('id',s.user.id).maybeSingle()
   if(x.error)throw x.error
-  if(x.data){if(!x.data.active)throw new Error('Your GH Procurement access is disabled.');return x.data}
+  if(x.data){if(!x.data.active)throw new Error('Your GH Procurement access is disabled.');return {next:x.data,created:false}}
   const r=await supabase.rpc('proc_ensure_profile')
   if(r.error)throw r.error
   const p=Array.isArray(r.data)?r.data[0]:r.data
-  if(!p?.active)throw new Error('Your GH Procurement access is disabled.');return p
+  if(!p?.active)throw new Error('Your GH Procurement access is disabled.');return {next:p,created:true}
  },[])
 
  const loadPermissions=useCallback(async()=>{
@@ -112,11 +112,13 @@ export default function ProcurementApp(){
   async function hydrate(){
    try{
     const {next,config,allowed}=await withStartupDeadline((async()=>{
-     const [access,config]=await Promise.all([
-      ensure(session).then(async next=>({next,allowed:await loadPermissions()})),
-      loadConfig()
+     const [{next,created},initialAllowed,config]=await Promise.all([
+      ensure(session),loadPermissions(),loadConfig()
      ])
-     return {...access,config}
+     // Invited accounts already have a profile. Only legacy provisioning needs
+     // a second permissions read after its profile has actually been created.
+     const allowed=created?await loadPermissions():initialAllowed
+     return {next,allowed,config}
     })())
     if(!cancelled){applyConfig(config);setPermissions(allowed);setPermissionsLoaded(true);setProfile(next);hydratedUser.current=session.user.id;setError('')}
     // Invitation bookkeeping must not delay access to the workspace.
