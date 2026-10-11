@@ -461,3 +461,11 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .admin-user-buttons .btn.primary{grid-column:1/-1}
 }
 @media(max-width:360px){.admin-user-buttons{grid-template-columns:minmax(0,1fr)}.admin-user-buttons .btn.primary{grid-column:auto}}
+
+/* Keep every desktop/tablet section reachable above the account controls. */
+@media screen and (min-width:761px){
+ .sidebar{display:flex;flex-direction:column;overflow:hidden}
+ .sidebar>.brand{flex-shrink:0}
+ .sidebar>.nav{display:block;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:12px}
+ .sidebar>.sidefoot{position:static;flex-shrink:0;margin-top:12px}
+}

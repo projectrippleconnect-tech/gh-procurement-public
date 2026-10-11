@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {allRows} from '@/lib/query-pages'
 import {useDangerConfirmation} from './danger-confirmation'
 import {downloadCsv,money,qty} from '@/lib/helpers'
 import {exportTablePdf} from '@/lib/pdf'
@@ -195,7 +196,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  const[deleteTarget,setDeleteTarget]=useState(null),[deleteConfirmation,setDeleteConfirmation]=useState(''),[deleteBusy,setDeleteBusy]=useState(false),[deleteError,setDeleteError]=useState('')
  const hasAdmin=can('admin.users.manage')||can('admin.roles.manage')||can('admin.configure_app')||can('admin.audit.view')
  const load=useCallback(async()=>{if(!hasAdmin)return;try{
-  const[a,b,d,e,r]=await Promise.all([supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name'),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),supabase.from('proc_user_directory').select('*'),supabase.from('proc_roles').select('*').order('name')])
+  const[a,b,d,e,r]=await Promise.all([allRows(()=>supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name').order('id')),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),allRows(()=>supabase.from('proc_user_directory').select('*').order('user_id')),supabase.from('proc_roles').select('*').order('name')])
   if(a.error)throw a.error;if(b.error)throw b.error;if(d.error)throw d.error;if(e.error)throw e.error;if(r.error)throw r.error;setUsers(a.data||[]);setAudit(b.data||[]);setInvites(d.data||[]);setDirectory(e.data||[]);setRoles(r.data||[])
  }catch(e){fail(e)}},[hasAdmin,fail])
  useEffect(()=>{load()},[load])

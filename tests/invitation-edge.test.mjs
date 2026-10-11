@@ -5,13 +5,13 @@ import vm from 'node:vm'
 
 const source=readFileSync(new URL('../supabase/functions/proc-invite-user/index.ts',import.meta.url),'utf8').replace(/^import .*\n/,'')
 const destination='https://gh-procurement-production.up.railway.app/?recovery=1'
-function harness({existing=null,allowed=true,emailError=null,linkError=null,missingHash=false,resetTargetActive=true}={}){
+function harness({existing=null,allowed=true,emailError=null,linkError=null,missingHash=false,resetTargetActive=true,callerRoleEnabled=true,userPages=null,readErrorTable=null,directoryUser=null}={}){
   let handler
   const calls=[]
   const service={
     auth:{
       admin:{
-        listUsers:async()=>({data:{users:existing?[existing]:[]},error:null}),
+        listUsers:async({page})=>{calls.push({kind:'list',page});return {data:{users:userPages?userPages[page-1]||[]:existing?[existing]:[]},error:null}},
         getUserById:async(id)=>{calls.push({kind:'getUserById',id});return {data:{user:{id,email:'recipient@example.test'}},error:null}},
         inviteUserByEmail:async(email,options)=>{calls.push({kind:'invite',email,options});return {data:{user:{id:'recipient'}},error:emailError}},
         generateLink:async(options)=>{calls.push({kind:'link',options});return {data:{user:{id:'recipient'},properties:{action_link:'https://auth.example.test/verify?token=test-only',...(!missingHash?{hashed_token:'test-hash-only'}:{})}},error:linkError}}
@@ -25,8 +25,9 @@ function harness({existing=null,allowed=true,emailError=null,linkError=null,miss
         async maybeSingle(){
           const data=table==='proc_profiles'?(filter.id==='admin'?{role_key:'admin',active:true}:{id:filter.id,role_key:'viewer',active:resetTargetActive,deleted_at:null})
             :table==='proc_role_permissions'?(allowed?{permission_key:'admin.users.manage'}:null)
-            :table==='proc_roles'?{enabled:true,base_role:'viewer',name:'Viewer'}:null
-          return {data,error:null}
+            :table==='proc_roles'?{enabled:filter.role_key==='admin'?callerRoleEnabled:true,base_role:'viewer',name:'Viewer'}
+            :table==='proc_user_directory'?directoryUser:null
+          return {data,error:table===readErrorTable?new Error('Fixture lookup failed'):null}
         },
         async upsert(payload){calls.push({kind:'upsert',table,payload});return {error:null}},
         async insert(payload){calls.push({kind:'insert',table,payload});return {error:null}},
@@ -48,16 +49,14 @@ function harness({existing=null,allowed=true,emailError=null,linkError=null,miss
 }
 test('new invitations use production setup page and remain pending',async()=>{
   const h=harness();const result=await h.invoke()
-  assert.equal(result.status,200);assert.equal(h.calls[0].kind,'invite')
-  assert.equal(h.calls[0].options.redirectTo,destination)
+  assert.equal(result.status,200);assert.equal(h.calls.find(c=>c.kind==='invite').options.redirectTo,destination)
   const record=h.calls.find(c=>c.table==='proc_user_invites').payload
   assert.equal(record.status,'pending');assert.equal(record.accepted_at,null)
 })
 test('unused invitation receives a fresh setup email',async()=>{
   const h=harness({existing:{id:'recipient',email:'recipient@example.test',invited_at:'2026-10-10',last_sign_in_at:null}})
   const result=await h.invoke()
-  assert.equal(result.status,200);assert.equal(h.calls[0].kind,'reset')
-  assert.equal(h.calls[0].options.redirectTo,destination)
+  assert.equal(result.status,200);assert.equal(h.calls.find(c=>c.kind==='reset').options.redirectTo,destination)
   assert.match(result.body.message,/Fresh password-setup email sent/)
   assert.equal(h.calls.find(c=>c.table==='proc_user_invites').payload.status,'pending')
 })
@@ -83,8 +82,8 @@ test('unauthenticated calls cannot send invitations',async()=>{
 })
 test('setup links create new invite accounts without sending email',async()=>{
   const h=harness({emailError:new Error('SMTP disabled')});const result=await h.invoke(true,'link')
-  assert.equal(result.status,200);assert.equal(h.calls[0].kind,'link')
-  assert.equal(h.calls[0].options.type,'invite');assert.equal(h.calls[0].options.options.redirectTo,destination)
+  assert.equal(result.status,200)
+  assert.equal(h.calls.find(c=>c.kind==='link').options.type,'invite');assert.equal(h.calls.find(c=>c.kind==='link').options.options.redirectTo,destination)
   assert.equal(result.body.setup_link,destination+'#token_hash=test-hash-only&type=invite')
   assert.equal(result.cacheControl,'no-store')
   assert.equal(h.calls.some(c=>['invite','reset'].includes(c.kind)),false)
@@ -97,7 +96,7 @@ test('setup links create new invite accounts without sending email',async()=>{
 test('existing accounts get recovery setup links even after a failed redirect signed them in',async()=>{
   const h=harness({existing:{id:'recipient',email:'recipient@example.test',last_sign_in_at:'2026-10-11'}})
   const result=await h.invoke(true,'link')
-  assert.equal(result.status,200);assert.equal(h.calls[0].options.type,'recovery')
+  assert.equal(result.status,200);assert.equal(h.calls.find(c=>c.kind==='link').options.type,'recovery')
   assert.equal(result.body.setup_link,destination+'#token_hash=test-hash-only&type=recovery');assert.equal(h.calls.some(c=>['invite','reset'].includes(c.kind)),false)
 })
 test('setup link generation failures do not write invitation success',async()=>{
@@ -153,4 +152,37 @@ test('recovery-link generation fails closed without a hashed token',async()=>{
  assert.equal(r.status,400)
  assert.match(r.body.error,/secure recovery link/)
  assert.equal(h.calls.some(c=>c.kind==='reset'),false)
+})
+
+test('disabled caller roles cannot invite or generate recovery credentials',async()=>{
+ for(const delivery of ['email','link','reset_link']){
+  const h=harness({callerRoleEnabled:false})
+  assert.equal((await h.invoke(true,delivery)).status,403)
+  assert.equal(h.calls.length,0)
+ }
+})
+test('an existing account beyond the first thousand users gets recovery, not a duplicate invite',async()=>{
+ const full=Array.from({length:200},(_,i)=>({id:'other-'+i,email:'other-'+i+'@example.test'}))
+ const h=harness({userPages:[full,full,full,full,full,[{id:'recipient',email:'recipient@example.test'}]]})
+ const result=await h.invoke(true,'link')
+ assert.equal(result.status,200)
+ assert.equal(h.calls.filter(c=>c.kind==='list').length,6)
+ assert.equal(h.calls.find(c=>c.kind==='link').options.type,'recovery')
+})
+test('metadata and invitation lookup failures cannot report successful provisioning',async()=>{
+ for(const readErrorTable of ['proc_user_directory','app_users','proc_user_invites']){
+  const h=harness({readErrorTable})
+  const result=await h.invoke(true,'link')
+  assert.equal(result.status,400)
+  assert.match(result.body.error,/lookup failed/)
+  assert.equal(h.calls.some(c=>c.table==='proc_user_invites'),false)
+  if(readErrorTable==='app_users')assert.equal(h.calls.some(c=>c.kind==='upsert'),false)
+ }
+})
+test('known staff recovery uses the indexed directory without scanning the entire auth population',async()=>{
+ const h=harness({directoryUser:{user_id:'recipient'}})
+ const result=await h.invoke(true,'link')
+ assert.equal(result.status,200)
+ assert.equal(h.calls.some(c=>c.kind==='list'),false)
+ assert.equal(h.calls.find(c=>c.kind==='link').options.type,'recovery')
 })

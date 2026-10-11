@@ -20,6 +20,11 @@ await copy(
   resolve(root,'public/tesseract/worker.min.js')
 )
 
+await copy(
+  resolve(root,'node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz'),
+  resolve(root,'public/tesseract-data/eng.traineddata.gz')
+)
+
 const coreDir=resolve(root,'node_modules/tesseract.js-core')
 for(const name of await readdir(coreDir)){
   if(/^tesseract-core.*\.(?:js|wasm)$/.test(name)){
@@ -27,4 +32,4 @@ for(const name of await readdir(coreDir)){
   }
 }
 
-console.log('Copied PDF.js + Tesseract OCR browser workers/core assets')
+console.log('Copied PDF.js + Tesseract OCR workers, core and local English data')

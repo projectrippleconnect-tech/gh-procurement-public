@@ -37,3 +37,25 @@ test('review removes unpriced rows without reselecting deliberate exclusions',as
  assert.deepEqual(pricedReviewSelection(input,quotes,true).map(x=>x.selected_for_po),[true,true,false])
  assert.equal(input[2].selected_for_po,true,'The helper does not mutate stored selections')
 })
+
+test('large comparison preserves sparse items, supplier order, ties and input records',()=>{
+ const input=Array.from({length:10000},(_,i)=>({id:'large-'+i,requested_qty:10,item:{description:'Bulk '+i},selected_for_po:i%7!==0}))
+ const quotes=input.filter((_,i)=>i%3!==0).flatMap((row,i)=>[
+  {rfq_item_id:row.id,supplier_id:'a',unit_price:i,available_qty:5},
+  {rfq_item_id:row.id,supplier_id:'b',unit_price:i,available_qty:5},
+  {rfq_item_id:row.id,supplier_id:'c',unit_price:i+1,available_qty:20}
+ ]).reverse()
+ const original=JSON.stringify(quotes)
+ const rows=quoteSheetRows(input,quotes)
+ assert.equal(rows.length,10000)
+ assert.equal(rows[0].lowest,null)
+ for(let i=1;i<rows.length;i++){
+  if(i%3===0){assert.equal(rows[i].quotes.length,0);continue}
+  assert.equal(rows[i].quotes.length,3)
+  assert.deepEqual(rows[i].quotes.map(q=>q.supplier_id),['c','b','a'])
+  assert.equal(rows[i].quotes.filter(q=>Number(q.unit_price)===rows[i].lowest).length,2)
+ }
+ assert.equal(quoteSheetRows(input,quotes,'','missing').length,3334)
+ assert.equal(quoteSheetRows(input,quotes,'','priced').length,6666)
+ assert.equal(JSON.stringify(quotes),original)
+})

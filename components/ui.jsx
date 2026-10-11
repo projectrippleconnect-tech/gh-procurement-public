@@ -16,7 +16,7 @@ export const statusClass=s=>{
 }
 
 export const Badge=({children})=><span className={'badge '+statusClass(children)}>{String(children||'—').replaceAll('_',' ')}</span>
-export const Err=({v})=>v?<div className="error section">{v}</div>:null
+export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
 export function ProcurementPath({active=4,counts={},t=(k,f)=>f||k}){

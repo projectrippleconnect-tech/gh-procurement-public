@@ -112,9 +112,11 @@ export default function ProcurementApp(){
   async function hydrate(){
    try{
     const {next,config,allowed}=await withStartupDeadline((async()=>{
-     const [next,config]=await Promise.all([ensure(session),loadConfig()])
-     const allowed=await loadPermissions()
-     return {next,config,allowed}
+     const [access,config]=await Promise.all([
+      ensure(session).then(async next=>({next,allowed:await loadPermissions()})),
+      loadConfig()
+     ])
+     return {...access,config}
     })())
     if(!cancelled){applyConfig(config);setPermissions(allowed);setPermissionsLoaded(true);setProfile(next);hydratedUser.current=session.user.id;setError('')}
     // Invitation bookkeeping must not delay access to the workspace.
@@ -152,7 +154,6 @@ export default function ProcurementApp(){
   if(errorTimer.current)window.clearTimeout(errorTimer.current)
   if(noticeTimer.current)window.clearTimeout(noticeTimer.current)
   setError(e?.message||String(e));setNotice('')
-  errorTimer.current=window.setTimeout(()=>setError(''),6500)
  },[])
  const refreshConfig=useCallback(async()=>{const user=hydratedUser.current;try{const config=await loadConfig();if(user&&hydratedUser.current===user)applyConfig(config)}catch(e){fail(e)}},[loadConfig,applyConfig,fail])
 
@@ -318,8 +319,8 @@ export default function ProcurementApp(){
   {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong>GH Procurement</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><div className="drawer-section-title">WORK</div><div className="mobile-drawer-grid">{primaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div>{secondaryNav.length>0&&<><div className="drawer-section-title">MORE / ADMIN</div><div className="mobile-drawer-grid secondary">{secondaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></>}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
 
   <div className="app-toast-stack" aria-live="polite">
-   {notice&&<div className="app-toast success-toast"><b>✓</b><span>{notice}</span><button onClick={()=>setNotice('')}>×</button></div>}
-   {error&&<div className="app-toast error-toast"><b>!</b><span>{error}</span><button onClick={()=>setError('')}>×</button></div>}
+   {notice&&<div className="app-toast success-toast"><b>✓</b><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice('')}>×</button></div>}
+   {error&&<div className="app-toast error-toast" role="alert"><b>!</b><span>{error}</span><button aria-label="Dismiss error" onClick={()=>setError('')}>×</button></div>}
   </div>
   <HelpCenter open={helpOpen} onClose={()=>setHelpOpen(false)} language={language} t={t}/>
   <ChangePassword open={securityOpen} onClose={()=>setSecurityOpen(false)} flash={flash} fail={fail}/>
