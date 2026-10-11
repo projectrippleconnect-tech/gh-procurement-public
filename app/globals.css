@@ -423,3 +423,7 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .admin-accordion[open]>.card{margin:0;padding:12px;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;box-shadow:none}
 .admin-grid{gap:8px}
 @media(max-width:700px){.admin-grid{grid-template-columns:minmax(0,1fr);gap:6px}.admin-accordion{margin-top:4px}.admin-accordion>summary{min-height:42px;padding:8px 10px}.admin-accordion .field-setting{grid-template-columns:minmax(0,1fr)}}
+
+/* Explicit accessible password visibility for mobile setup, sign-in and account security. */
+.password-visibility{display:inline-flex;align-items:center;gap:9px;min-height:36px;font-size:13px;font-weight:750;color:var(--muted);cursor:pointer;user-select:none}
+.password-visibility input{width:18px;height:18px;accent-color:var(--brand);flex:0 0 auto}
