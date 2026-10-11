@@ -55,49 +55,51 @@ export function LoginScreen({initialError=''}) {
   }catch(e){setError(e?.message||'Password change failed. Please request a fresh setup link.')}
   finally{setBusy(false)}
  }
+
  useEffect(()=>{
-   let active=true
-   const params=new URLSearchParams(window.location.search)
-   const hash=new URLSearchParams(window.location.hash.slice(1))
-   const isRecovery=params.get('recovery')==='1'||hash.has('token_hash')
+   let active=true,latestAttempt=0
    const {data}=supabase.auth.onAuthStateChange((event)=>{
      if(event==='PASSWORD_RECOVERY')setMode('recovery')
    })
-   if(isRecovery){
-    setMode('recovery')
-    // First-party links exchange a one-time token hash in this browser.
-    // Previous Supabase redirect links can still initialize through detectSessionInUrl.
-    ;(async()=>{
-     try{
-      if(params.has('error')||hash.has('error'))throw new Error('Invalid setup link')
-      const tokenHash=hash.get('token_hash')
-      if(tokenHash!==null){
-       const type=hash.get('type')
-       if(!tokenHash||!['invite','recovery'].includes(type))throw new Error('Invalid setup link')
-       const {data:verified,error:verifyError}=await supabase.auth.verifyOtp({token_hash:tokenHash,type})
-       if(verifyError)throw verifyError
-       if(!verified?.session)throw new Error('No secure session was created')
-      }else{
-       const {data:current,error:sessionError}=await supabase.auth.getSession()
-       if(sessionError)throw sessionError
-       if(!current?.session)throw new Error('No secure session was created')
-      }
-      if(active){setRecoveryStatus('ready');setError('')}
-     }catch(e){
-      // Log only the error category; never log one-time setup tokens.
-      console.warn('GH password setup verification:',e?.code||e?.name||'verification_failed',e?.message||'')
-      if(active){
-       setRecoveryStatus('invalid')
-       setError('This password link has expired, was already used, or did not include a valid sign-in session. Ask your administrator for a fresh setup link and open it directly in Chrome.')
-      }
-     }finally{
-      // Scrub one-time verification credentials from the browser address bar.
-      if(active&&(hash.has('token_hash')||hash.has('access_token')||params.has('error')||hash.has('error')))
-       window.history.replaceState(null,'',window.location.pathname+'?recovery=1')
+   // A fresh setup link can arrive in an existing browser tab. Hash-only
+   // navigation does not remount React, so verify each new fragment too.
+   async function validateSetupLink(){
+    const attempt=++latestAttempt
+    const params=new URLSearchParams(window.location.search)
+    const hash=new URLSearchParams(window.location.hash.slice(1))
+    if(params.get('recovery')!=='1'&&!hash.has('token_hash'))return
+    setMode('recovery');setRecoveryStatus('checking');setError('')
+    try{
+     if(params.has('error')||hash.has('error'))throw new Error('Invalid setup link')
+     const tokenHash=hash.get('token_hash')
+     if(tokenHash!==null){
+      const type=hash.get('type')
+      if(!tokenHash||!['invite','recovery'].includes(type))throw new Error('Invalid setup link')
+      const {data:verified,error:verifyError}=await supabase.auth.verifyOtp({token_hash:tokenHash,type})
+      if(verifyError)throw verifyError
+      if(!verified?.session)throw new Error('No secure session was created')
+     }else{
+      // Compatibility for links redirected through Supabase Auth.
+      const {data:current,error:sessionError}=await supabase.auth.getSession()
+      if(sessionError)throw sessionError
+      if(!current?.session)throw new Error('No secure session was created')
      }
-    })()
+     if(active&&attempt===latestAttempt){setRecoveryStatus('ready');setError('')}
+    }catch(e){
+     // Log only error categories, never one-time tokens or passwords.
+     console.warn('GH password setup verification:',e?.code||e?.name||'verification_failed')
+     if(active&&attempt===latestAttempt){
+      setRecoveryStatus('invalid')
+      setError('This password link has expired, was already used, or did not include a valid sign-in session. Ask your administrator for a fresh setup link and open it directly in Chrome.')
+     }
+    }finally{
+     if(active&&attempt===latestAttempt&&(hash.has('token_hash')||hash.has('access_token')||params.has('error')||hash.has('error')))
+      window.history.replaceState(null,'',window.location.pathname+'?recovery=1')
+    }
    }
-   return()=>{active=false;data.subscription.unsubscribe()}
+   window.addEventListener('hashchange',validateSetupLink)
+   validateSetupLink()
+   return()=>{active=false;window.removeEventListener('hashchange',validateSetupLink);data.subscription.unsubscribe()}
  },[])
 
  if(mode==='recovery')return <div className="login-shell"><div className="card login">
