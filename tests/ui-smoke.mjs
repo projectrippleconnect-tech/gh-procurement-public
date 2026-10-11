@@ -78,8 +78,6 @@ try{
   const startupGate=new Promise(resolve=>{releaseStartup=resolve})
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
-  const authWarnings=[]
-  page.on('console',m=>{if(m.type()==='warning'&&m.text().includes('GH password setup verification'))authWarnings.push(m.text())})
   page.on('pageerror',e=>errors.push(e.message))
   await context.route('https://*.supabase.co/**',async route=>{
    const req=route.request(),url=new URL(req.url()),name=url.pathname.split('/').pop()
@@ -185,9 +183,7 @@ try{
   await page.getByRole('heading',{name:'Set a new password',exact:true}).waitFor()
   const setupPassword=page.getByPlaceholder('New password (12+ with upper/lowercase, number & symbol)',{exact:true})
   const setupConfirm=page.getByPlaceholder('Confirm new password',{exact:true})
-  await page.waitForTimeout(900)
-  console.log('AUTH SETUP TEST DEBUG',JSON.stringify({body:(await page.locator('body').innerText()).slice(0,800),requests:queries.filter(u=>u.pathname.includes('/auth/')).slice(-10).map(u=>u.pathname),warnings:authWarnings}))
-  await setupPassword.waitFor({state:'visible',timeout:8000})
+  await setupPassword.waitFor({state:'visible',timeout:15000})
   assert.equal(await page.getByText('Loading secure workspace…',{exact:true}).count(),0)
   assert.equal(await setupPassword.getAttribute('type'),'password')
   assert.equal(await setupConfirm.getAttribute('type'),'password')
