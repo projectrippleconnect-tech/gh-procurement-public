@@ -401,3 +401,7 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .receiving-rows{margin-top:6px}
  .procurement-data-row .btn.small{min-height:34px}
 }
+
+.app-history-nav{display:flex;gap:8px;align-items:center;padding:8px 24px 0;max-width:1700px;margin:auto}
+.app-history-nav .btn{min-width:90px}
+@media(max-width:700px){.app-history-nav{padding:6px 12px 0}.app-history-nav .btn{min-height:38px;padding:6px 10px}}
