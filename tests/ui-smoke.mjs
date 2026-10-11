@@ -83,6 +83,17 @@ try{
    const req=route.request(),url=new URL(req.url()),name=url.pathname.split('/').pop()
    queries.push(url)
    let data=[]
+   if(url.pathname.endsWith('/auth/v1/verify')&&req.method()==='POST'){
+    const body=req.postDataJSON()
+    if(body.token_hash!=='fixture-valid-hash'){
+     await route.fulfill({status:403,json:{code:'otp_expired',msg:'Token invalid or expired'}})
+     return
+    }
+    const header=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url')
+    const payload=Buffer.from(JSON.stringify({sub:id,aud:'authenticated',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')
+    await route.fulfill({json:{access_token:header+'.'+payload+'.fixture',refresh_token:'fixture-refresh',token_type:'bearer',expires_in:3600,expires_at:Math.floor(Date.now()/1000)+3600,user}})
+    return
+   }
    if(url.pathname.includes('/auth/'))data=user
    else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[profile]:staffProfiles}
@@ -162,12 +173,28 @@ try{
    const html=await response.text()
    await route.fulfill({response,body:html.replace('</head>','<script>window.__ghUntrustedInlineExecuted=true</script></head>')})
   })
-  // The setup URL must show the password form even with an existing session.
-  await page.goto(root+'/?recovery=1')
+  // Invalid / used links must fail closed even if another user's session is cached.
+  await page.goto(root+'/?recovery=1#token_hash=invalid&type=invite')
+  await page.getByText(/This password link has expired, was already used/).waitFor()
+  assert.equal(await page.getByRole('button',{name:'Update password',exact:true}).count(),0,'Invalid link never permits password updates')
+  assert.equal(await page.evaluate(()=>location.hash),'','Expired verification tokens do not remain in the address bar')
+  // New first-party links establish their own session without relying on a redirected browser fragment.
+  await page.goto(root+'/?recovery=1#token_hash=fixture-valid-hash&type=invite')
   await page.getByRole('heading',{name:'Set a new password',exact:true}).waitFor()
+  const setupPassword=page.getByPlaceholder('New password (12+ with upper/lowercase, number & symbol)',{exact:true})
+  const setupConfirm=page.getByPlaceholder('Confirm new password',{exact:true})
+  await setupPassword.waitFor({state:'visible'})
   assert.equal(await page.getByText('Loading secure workspace…',{exact:true}).count(),0)
-  await page.getByPlaceholder('New password (12+ with upper/lowercase, number & symbol)',{exact:true}).fill('FixturePassword123!')
-  await page.getByPlaceholder('Confirm new password',{exact:true}).fill('FixturePassword123!')
+  assert.equal(await setupPassword.getAttribute('type'),'password')
+  assert.equal(await setupConfirm.getAttribute('type'),'password')
+  await page.getByLabel('Show passwords',{exact:true}).check()
+  assert.equal(await setupPassword.getAttribute('type'),'text')
+  assert.equal(await setupConfirm.getAttribute('type'),'text')
+  await page.getByLabel('Show passwords',{exact:true}).uncheck()
+  assert.equal(await setupPassword.getAttribute('type'),'password')
+  assert.equal(await page.evaluate(()=>location.hash),'','Verified setup tokens do not persist in the address bar')
+  await setupPassword.fill('FixturePassword123!')
+  await setupConfirm.fill('FixturePassword123!')
   await page.getByRole('button',{name:'Update password',exact:true}).click()
   await page.getByRole('heading',{name:'Password updated',exact:true}).waitFor()
   await page.screenshot({path:'test-results/'+width+'-password-setup.png'})
