@@ -44,6 +44,8 @@ Deno.serve(async req=>{
     const email=String(body.email||'').trim().toLowerCase()
     const displayName=String(body.display_name||'').trim()
     const roleKey=String(body.role_key||body.role||'viewer').trim()
+    const delivery=body.delivery||'email'
+    if(!['email','link'].includes(delivery))throw new Error('Invalid invitation delivery method.')
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error('Enter a valid email address.')
     if(!displayName)throw new Error('Enter the user name.')
     const {data:targetRole,error:roleError}=await service.from('proc_roles').select('role_key,base_role,name,enabled').eq('role_key',roleKey).maybeSingle()
@@ -61,9 +63,20 @@ Deno.serve(async req=>{
 
     const redirectTo='https://gh-procurement-production.up.railway.app/?recovery=1'
     let setupEmailSent=false
+    let setupLink=null
     let invited=false
     let authUser=existingUser
-    if(!authUser){
+    if(delivery==='link'){
+      const {data,error}=await service.auth.admin.generateLink({
+        type:existingUser?'recovery':'invite',email,
+        options:{redirectTo,data:{display_name:displayName,gh_procurement_role:role,gh_procurement_role_key:roleKey}}
+      })
+      if(error)throw error
+      authUser=data.user
+      setupLink=data.properties?.action_link
+      if(!setupLink)throw new Error('The setup link could not be generated.')
+      invited=!existingUser
+    }else if(!authUser){
       const {data,error}=await service.auth.admin.inviteUserByEmail(email,{
         redirectTo,
         data:{display_name:displayName,gh_procurement_role:role,gh_procurement_role_key:roleKey}
@@ -74,7 +87,7 @@ Deno.serve(async req=>{
     }
 
     if(!authUser?.id)throw new Error('The user account could not be created.')
-    if(existingUser?.invited_at&&!existingUser?.last_sign_in_at){
+    if(delivery==='email'&&existingUser?.invited_at&&!existingUser?.last_sign_in_at){
       const {error}=await service.auth.resetPasswordForEmail(email,{redirectTo})
       if(error)throw error
       setupEmailSent=true
@@ -117,12 +130,12 @@ Deno.serve(async req=>{
     const {data:pending}=await service.from('proc_user_invites').select('id').eq('status','pending').ilike('email',email).maybeSingle()
     const invitePayload={
       email,display_name:displayName,role,role_key:roleKey,
-      status:(invited||setupEmailSent)?'pending':'accepted',
+      status:(invited||setupEmailSent||setupLink)?'pending':'accepted',
       invited_by:caller.id,
       invited_user_id:authUser.id,
       invited_at:new Date().toISOString(),
-      expires_at:(invited||setupEmailSent)?new Date(Date.now()+7*86400000).toISOString():null,
-      accepted_at:(invited||setupEmailSent)?null:new Date().toISOString(),
+      expires_at:(invited||setupEmailSent||setupLink)?new Date(Date.now()+7*86400000).toISOString():null,
+      accepted_at:(invited||setupEmailSent||setupLink)?null:new Date().toISOString(),
       error_message:null,
       updated_at:new Date().toISOString()
     }
@@ -142,8 +155,9 @@ Deno.serve(async req=>{
       email,
       role:roleKey,
       role_name:targetRole.name,
-      message:invited?'Invitation email sent.':setupEmailSent?'Fresh password-setup email sent. Use the newest email.':'Existing account enabled and assigned to the selected role.'
-    }),{status:200,headers:{...cors,'Content-Type':'application/json'}})
+      setup_link:setupLink,
+      message:setupLink?'One-time setup link generated. Share it only with the invited person.':invited?'Invitation email sent.':setupEmailSent?'Fresh password-setup email sent. Use the newest email.':'Existing account enabled and assigned to the selected role.'
+    }),{status:200,headers:{...cors,'Content-Type':'application/json','Cache-Control':'no-store'}})
   }catch(error){
     return new Response(JSON.stringify({error:String(error?.message||error)}),{status:400,headers:{...cors,'Content-Type':'application/json'}})
   }
