@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {useDangerConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
@@ -76,6 +77,7 @@ export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>
 }
 
 export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+ const confirmDanger=useDangerConfirmation()
  const feature=(key,fallback=true)=>features.find(x=>x.feature_key===key)?.enabled??fallback
  const cycleCfg=features.find(x=>x.feature_key==='stock.cycle_counting')?.config||{}
  const mobileCfg=features.find(x=>x.feature_key==='stock.mobile_entry')?.config||{}
@@ -420,15 +422,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
  async function discardDraft(){
   if(!Object.keys(entry).length&&!skipped.size)return
-  if(!confirm('Discard all unsent stock entries on this device/account?'))return
-  setEntry({});setSkipped(new Set());setCursor(0);setSheetFile(null);setOcrRows([]);startedAt.current=null
-  try{localStorage.removeItem(draftKey)}catch{}
-  if(serverDrafts){
-   await draftWrites.current
-   const r=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)
-   if(r.error)return fail(r.error)
-  }
-  flash('Stock draft discarded.')
+  await confirmDanger({title:'Discard stock draft',message:'Discard all unsent stock entries on this device/account? Submitted stock records will remain.',warning:'Unsubmitted entries will be lost. Check that you do not need them before confirming.',confirmLabel:'Confirm discard',onConfirm:async()=>{
+   if(serverDrafts){await draftWrites.current;const r=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id);if(r.error)throw r.error}
+   setEntry({});setSkipped(new Set());setCursor(0);setSheetFile(null);setOcrRows([]);startedAt.current=null
+   try{localStorage.removeItem(draftKey)}catch{}
+   flash('Stock draft discarded.')
+  }})
  }
 
  async function movementPdf(m){
@@ -601,6 +600,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 }
 
 export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
+ const confirmDanger=useDangerConfirmation()
  const[rows,setRows]=useState([]),[q,setQ]=useState(''),[cat,setCat]=useState(''),[cats,setCats]=useState([]),[status,setStatus]=useState('active'),[loading,setLoading]=useState(true),[page,setPage]=useState(0),[total,setTotal]=useState(0)
  const pageSize=100
  const canEdit=can('items.edit')
@@ -635,8 +635,10 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
 
  const canDelete=(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')
  async function deleteItem(r){
-  const confirmation=window.prompt('Delete '+itemTitle(r)+'? Type item code '+r.item_code+'. Items used in records cannot be deleted.');if(confirmation===null)return
-  const result=await supabase.rpc('proc_admin_delete_item_v1',{p_item_id:r.id,p_confirmation:confirmation});if(result.error)return fail(result.error);flash('Item deleted.');await load()
+  if(!canDelete)return
+  await confirmDanger({title:'Delete item',message:'Permanently delete '+itemTitle(r)+' from the Item Master? Items used in records or with stock cannot be deleted.',confirmation:r.item_code,confirmLabel:'Confirm delete item',onConfirm:async({confirmation})=>{
+   const result=await supabase.rpc('proc_admin_delete_item_v1',{p_item_id:r.id,p_confirmation:confirmation});if(result.error)throw result.error;flash('Item deleted.');await load()
+  }})
  }
  const editableText=(r,key,wide=false)=>
   canEdit?<input className={'input item-inline-edit '+(wide?'wide':'')} defaultValue={r[key]||''} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(String(e.target.value??'')!==String(r[key]??''))save(r,key,e.target.value)}}/>:(r[key]||'—')

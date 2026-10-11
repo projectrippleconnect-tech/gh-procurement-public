@@ -405,3 +405,10 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .app-history-nav{display:flex;gap:8px;align-items:center;padding:8px 24px 0;max-width:1700px;margin:auto}
 .app-history-nav .btn{min-width:90px}
 @media(max-width:700px){.app-history-nav{padding:6px 12px 0}.app-history-nav .btn{min-height:38px;padding:6px 10px}}
+
+/* Destructive actions always use a visible warning and explicit confirmation. */
+.danger-dialog{border:1px solid #9d3b4a;box-shadow:0 20px 70px rgba(0,0,0,.5)}
+.danger-heading{display:flex;gap:12px;align-items:center}.danger-heading h3{margin:4px 0;overflow-wrap:anywhere}.danger-heading small{color:#ffc3cb;font-weight:800}
+.danger-icon{font-size:32px;color:#ffbd69;flex-shrink:0}.danger-warning{padding:12px;border:1px solid #87404a;border-radius:10px;background:#361b24;color:#ffd7dd;margin:12px 0}.danger-warning p{margin:6px 0 0}
+.danger-details{font-size:12px;overflow-wrap:anywhere;color:var(--muted)}.danger-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.danger-actions .btn{min-width:110px}
+@media(max-width:700px){.danger-actions{display:grid;grid-template-columns:1fr 1fr}.danger-actions .btn{min-width:0;white-space:normal}.danger-dialog{padding-bottom:max(18px,env(safe-area-inset-bottom))}}

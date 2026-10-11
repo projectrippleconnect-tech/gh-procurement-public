@@ -73,6 +73,7 @@ try{
   const setupRequests=[]
   let staffInvites=[],staffProfiles=[profile],deleteFailure=true
   const deleteRequests=[]
+  const destructiveRequests=[]
   let stallStartup=false,releaseStartup,stalledReturned=false
   const startupGate=new Promise(resolve=>{releaseStartup=resolve})
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
@@ -83,6 +84,7 @@ try{
    queries.push(url)
    let data=[]
    if(url.pathname.includes('/auth/'))data=user
+   else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[profile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
     const body=req.postDataJSON();deleteRequests.push(body)
@@ -129,6 +131,7 @@ try{
     const first={id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}
     data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):receivingManyRows?[first,...Array.from({length:8},(_,i)=>({...first,id:'receiving-line-'+i,item:{...item,description:'Receiving fixture '+(i+2)}}))]:[first]
    }
+   else if(name==='proc_search_item_master_v2')data=[{...item,item_code:'FIXTURE-ITEM',total_count:1}]
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
@@ -234,6 +237,7 @@ try{
   assert.equal(await page.getByRole('button',{name:'Delete user Fixture Administrator',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).click()
   const deleteDialog=page.getByRole('dialog',{name:'Delete user · Fixture staff',exact:true})
+  await deleteDialog.getByText('⚠ Warning · delete user',{exact:true}).waitFor()
   await deleteDialog.getByRole('button',{name:'Cancel',exact:true}).click()
   assert.equal(deleteRequests.length,0,'Cancel does not delete a user')
   await page.getByRole('button',{name:'Delete user Fixture staff',exact:true}).click()
@@ -261,11 +265,41 @@ try{
   assert.equal(await resetButton.isDisabled(),true,'Wrong reset phrase cannot execute')
   await page.getByLabel('Reset confirmation',{exact:true}).fill('CLEAR FULL')
   assert.equal(await resetButton.isEnabled(),true,'Complete review permits a subsequent confirmation')
+  const labels={full:'Reset system to zero',procurement:'Clear procurement records',stock:'Reset current stock to zero',lists:'Clear company lists'}
+  for(const scope of ['full','procurement','stock','lists']){
+   if(scope!=='full'){
+    await page.getByLabel('Reset option',{exact:true}).selectOption(scope)
+    await page.getByRole('button',{name:'Preview affected records',exact:true}).click()
+    await page.getByLabel('Reset confirmation',{exact:true}).fill('CLEAR '+scope.toUpperCase())
+   }
+   await page.getByRole('button',{name:labels[scope],exact:true}).click()
+   const warning=page.getByRole('alertdialog',{name:labels[scope],exact:true})
+   await warning.getByText('Warning · confirmation required',{exact:true}).waitFor()
+   assert.equal(await warning.getByRole('button',{name:'Cancel',exact:true}).evaluate(el=>el===document.activeElement),true,'Cancel receives initial focus')
+   assert.equal(await page.locator('[inert]').count(),1,'Background controls are inert during confirmation')
+   assert.equal(destructiveRequests.length,0,'Opening a warning does not reset records')
+   await page.screenshot({path:'test-results/'+width+'-warning-'+scope+'.png'})
+   await warning.getByRole('button',{name:'Cancel',exact:true}).click()
+   assert.equal(destructiveRequests.length,0,'Cancel never calls the reset endpoint')
+  }
+  await page.getByLabel('Reset option',{exact:true}).selectOption('full')
+  await page.getByRole('button',{name:'Preview affected records',exact:true}).click()
+  await page.getByLabel('Reset confirmation',{exact:true}).fill('CLEAR FULL')
+  await resetButton.click()
+  await page.keyboard.press('Escape')
+  assert.equal(destructiveRequests.length,0,'Escape cancels without resetting')
+  await resetButton.click()
+  const resetWarning=page.getByRole('alertdialog',{name:labels.full,exact:true})
+  await resetWarning.getByRole('button',{name:'Confirm reset',exact:true}).click()
+  await resetWarning.getByText('Fixture operation blocked',{exact:true}).waitFor()
+  assert.equal(destructiveRequests.length,1,'Only the final red button calls reset')
+  assert.equal(destructiveRequests[0].body.p_confirmation,'CLEAR FULL')
+  await resetWarning.getByRole('button',{name:'Cancel',exact:true}).click()
   await page.getByLabel('Reset option',{exact:true}).selectOption('stock')
   assert.equal(await page.getByLabel('Reset confirmation',{exact:true}).count(),0,'Changing reset scope invalidates the preview')
-  assert.equal(queries.some(u=>u.pathname.endsWith('/proc_admin_reset_data_v1')),false,'Preview does not clear any records')
+  assert.equal(destructiveRequests.length,1,'Changing options does not execute another reset')
   await navigate('⌂ Home')
-  console.log('PASS admin reset preview, typed confirmation and scope invalidation at '+width+'px')
+  console.log('PASS four reset warnings, Cancel/Escape, inert background, final confirmation and error feedback at '+width+'px')
 
   for(const [card,heading,table,field,value] of [
    ['Active items','Items','proc_search_item_master_v2',null,null],
@@ -299,6 +333,26 @@ try{
    if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
    await navigate('⌂ Home')
   }
+  await navigate('□ Items')
+  await page.getByText('FIXTURE-ITEM',{exact:true}).filter({visible:true}).first().waitFor()
+  const itemDetails=page.locator('section:not([hidden]) summary').filter({hasText:'More details'}).filter({visible:true}).first()
+  if(await itemDetails.count())await itemDetails.click()
+  await page.getByRole('button',{name:'Delete item',exact:true}).filter({visible:true}).first().click()
+  const itemWarning=page.getByRole('alertdialog',{name:'Delete item',exact:true})
+  const confirmItem=itemWarning.getByRole('button',{name:'Confirm delete item',exact:true})
+  assert.equal(await confirmItem.isDisabled(),true)
+  await itemWarning.getByLabel('Warning confirmation',{exact:true}).fill('WRONG')
+  assert.equal(await confirmItem.isDisabled(),true)
+  await itemWarning.getByRole('button',{name:'Cancel',exact:true}).click()
+  assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_delete_item_v1').length,0)
+  await page.getByRole('button',{name:'Delete item',exact:true}).filter({visible:true}).first().click()
+  await itemWarning.getByLabel('Warning confirmation',{exact:true}).fill('FIXTURE-ITEM')
+  await confirmItem.click()
+  await itemWarning.getByText('Fixture operation blocked',{exact:true}).waitFor()
+  assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_delete_item_v1').length,1)
+  await itemWarning.getByRole('button',{name:'Cancel',exact:true}).click()
+  await navigate('⌂ Home')
+
   for(const [button,heading,table,field] of [['Overdue supplier requests','RFQs & Quotes','proc_rfqs','due_date'],['Overdue purchase orders','Orders','proc_purchase_orders','expected_date']]){
    const overdueToggle=page.getByRole('button',{name:'Overdue actions',exact:true})
    if(await overdueToggle.getAttribute('aria-expanded')!=='true')await overdueToggle.click()
@@ -566,6 +620,20 @@ try{
    if(heading==='Orders'){
     poFixtureStatus='approved';poLargeExport=width===320
     await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+    await page.getByRole('button',{name:'Clear this order',exact:true}).click()
+    const orderWarning=page.getByRole('alertdialog',{name:'Clear purchase order',exact:true})
+    const confirmOrder=orderWarning.getByRole('button',{name:'Confirm clear order',exact:true})
+    await orderWarning.getByLabel('Warning confirmation',{exact:true}).fill(po.po_no)
+    assert.equal(await confirmOrder.isDisabled(),true,'Clearing an order also requires a reason')
+    await orderWarning.getByRole('button',{name:'Cancel',exact:true}).click()
+    assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_clear_po_v1').length,0)
+    await page.getByRole('button',{name:'Clear this order',exact:true}).click()
+    await orderWarning.getByLabel('Warning confirmation',{exact:true}).fill(po.po_no)
+    await orderWarning.getByLabel('Warning reason',{exact:true}).fill('Fixture order cleanup')
+    await confirmOrder.click()
+    await orderWarning.getByText('Fixture operation blocked',{exact:true}).waitFor()
+    assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_clear_po_v1').length,1)
+    await orderWarning.getByRole('button',{name:'Cancel',exact:true}).click()
     await page.locator('summary').filter({hasText:'Document & Sharing Options'}).click()
     await page.getByRole('button',{name:'Download PO PNG',exact:true}).waitFor({state:'visible'})
     if(width===320){
