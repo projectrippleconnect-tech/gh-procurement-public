@@ -170,6 +170,20 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
  </div>
 }
 
+
+function DataManagement({flash,fail}){
+ const[scope,setScope]=useState('full'),[preview,setPreview]=useState(null),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState(''),[busy,setBusy]=useState(false)
+ const options={full:['Reset system to zero','Clears POs, RFQs, quotes, requests, invoices, receipts, stock history, drafts, current stock and company lists. Keeps items, suppliers, companies, users, roles, settings and audit logs.'],procurement:['Clear procurement records','Clears all POs, RFQs, quotes, requests, invoices, receipts and associated follow-ups. Current stock and stock history remain.'],stock:['Reset current stock to zero','Sets every current stock quantity to zero and clears stock-entry drafts. Keeps submitted counts and records the adjustment in stock history.'],lists:['Clear company lists','Clears company item lists, price lists and their document records. Items, companies and suppliers remain.']}
+ async function review(){setBusy(true);setPreview(null);try{const r=await supabase.rpc('proc_admin_reset_preview_v1',{p_scope:scope});if(r.error)throw r.error;setPreview(r.data);setConfirmation('')}catch(e){fail(e)}finally{setBusy(false)}}
+ async function clear(){
+  if(!preview||confirmation!=='CLEAR '+scope.toUpperCase()||reason.trim().length<5)return
+  if(!window.confirm('Permanently '+options[scope][0].toLowerCase()+'? This cannot be undone in the app.'))return
+  setBusy(true)
+  try{const r=await supabase.rpc('proc_admin_reset_data_v1',{p_scope:scope,p_token:preview.token,p_confirmation:confirmation,p_reason:reason.trim()});if(r.error)throw r.error;setPreview(null);flash('Reset completed. Reloading current data.');window.location.reload()}catch(e){fail(e);setPreview(null)}finally{setBusy(false)}
+ }
+ return <div className="card pad section"><h3>Data Management · Admin only</h3><p className="muted tiny">Clear operational data separately from deleting items. Ask other staff to finish editing before a reset. Export any reports you need first.</p><label className="field">Reset option<select className="select" aria-label="Reset option" value={scope} disabled={busy} onChange={e=>{setScope(e.target.value);setPreview(null);setConfirmation('')}}>{Object.entries(options).map(([key,value])=><option key={key} value={key}>{value[0]}</option>)}</select></label><p>{options[scope][1]}</p><button className="btn" disabled={busy} onClick={review}>Preview affected records</button>{preview&&<div className="section"><div className="stack">{Object.entries(preview.counts||{}).map(([key,count])=><div className="procurement-data-row toolbar" key={key}><span>{key.replace(/^proc_/,'').replaceAll('_',' ')}</span><b>{count}</b></div>)}</div><p className="notice">Permanent action. Items are retained. Type <b>CLEAR {scope.toUpperCase()}</b> to continue.</p><label className="field">Reason<input className="input" aria-label="Reset reason" value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/></label><label className="field section">Confirmation<input className="input" aria-label="Reset confirmation" value={confirmation} onChange={e=>setConfirmation(e.target.value)} disabled={busy} autoComplete="off"/></label><button className="btn bad section" disabled={busy||confirmation!=='CLEAR '+scope.toUpperCase()||reason.trim().length<5} onClick={clear}>{busy?'Working…':options[scope][0]}</button></div>}</div>
+}
+
 export function Admin({profile,modules,fields,features=[],settings,onConfigChanged,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
  const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false)
@@ -247,6 +261,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  const stockEntryFields=fields.filter(f=>f.module_key==='stock_entry').sort((a,b)=>a.sort_order-b.sort_order)
  const stockMobileFeature=features.find(f=>f.feature_key==='stock.mobile_entry')
  return <>
+  {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<DataManagement flash={flash} fail={fail}/>}
   {can('admin.roles.manage')&&<RoleManager language={language} t={t} flash={flash} fail={fail} onChanged={load}/>} 
   {can('admin.configure_app')&&<div className="admin-grid">
    <div className="card pad"><div className="sectionhead"><div><h3>{t('admin.tabs_modules','Tabs / Modules')}</h3><p>{t('admin.tabs_modules_hint','Rename, reorder, enable/disable tabs and control which roles can see them.')}</p></div></div><div className="stack">{modules.map(m=><div className="module-setting" key={m.module_key}>
