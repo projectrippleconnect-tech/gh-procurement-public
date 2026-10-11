@@ -633,6 +633,11 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
   await load()
  }
 
+ const canDelete=(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')
+ async function deleteItem(r){
+  const confirmation=window.prompt('Delete '+itemTitle(r)+'? Type item code '+r.item_code+'. Items used in records cannot be deleted.');if(confirmation===null)return
+  const result=await supabase.rpc('proc_admin_delete_item_v1',{p_item_id:r.id,p_confirmation:confirmation});if(result.error)return fail(result.error);flash('Item deleted.');await load()
+ }
  const editableText=(r,key,wide=false)=>
   canEdit?<input className={'input item-inline-edit '+(wide?'wide':'')} defaultValue={r[key]||''} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(String(e.target.value??'')!==String(r[key]??''))save(r,key,e.target.value)}}/>:(r[key]||'—')
 
@@ -651,7 +656,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
   {key:'reorder_level',label:'Reorder At',render:r=>qty(r.reorder_level)},
   {key:'remarks',label:'Remarks',render:r=>editableText(r,'remarks',true)}
  ]
- const cols=configuredColumns(fields,'items',defaults)
+ const cols=[...configuredColumns(fields,'items',defaults),...(canDelete?[{key:'delete_item',label:'Admin',render:r=><button className="btn small bad" onClick={()=>deleteItem(r)}>Delete item</button>}]:[])]
 
  return <div className="card pad">
   <datalist id="item-master-categories">{cats.map(c=><option key={c} value={c}/>)}</datalist>
