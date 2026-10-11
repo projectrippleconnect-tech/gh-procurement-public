@@ -187,6 +187,7 @@ function DataManagement({flash,fail}){
 export function Admin({profile,modules,fields,features=[],settings,onConfigChanged,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
  const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false)
+ const[setupLink,setSetupLink]=useState(null)
  const hasAdmin=can('admin.users.manage')||can('admin.roles.manage')||can('admin.configure_app')||can('admin.audit.view')
  const load=useCallback(async()=>{if(!hasAdmin)return;try{
   const[a,b,d,e,r]=await Promise.all([supabase.from('proc_profiles').select('*').order('display_name'),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),supabase.from('proc_user_directory').select('*'),supabase.from('proc_roles').select('*').order('name')])
@@ -204,18 +205,24 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
   await role(u.id,'viewer')
  }
  async function active(u,v){if(u.id===profile.id&&!v)return fail(new Error(t('validation.self_deactivate','You cannot deactivate your own account.')));const r=await supabase.from('proc_profiles').update({active:v}).eq('id',u.id);if(r.error)fail(r.error);else{flash(t('admin.user_access_updated','User access updated.'));load()}}
- async function inviteUser(){
-  if(!invite.display_name.trim())return fail(new Error(t('admin.enter_user_name','Enter the user name.')))
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invite.email.trim()))return fail(new Error(t('admin.enter_valid_email','Enter a valid email address.')))
+ async function inviteUser(delivery='email',target=invite){
+  if(!target.display_name.trim())return fail(new Error(t('admin.enter_user_name','Enter the user name.')))
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target.email.trim()))return fail(new Error(t('admin.enter_valid_email','Enter a valid email address.')))
+  setSetupLink(null)
   setInviteBusy(true)
   try{
-   const r=await supabase.functions.invoke('proc-invite-user',{body:{display_name:invite.display_name.trim(),email:invite.email.trim(),role_key:invite.role}})
+   const r=await supabase.functions.invoke('proc-invite-user',{body:{display_name:target.display_name.trim(),email:target.email.trim(),role_key:target.role_key||target.role,delivery}})
    if(r.error)throw r.error
    if(r.data?.error)throw new Error(r.data.error)
+   if(r.data?.setup_link)setSetupLink({url:r.data.setup_link,email:target.email.trim()})
    flash(r.data?.message||t('admin.invitation_processed','User invitation processed.'))
    setInvite({display_name:'',email:'',role:'viewer'})
    await load()
   }catch(e){fail(e)}finally{setInviteBusy(false)}
+ }
+ async function copySetupLink(){
+  try{await navigator.clipboard.writeText(setupLink.url);flash('Setup link copied. Share it only with '+setupLink.email+'.')}
+  catch{fail(new Error('Select the setup link and copy it manually.'))}
  }
  async function revokeInvite(row){
   if(row.status!=='pending')return
@@ -275,15 +282,16 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
   </div>}
   {can('admin.configure_app')&&<div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.stock_row_title','Stock Entry · Row Display')} <InfoButton topic="stock_entry" language={language}/></h3><p>{t('admin.stock_row_subtitle','Choose optional information shown in each fast stock-entry row.')}</p></div></div><div className="stock-row-settings">{stockEntryFields.map(f=><Toggle key={f.field_key} label={(f.label||f.field_key)+(f.required_core?' · '+t('admin.mandatory','Mandatory'):'')} checked={f.enabled} disabled={f.required_core} onChange={v=>fieldToggle(f,v)}/>)}</div>{stockMobileFeature&&<div className="field section"><label>{t('admin.default_rows','Default rows per page')}</label><select className="select compact-select" value={Number(stockMobileFeature.config?.default_page_size||20)} onChange={e=>featureSave(stockMobileFeature,{config:{...(stockMobileFeature.config||{}),default_page_size:Number(e.target.value)}})}><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></div>}</div>}
   {can('admin.users.manage')&&<><div className="card pad section">
-   <div className="sectionhead"><div><h3>{t('admin.invite_user','Invite User')}</h3><p>{t('admin.invite_hint','Create/enable a GH account, assign the procurement role before first sign-in, and send the password-setup invitation.')}</p></div><button className="btn primary" disabled={inviteBusy} onClick={inviteUser}>{inviteBusy?t('admin.sending','Sending…'):t('admin.send_invitation','Send Invitation')}</button></div>
+   <div className="sectionhead"><div><h3>{t('admin.invite_user','Invite User')}</h3><p>Create or enable a GH account and assign its procurement role. Generate a setup link to share directly, or send an email invitation.</p></div><div className="row"><button className="btn primary" disabled={inviteBusy} onClick={()=>inviteUser('link')}>{inviteBusy?'Processing…':'Generate setup link'}</button><button className="btn" disabled={inviteBusy} onClick={()=>inviteUser('email')}>{t('admin.send_invitation','Send Invitation')}</button></div></div>
    <div className="formgrid">
     <div className="field"><label>{t('common.name','Name')}</label><input className="input" value={invite.display_name} onChange={e=>setInvite(x=>({...x,display_name:e.target.value}))} placeholder="Staff name"/></div>
     <div className="field"><label>{t('common.email','Email')}</label><input className="input" type="email" value={invite.email} onChange={e=>setInvite(x=>({...x,email:e.target.value}))} placeholder="user@example.com"/></div>
     <div className="field"><label>{t('common.role','Role')}</label><select className="select" value={invite.role} onChange={e=>setInvite(x=>({...x,role:e.target.value}))}>{roles.filter(r=>r.enabled).map(r=><option key={r.role_key} value={r.role_key}>{r.name}</option>)}</select></div>
    </div>
+   {setupLink&&<div className="section"><label htmlFor="invitation-setup-link">One-time setup link for {setupLink.email}</label><p>Share only with this person. The link expires according to the authentication settings and can be used once. Generate a fresh link if needed.</p><div className="row"><input id="invitation-setup-link" className="input" readOnly value={setupLink.url} onFocus={e=>e.target.select()}/><button className="btn primary" onClick={copySetupLink}>Copy setup link</button><button className="btn" onClick={()=>setSetupLink(null)}>Dismiss</button></div></div>}
    {invites.some(x=>x.status==='pending')&&<div className="section"><h4>{t('admin.pending_invites','Pending Invitations')}</h4><DataTable columns={[
-    {key:'display_name',label:'Name'},{key:'email',label:'Email'},{key:'role',label:'Role',render:r=><Badge>{r.role}</Badge>},{key:'invited_at',label:'Invited',render:r=>new Date(r.invited_at).toLocaleString()},{key:'status',label:'Status',render:r=><Badge>{r.status}</Badge>},{key:'action',label:'',render:r=><button className="btn small bad" onClick={()=>revokeInvite(r)}>Revoke</button>}
-   ]} rows={invites.filter(x=>x.status==='pending')} mobileCards/></div>}
+    {key:'display_name',label:'Name'},{key:'email',label:'Email'},{key:'role',label:'Role',render:r=><Badge>{r.role}</Badge>},{key:'invited_at',label:'Invited',render:r=>new Date(r.invited_at).toLocaleString()},{key:'status',label:'Status',render:r=><Badge>{r.status}</Badge>},{key:'action',label:'',render:r=><div className="row"><button className="btn small" disabled={inviteBusy} onClick={()=>inviteUser('link',r)}>Generate link</button><button className="btn small bad" onClick={()=>revokeInvite(r)}>Revoke</button></div>}
+   ]} rows={invites.filter(x=>x.status==='pending')}/></div>}
   </div>
   <div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.users','Users')}</h3><p>{t('admin.users_hint','Role-based procurement access. Change roles, disable access instantly, or send a password-reset link.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
    {key:'display_name',label:t('common.user','User')},{key:'email',label:t('common.email','Email'),render:u=>emailFor(u)||'—'},{key:'role',label:t('common.role','Role'),render:u=><div className="toolbar role-user-actions"><select className="select compact-select" value={u.role_key||u.role} disabled={u.id===profile.id&&(u.role_key||u.role)==='admin'} onChange={e=>role(u.id,e.target.value)}>{roles.filter(r=>r.enabled||(u.role_key||u.role)===r.role_key).map(r=><option key={r.role_key} value={r.role_key}>{r.name}</option>)}</select>{u.id!==profile.id&&(u.role_key||u.role)!=='viewer'&&<button type="button" className="btn small" onClick={()=>removeUserRole(u)}>{t('admin.set_viewer','Remove role / set Viewer')}</button>}</div>},
