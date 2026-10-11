@@ -15,7 +15,7 @@ export const statusClass=s=>{
  return'info'
 }
 
-export const Badge=({children})=><span className={'badge '+statusClass(children)}>{String(children||'—').replaceAll('_',' ')}</span>
+export const Badge=({children})=><span className={'badge '+statusClass(children)}>{typeof children==='string'?children.replaceAll('_',' '):children??'—'}</span>
 export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
@@ -74,4 +74,15 @@ export function Toggle({checked,onChange,label,disabled=false}){
 export function Modal({open,title,onClose,children,wide=false}){
  if(!open)return null
  return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose?.()}><div className={'modal card '+(wide?'wide':'')}><div className="modal-head"><h3>{title}</h3><button className="btn small" onClick={onClose}>Close</button></div>{children}</div></div>
+}
+
+export function ListPages({total,page,onChange,pageSize=50,label='Results'}){
+ if(total<=pageSize)return null
+ const last=Math.max(0,Math.ceil(total/pageSize)-1)
+ const current=Math.min(page,last)
+ return <nav className="toolbar section" aria-label={label+' pages'}>
+  <button className="btn small" disabled={current===0} onClick={()=>onChange(current-1)}>Previous</button>
+  <span className="muted tiny" role="status">{label}: {current*pageSize+1}–{Math.min((current+1)*pageSize,total)} of {total}</span>
+  <button className="btn small" disabled={current===last} onClick={()=>onChange(current+1)}>Next</button>
+ </nav>
 }

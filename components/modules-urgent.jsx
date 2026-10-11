@@ -1,8 +1,9 @@
 'use client'
 
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {Badge,Empty,fieldEnabled,fieldLabel} from './ui'
+import {Badge,Empty,ListPages,fieldEnabled,fieldLabel} from './ui'
+import {allRows} from '@/lib/query-pages'
 import {qty,itemTitle} from '@/lib/helpers'
 import {InfoButton} from './help-ui'
 
@@ -33,28 +34,33 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
  const[urgent,setUrgent]=useState({required_qty:'',current_stock:'',reason:'manual_urgent',customer_paid:false,customer_reference:'',notes:''}),[urgentImage,setUrgentImage]=useState(null)
  const[missing,setMissing]=useState({proposed_name:'',brand:'',category:'GENERAL',main_group:'',subgroup:'',size:'',uom:'PCS',movement:'NORMAL',required_qty:'',suggested_max_stock:'',reason:'customer_request',customer_paid:false,customer_reference:'',notes:''}),[missingImage,setMissingImage]=useState(null)
  const[busy,setBusy]=useState(false)
+ const[queuePage,setQueuePage]=useState(0),[jobPage,setJobPage]=useState(0)
+ const loadRevision=useRef(0)
 
- const load=useCallback(async()=>{setLoading(true);try{
-  const r=await supabase.from('proc_v_urgent_actions').select('*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).limit(1000)
+ const load=useCallback(async()=>{const revision=++loadRevision.current;setLoading(true);try{
+  const r=await allRows(()=>supabase.from('proc_v_urgent_actions').select('*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id'))
   if(r.error)throw r.error
-  setRows(r.data||[])
+  let nextJobs=[]
   if(canAutomation){
-   const j=await supabase.from('proc_automation_jobs').select('*').in('status',['pending','needs_action','failed']).order('updated_at',{ascending:false}).limit(200)
+   const j=await allRows(()=>supabase.from('proc_automation_jobs').select('*').in('status',['pending','needs_action','failed']).order('updated_at',{ascending:false}).order('id'))
    if(j.error)throw j.error
-   setJobs(j.data||[])
-  }else setJobs([])
- }catch(e){fail(e)}finally{setLoading(false)}},[fail,canAutomation])
- useEffect(()=>{load()},[load])
+   nextJobs=j.data||[]
+  }
+  if(revision===loadRevision.current){setRows(r.data||[]);setJobs(nextJobs);setQueuePage(0);setJobPage(0)}
+ }catch(e){if(revision===loadRevision.current)fail(e)}finally{if(revision===loadRevision.current)setLoading(false)}},[fail,canAutomation])
+ useEffect(()=>{load();return()=>{loadRevision.current++}},[load])
+ useEffect(()=>{setQueuePage(0)},[priority,reason])
 
  useEffect(()=>{
+  let cancelled=false
   const term=itemSearch.trim()
   if(term.length<2){setItemResults([]);return}
   const t=setTimeout(async()=>{try{
    const r=await supabase.rpc('proc_search_stock_items_v1',{p_query:term,p_category:null,p_main_group:null,p_movement:null,p_limit:20})
    if(r.error)throw r.error
-   setItemResults(r.data||[])
-  }catch(e){fail(e)}},160)
-  return()=>clearTimeout(t)
+   if(!cancelled)setItemResults(r.data||[])
+  }catch(e){if(!cancelled)fail(e)}},160)
+  return()=>{cancelled=true;clearTimeout(t)}
  },[itemSearch,fail])
 
  const shown=useMemo(()=>rows.filter(r=>
@@ -206,21 +212,23 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
 
   {canAutomation&&<div className="card pad section">
    <div className="sectionhead"><div><h3>Automation Exceptions</h3><p>Only tasks that could not safely continue automatically appear here.</p></div><Badge>{jobs.length} open</Badge></div>
-   {jobs.length===0?<Empty>No automation exceptions.</Empty>:<div className="stack section">{jobs.map(j=><div className="procurement-data-row" key={j.id}>
+   {jobs.length===0?<Empty>No automation exceptions.</Empty>:<div className="stack section">{jobs.slice(jobPage*50,(jobPage+1)*50).map(j=><div className="procurement-data-row" key={j.id}>
     <div className="stock-card-title"><div><strong>{String(j.job_type).replaceAll('_',' ')}</strong><div className="muted tiny">{j.entity_type} · {new Date(j.updated_at).toLocaleString()}</div></div><Badge>{j.status}</Badge></div>
     {j.last_error&&<div className="notice section">{j.last_error}</div>}
     <div className="toolbar section">{['stock_continue','award_retry'].includes(j.job_type)?<button className="btn small primary" disabled={busy} onClick={()=>retryAutomation(j)}>Retry Now</button>:j.job_type==='rfq_send'?<span className="muted tiny">Action: open Supplier Prices → send the prepared RFQ → Confirm Sent.</span>:j.job_type==='rfq_reminder'?<span className="muted tiny">Action: open Supplier Prices → send a WhatsApp reminder to the waiting supplier.</span>:j.job_type==='po_send'?<span className="muted tiny">Action: open Orders → send the approved PO → Confirm Sent.</span>:j.job_type==='po_delivery_overdue'?<span className="muted tiny">Action: follow up with the supplier and update Receive Goods when delivery arrives.</span>:<span className="muted tiny">Review this exception before continuing.</span>}</div>
    </div>)}</div>}
+   <ListPages total={jobs.length} page={jobPage} onChange={setJobPage} label="Automation exceptions"/>
   </div>}
 
   <div className="card pad section">
    <div className="sectionhead"><div><h3>Priority Queue</h3><p>Sorted by business urgency: customer-paid and zero-stock items first, then explicit urgent/high priorities and FAST-moving shortages.</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
    <div className="toolbar section"><select className="select toolbar-select" value={priority} onChange={e=>setPriority(e.target.value)}><option value="all">All priorities</option>{priorities.map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}</select><select className="select toolbar-select" value={reason} onChange={e=>setReason(e.target.value)}><option value="all">All reasons</option>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><span className="muted tiny">{shown.length} active action(s)</span></div>
-   {loading?<Empty>Loading urgent actions…</Empty>:shown.length===0?<Empty>No urgent actions in this filter.</Empty>:<div className="urgent-action-list">{shown.map(r=><div className={'urgent-action-card priority-'+r.effective_priority} key={r.action_type+'-'+r.action_id}>
+   {loading?<Empty>Loading urgent actions…</Empty>:shown.length===0?<Empty>No urgent actions in this filter.</Empty>:<div className="urgent-action-list">{shown.slice(queuePage*50,(queuePage+1)*50).map(r=><div className={'urgent-action-card priority-'+r.effective_priority} key={r.action_type+'-'+r.action_id}>
     <div className="urgent-card-head"><div><div className="pillrow"><Badge>{r.effective_priority}</Badge><Badge>{r.action_type==='missing_item'?'missing item':r.movement}</Badge>{r.customer_paid&&<Badge>customer paid</Badge>}</div><h3>{itemTitle(r)}</h3><div className="muted tiny">{[r.brand,r.uom,r.category,r.main_group].filter(Boolean).join(' · ')}</div></div><div className="priority-score"><span>Priority score</span><b>{r.priority_score}</b></div></div>
     <div className="urgent-card-grid"><div><span>Reason</span><b>{reasonLabels[r.urgency_reason]||r.urgency_reason||'FAST / Stock'}</b></div><div><span>Required</span><b>{qty(r.required_qty)}</b></div><div><span>Book Stock</span><b>{r.book_stock===null||r.book_stock===undefined?'—':qty(r.book_stock)}</b></div><div><span>Status</span><b>{String(r.status).replaceAll('_',' ')}</b></div>{r.customer_reference&&<div><span>Customer Ref</span><b>{r.customer_reference}</b></div>}</div>
     <div className="toolbar section">{r.image_path&&<button className="btn small" onClick={()=>viewImage(r.image_path)}>View Photo</button>}{canManage&&r.action_type==='missing_item'&&<><button className="btn good" disabled={busy} onClick={()=>convert(r)}>Create Item + Requirement</button><button className="btn bad" onClick={()=>rejectMissing(r)}>Reject</button></>}{canManage&&r.action_type==='existing_item'&&r.approval_status==='pending_review'&&<button className="btn good" onClick={()=>approve(r)}>Approve for Supplier Prices</button>}</div>
    </div>)}</div>}
+   <ListPages total={shown.length} page={queuePage} onChange={setQueuePage} label="Urgent actions"/>
   </div>
  </>
 }

@@ -63,6 +63,7 @@ try{
    }
    assert.fail(message)
   }
+  let exceptionFixtures=false
   const savedQuotes=new Map()
   let quoteReadFailure=null
   let draftSaveFailure=false
@@ -122,6 +123,11 @@ try{
    }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
+   else if(exceptionFixtures&&['proc_v_urgent_actions','proc_automation_jobs','proc_v_rejection_cases'].includes(name)){
+    const count=name==='proc_v_urgent_actions'?1011:601
+    const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||500)
+    data=Array.from({length:count},(_,i)=>({id:'exception-'+i,action_id:'action-'+i,action_type:'existing_item',description:'Exception fixture '+(i+1),size:'',uom:'PCS',category:'GENERAL',movement:'FAST',effective_priority:'urgent',priority_score:100,urgency_reason:i===1010?'customer_paid':'manual_urgent',required_qty:1,status:name==='proc_automation_jobs'?'failed':'open',job_type:'rfq_send',entity_type:'rfq',updated_at:'2026-10-11T00:00:00Z',created_at:'2026-10-11T00:00:00Z',grn_no:'GRN-'+(i+1),po_no:'PO-'+(i+1),supplier_name:'Fixture supplier',rejected_qty:1})).slice(offset,offset+limit)
+   }
    else if(name==='proc_v_requirements')data=[requirement]
    else if(name==='proc_rfqs')data=[{...rfq,status:rfqStatus}]
    else if(name==='proc_suppliers')data=directory
@@ -396,6 +402,30 @@ try{
    await page.waitForFunction(()=>!document.querySelector('.login-shell'))
    await requireQuery(u=>u.pathname.endsWith('/'+table)&&(!field||u.searchParams.get(field)===value),card+' must query its matching records')
    if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
+   await navigate('⌂ Home')
+  }
+  if(width===320){
+   exceptionFixtures=true
+   await navigate('! Exceptions')
+   const queue=page.locator('.card').filter({has:page.getByRole('heading',{name:'Priority Queue',exact:true})})
+   await queue.getByRole('button',{name:'Refresh',exact:true}).click()
+   await queue.getByText('1011 active action(s)',{exact:true}).waitFor()
+   await queue.locator('select').nth(1).selectOption('customer_paid')
+   await queue.getByRole('heading',{name:'Exception fixture 1011',exact:true}).waitFor()
+   const jobs=page.locator('.card').filter({has:page.getByRole('heading',{name:'Automation Exceptions',exact:true})})
+   await jobs.getByText('601 open',{exact:true}).waitFor()
+   const jobPages=jobs.getByRole('navigation',{name:'Automation exceptions pages'})
+   for(let i=0;i<4;i++)await jobPages.getByRole('button',{name:'Next',exact:true}).click()
+   await jobPages.getByText('Automation exceptions: 201–250 of 601',{exact:true}).waitFor()
+   await navigate('⇩ Receive Goods')
+   const rejected=page.locator('.card').filter({has:page.getByRole('heading',{name:'Rejected Goods Follow-up',exact:true})})
+   await rejected.getByRole('button',{name:'Refresh',exact:true}).click()
+   await rejected.getByText('601 open',{exact:true}).waitFor()
+   const casePages=rejected.getByRole('navigation',{name:'Rejected goods pages'})
+   for(let i=0;i<10;i++)await casePages.getByRole('button',{name:'Next',exact:true}).click()
+   await rejected.getByText('GRN-501 · PO-501 · Fixture supplier',{exact:true}).waitFor()
+   exceptionFixtures=false
+   console.log('PASS urgent filters beyond 1000, automation beyond 200 and rejected goods beyond 500 with bounded rendering')
    await navigate('⌂ Home')
   }
   await navigate('□ Items')
