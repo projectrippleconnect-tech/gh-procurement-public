@@ -51,3 +51,8 @@ At 15:19 UTC, the current live release remained healthy at version `f570d912002a
 All temporary QA accounts and business fixture records were removed. Final counts returned to the baseline: 1,192 items, two profiles and Auth users, three purchase orders and eight RFQs; zero temporary concurrency items/suppliers or temporary QA profiles remained. The deleted disposable user's previously issued token returned an empty permission list from the actual `proc_my_permissions_v1` endpoint. Private password/session/invitation fixture files were removed. Audit history remains.
 
 The hourly health workflow is merged but its first scheduled execution has not been observed. After deployment acceptance, verify the new live health version, rerun the production checker and repeat disposable-account login/session restoration before closing the release.
+
+
+## Deployment confirmed — 11 October 2026, 21:03 Asia/Colombo
+
+Railway deployment `8e25addd-9af5-4e32-9e3b-cc68c939986c` reached SUCCESS at 15:33:08 UTC, deploying commit `1d3ad79dd26b86b2f65a3d89401404078c3b1141`, which includes the tested PR #38 changes. The earlier connector approval blocker is resolved. The live production-check script passed health, database/schema readiness, login nonce/CSP and no-store, the OCR asset, and unauthenticated sending rejection, and reported that exact new version. Runtime logs showed the server ready. This confirms deployment and the listed smoke checks; the remaining certification limits and post-deployment real-account login check above are not claimed completed.
