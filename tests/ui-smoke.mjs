@@ -68,6 +68,7 @@ try{
   let draftSaveFailure=false
   const draftSaves=[]
   let grantedPermissions=permissions
+  let currentProfile=profile
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false
   const poGatewayRequests=[]
   const setupRequests=[],resetLinkRequests=[]
@@ -96,7 +97,7 @@ try{
    }
    if(url.pathname.includes('/auth/'))data=user
    else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
-   else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[profile]:staffProfiles}
+   else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
     const body=req.postDataJSON();deleteRequests.push(body)
     assert.equal(body.p_confirmation,'DELETE Fixture staff')
@@ -755,6 +756,20 @@ try{
   await page.reload()
   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
   assert.equal(await page.locator('.metric-link').count(),0,'Dashboard-only users have no inaccessible shortcuts')
+  // The reported staff account is allowed Stock Check but not Dashboard.
+  // Verify it opens Stock Check on sign-in rather than presenting a blank shell.
+  currentProfile={...profile,display_name:'GH stock handler',role:'stock_handler',role_key:'stock_handler'}
+  grantedPermissions=['stock.count.view','stock.count.enter','items.view']
+  await page.reload()
+  await page.getByRole('heading',{name:'Stock Entry',exact:true}).first().waitFor({timeout:15000})
+  await page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first().waitFor({timeout:15000})
+  assert.equal(await page.getByRole('button',{name:'⌂ Home',exact:true}).filter({visible:true}).count(),0,'Unauthorized dashboard must not appear in staff navigation')
+  const stockArea=await page.locator('.content').innerText()
+  assert.ok(stockArea.trim().length>80,'Authorized stock workspace displays useful content')
+  const back=page.getByRole('button',{name:'Go back',exact:true})
+  assert.equal(await back.isDisabled(),true,'Initial stock screen is a valid history root')
+  await page.screenshot({path:'test-results/'+width+'-stock-handler-home.png',fullPage:true})
+  console.log('PASS stock handler begins with populated stock view, no dashboard permission, and clean navigation at '+width+'px')
   assert.deepEqual(errors,[],'Browser errors at '+width)
   assert.deepEqual(policyViolations,[],'Procurement, PDF and OCR actions must not violate CSP at '+width)
   console.log('PASS four-stage navigation and no horizontal overflow at '+width+'px')
