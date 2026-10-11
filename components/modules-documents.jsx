@@ -80,6 +80,12 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   if(r.error)return fail(r.error)
   setActive(r.data);flash('Purchase order details updated.');load()
  }
+ async function clearOrder(){
+  if(!active||(profile.role_key||profile.role)!=='admin')return
+  const confirmation=window.prompt('Clear '+active.po_no+'? Type the PO number. Orders with receipts or invoices must be cleared through Admin Data Management.');if(confirmation===null)return
+  const reason=window.prompt('Reason for clearing this order:');if(reason===null)return
+  setBusy(true);try{const r=await supabase.rpc('proc_admin_clear_po_v1',{p_po_id:active.id,p_confirmation:confirmation,p_reason:reason});if(r.error)throw r.error;setActive(null);setLines([]);flash('Order cleared. Purchase quantities released.');await load()}catch(e){fail(e)}finally{setBusy(false)}
+ }
  async function action(type){
   if(!active)return
   const message=type==='approve'?'Approve this purchase order?':'Confirm that this purchase order was actually sent to the supplier?'
@@ -150,6 +156,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
     {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy} onClick={()=>action('approve')}>Approve PO</button>}
     {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy} onClick={()=>action('send')}>Confirm Sent</button>}
    </div>
+   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<button className="btn bad section" disabled={busy} onClick={clearOrder}>Clear this order</button>}
    {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary section" onClick={()=>navigate('receiving',active.id)}>Receive this order</button>}
    <details className="section no-print"><summary>Document & Sharing Options</summary><div className="toolbar section">
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>
