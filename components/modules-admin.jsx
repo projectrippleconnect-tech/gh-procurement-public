@@ -7,6 +7,7 @@ import {useDangerConfirmation} from './danger-confirmation'
 import {downloadCsv,money,qty} from '@/lib/helpers'
 import {exportTablePdf} from '@/lib/pdf'
 import {Badge,DataTable,Toggle,Empty,Err} from './ui'
+import {InterfaceSettings} from './interface-settings'
 import {InfoButton} from './help-ui'
 
 const REPORT_DEFS={
@@ -294,6 +295,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  return <>
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<details name="gh-admin-section" className="admin-accordion"><summary>Data Management</summary><DataManagement flash={flash} fail={fail}/></details>}
   {can('admin.roles.manage')&&<details name="gh-admin-section" className="admin-accordion"><summary>Roles & Permissions</summary><RoleManager language={language} t={t} flash={flash} fail={fail} onChanged={load}/></details>} 
+  {can('admin.configure_app')&&<InterfaceSettings value={settings.interface_preferences} onSaved={onConfigChanged} flash={flash} fail={fail}/>}
   {can('admin.configure_app')&&<div className="admin-grid">
    <details name="gh-admin-section" className="admin-accordion"><summary>Tabs / Modules</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.tabs_modules','Tabs / Modules')}</h3><p>{t('admin.tabs_modules_hint','Rename, reorder, enable/disable tabs and control which roles can see them.')}</p></div></div><div className="stack">{modules.map(m=><div className="module-setting" key={m.module_key}>
     <Toggle label={m.module_key} checked={m.enabled} disabled={m.module_key==='admin'} onChange={v=>moduleToggle(m,v)}/>

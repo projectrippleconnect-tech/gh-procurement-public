@@ -3,6 +3,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import dynamic from 'next/dynamic'
 import {supabase} from '@/lib/supabase'
+import {interfaceVariables} from '@/lib/procurement-journey.mjs'
 import {stepForView,viewForStep} from '@/lib/workflow-guide.mjs'
 import {NAV,Err,WorkflowNavigation} from './ui'
 import {LoginScreen,ChangePassword} from './auth-screen'
@@ -239,6 +240,9 @@ export default function ProcurementApp(){
   setScreenHistory(initialHistory)
   setView(next);setGuide(g=>({step:stepForView(next),revision:g.revision+1}))
  },[visibleNav,primaryNav,view,profile])
+ const[lastWork,setLastWork]=useState(null)
+ useEffect(()=>{if(!profile?.id)return;try{const saved=JSON.parse(localStorage.getItem('gh-last-work:'+profile.id)||'null');setLastWork(saved)}catch{}},[profile?.id])
+ useEffect(()=>{if(!profile?.id||!['stock','requirements','rfq','po'].includes(view))return;const work={view,step:guide.step,filter:view==='rfq'?(guideRfqId||viewFilters[view]||''):(viewFilters[view]||'')};try{localStorage.setItem('gh-last-work:'+profile.id,JSON.stringify(work));setLastWork(work)}catch{}},[profile?.id,view,guide.step,guideRfqId,viewFilters])
  const hasAuthorizedWorkspace=visibleNav.length>0
 
  if(recovery)return <LoginScreen initialError={error}/>
@@ -256,7 +260,9 @@ export default function ProcurementApp(){
   setGuide(v=>({step,revision:v.revision+1}))
   setNavigation(x=>({filter,revision:x.revision+1}));scrollPositions.current[view]=window.scrollY
   if((restore&&filter!==(viewFilters[k]||''))||(!restore&&filter)){setViewFilters(v=>({...v,[k]:filter}));setViewKeys(v=>({...v,[k]:(v[k]||0)+1}))}
+  if(!restore)scrollPositions.current[k]=0
   setVisited(v=>new Set([...v,k]));setView(k);setMobileMenu(false);setError('')
+  if(!restore)requestAnimationFrame(()=>window.scrollTo(0,0))
  }
  function saveHistory(next){historyRef.current=next;setScreenHistory(next)}
  function go(k,filter='',step=null){
@@ -283,12 +289,12 @@ export default function ProcurementApp(){
  function guidedDestination(step){
   const allowed=k=>visibleNav.some(n=>n[0]===k)
   if(step===6){if(['po','receiving'].includes(view)&&allowed(view))return view;return allowed('rfq')?'rfq':allowed('po')?'po':'receiving'}
-  return viewForStep(step,Boolean(guideRfqId)&&view!=='requirements')
+  return viewForStep(step,(Boolean(guideRfqId)||view==='rfq')&&view!=='requirements')
  }
  function canStep(step){return visibleNav.some(n=>n[0]===guidedDestination(step))}
  function guideTo(step){if(canStep(step))go(guidedDestination(step),'',step)}
- const p={isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
- return <div className="app">
+ const p={settings,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
+ return <div className="app" style={interfaceVariables(settings.interface_preferences)}>
   <aside className="sidebar">
    <div className="brand"><div className="brandmark">GH</div><div><h1>GH Procurement</h1><small>{t('app.purchase_control','Purchase Control')}</small></div></div>
    <div className="nav">

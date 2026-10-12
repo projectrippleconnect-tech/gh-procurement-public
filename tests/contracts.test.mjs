@@ -50,13 +50,13 @@ test('routine shortages stop at buyer review instead of auto-awarding',()=>{
   assert.match(buying,/eq\('has_active_rfq',false\)/)
   assert.doesNotMatch(buying,/proc_try_auto_award_v2/)
   assert.match(buying,/Approve & Continue/)
-  assert.match(buying,/Step 3 · Choose Suppliers/)
+  assert.match(buying,/Prepare request · Choose suppliers/)
 })
 
-test('guided procurement keeps six steps and offers receiving after orders',()=>{
+test('guided procurement groups tasks into three stages and offers receiving after orders',()=>{
  const ui=read('components/ui.jsx'),guide=read('lib/workflow-guide.mjs')
  assert.match(guide,/id:1,title:'Stock entry'/);assert.match(guide,/id:6,title:'Create & send orders'/)
- assert.match(ui,/Previous procurement step/);assert.match(ui,/Next procurement step/)
+ assert.match(ui,/Previous procurement step/);assert.match(ui,/STAGE.*OF 3/);assert.doesNotMatch(ui,/Next procurement step/)
  assert.match(ui,/Go to procurement section/);assert.match(ui,/Receive delivery/)
 })
 
@@ -312,7 +312,7 @@ test('supplier quotation accepts only prices plus optional remarks and alternati
  assert.match(buying,/Unit price for /)
  assert.match(buying,/Quick price entry/)
  assert.match(buying,/Details(?: \/ remarks \/ sizes)?/)
- assert.match(buying,/p_freight_total:0,p_minimum_order_value:0/)
+ assert.match(buying,/p_freight_total:Number\(freight\|\|0\),p_minimum_order_value:Number\(minOrder\|\|0\)/)
  assert.match(buying,/discount_percent:Number\(prices\[i.id\].discount_percent\|\|0\)/)
  const quoteEditor=buying.slice(buying.indexOf('   <div className="formgrid">\n    <div className="field"><label>{label(\'supplier\',\'Supplier\')}</label>'),buying.indexOf('   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}'))
  for(const term of ['Discount %','Tax %','Lead Days','Freight Total','MOQ','Minimum Order Value'])assert.doesNotMatch(quoteEditor,new RegExp(term))
