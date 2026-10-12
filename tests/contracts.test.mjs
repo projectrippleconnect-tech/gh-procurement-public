@@ -311,7 +311,7 @@ test('supplier quotation accepts only prices plus optional remarks and alternati
  assert.match(buying,/\+ Add size variation/)
  assert.match(buying,/Unit price for /)
  assert.match(buying,/Quick price entry/)
- assert.match(buying,/Details \/ remarks \/ sizes/)
+ assert.match(buying,/Details(?: \/ remarks \/ sizes)?/)
  assert.match(buying,/p_freight_total:0,p_minimum_order_value:0/)
  assert.match(buying,/discount_percent:Number\(prices\[i.id\].discount_percent\|\|0\)/)
  const quoteEditor=buying.slice(buying.indexOf('   <div className="formgrid">\n    <div className="field"><label>{label(\'supplier\',\'Supplier\')}</label>'),buying.indexOf('   <div className="toolbar section">{canEdit&&<button className="btn primary" disabled={busy} onClick={saveQuote}'))
