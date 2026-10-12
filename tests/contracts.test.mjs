@@ -100,7 +100,7 @@ test('award review is delivery-aware for urgent items and still supports audited
   assert.match(buying,/System recommendation: faster delivery for urgent\/high-priority requirement/)
   assert.match(buying,/System allocation: lower-cost suppliers could not fully cover/)
   assert.match(buying,/override_reason/)
-  assert.match(buying,/proc_finalize_award_plan_v2/)
+  assert.match(buying,/proc_finalize_award_with_variations_v1/)
   assert.match(awardMigration,/Choosing a non-recommended supplier requires an override reason/)
   assert.match(hardening,/count\(distinct q\.supplier_id\)/)
   assert.match(hardening,/least\(preferred,greatest\(eligible,1\)\)/)
