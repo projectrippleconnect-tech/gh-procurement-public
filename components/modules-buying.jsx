@@ -5,6 +5,7 @@ import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
+import {normalizePriceInput} from '@/lib/price-input'
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection,supplierQuoteProgress,nextQuoteSupplier} from '@/lib/rfq-sheet'
 import {RfqBulkSend} from './rfq-bulk-send'
 import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
@@ -662,6 +663,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  }
 
  function editPrice(itemId,change){
+  if('price' in change)change={...change,price:normalizePriceInput(change.price)}
   setPrices(current=>({...current,[itemId]:{...(current[itemId]||{}),...change}}))
  }
  function addSizeAlternative(itemId){
@@ -672,6 +674,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   })
  }
  function editSizeAlternative(itemId,id,change){
+  if('price' in change)change={...change,price:normalizePriceInput(change.price)}
   setPrices(current=>{
    const row=current[itemId]||{}
    return {...current,[itemId]:{...row,variants:(row.variants||[]).map(v=>v.id===id?{...v,...change}:v)}}
