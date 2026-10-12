@@ -52,6 +52,10 @@ jobs:
         env:
           GH_UI_BULK_SEND: '1'
         run: npm run test:ui
+      - name: Verify additional sizes become separate order lines
+        env:
+          GH_UI_SIZE_ORDER: '1'
+        run: npm run test:ui
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4

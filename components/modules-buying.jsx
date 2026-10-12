@@ -4,7 +4,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
-import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
+import {additionalSizeLines,encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection,supplierQuoteProgress,nextQuoteSupplier} from '@/lib/rfq-sheet'
 import {RfqBulkSend} from './rfq-bulk-send'
 import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
@@ -668,7 +668,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   setPrices(current=>{
    const row=current[itemId]||{},variants=row.variants||[]
    if(variants.length>=12){flash('Maximum 12 size alternatives per item.');return current}
-   return {...current,[itemId]:{...row,variants:[...variants,{id:'alt-'+Date.now()+'-'+Math.random().toString(36).slice(2),size:'',price:'',remarks:''}]}}
+   return {...current,[itemId]:{...row,variants:[...variants,{id:'alt-'+Date.now()+'-'+Math.random().toString(36).slice(2),size:'',price:'',order_qty:'',remarks:''}]}}
   })
  }
  function editSizeAlternative(itemId,id,change){
@@ -688,6 +688,8 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    {(value.variants||[]).map(v=><div className="formgrid" key={v.id}>
     <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
     <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
+    <div className="field"><label>Required quantity ({items.find(i=>i.id===itemId)?.requirement?.item?.uom||'units'})</label><input aria-label="Additional size required quantity" className="input stock-entry" disabled={!canEdit||!can('procurement.requirements.manage')||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" placeholder="Blank = reference only" value={v.order_qty??''} onChange={e=>editSizeAlternative(itemId,v.id,{order_qty:e.target.value})}/></div>
+    {Number(v.order_qty)>0&&Number.isFinite(Number(v.price))&&String(v.price).trim()&&<div className="muted tiny">Separate order line · {v.order_qty} × {money(Number(v.price))} = {money(Number(v.order_qty)*Number(v.price))}</div>}
     <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
     {canEdit&&<button type="button" className="btn small bad" onClick={()=>removeSizeAlternative(itemId,v.id)}>Remove size</button>}
    </div>)}
@@ -701,17 +703,16 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   if(!canEdit)return fail(new Error(t('validation.rfq_read_only','Your role has read-only supplier-price access.')))
   if(!active||!supplier)return fail(new Error(t('validation.select_supplier','Select a supplier.')))
   const quoted=items.filter(i=>prices[i.id]?.price!==undefined&&String(prices[i.id].price).trim()!=='')
-  if(!quoted.length)return fail(new Error('Enter at least one quoted unit price for the requested item size.'))
-  const variantsWithoutMain=items.some(i=>{
-   const v=prices[i.id]||{}
-   return (v.price===undefined||String(v.price).trim()==='')&&(v.variants||[]).some(x=>String(x.size||x.price||'').trim())
-  })
-  if(variantsWithoutMain)return fail(new Error('Enter the requested-size price before adding alternative sizes, or remove that item’s alternatives.'))
-  const invalid=quoted.some(i=>{
+  const additional=additionalSizeLines(items,prices)
+  if(!quoted.length&&!additional.length)return fail(new Error('Enter a supplier price or an additional size with its price and required quantity.'))
+  if(items.some(i=>!String(prices[i.id]?.price??'').trim()&&(prices[i.id]?.variants||[]).some(v=>!String(v.order_qty??'').trim()&&String(v.size||v.price||'').trim())))return fail(new Error('Enter the main price to save reference sizes, or enter a required quantity to order the additional size.'))
+  const invalid=items.some(i=>{
    const v=prices[i.id]||{},p=Number(v.price)
-   return !Number.isFinite(p)||p<0||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500||['available_qty','lead_days'].some(k=>v[k]!==''&&v[k]!=null&&(!Number.isFinite(Number(v[k]))||Number(v[k])<0))
+   return (String(v.price??'').trim()&&(!Number.isFinite(p)||p<0))||!validateSupplierQuoteVariants(v.variants||[])||String(v.remarks||'').length>500||['available_qty','lead_days'].some(k=>v[k]!==''&&v[k]!=null&&(!Number.isFinite(Number(v[k]))||Number(v[k])<0))
   })
-  if(invalid)return fail(new Error('Check unit prices and alternatives: each added size must have a valid price.'))
+  if(invalid)return fail(new Error('Each added size needs a size and valid price. Required quantities must be greater than zero, or left blank for reference only.'))
+  if(additional.length&&!can('procurement.requirements.manage'))return fail(new Error('Your role cannot approve additional required quantities.'))
+  if(additional.length&&!await confirmAction('Add '+additional.length+' size line(s) to this RFQ and order review? '+additional.map(v=>v.size+' · '+v.qty+' × '+money(v.unit_price)+' = '+money(v.qty*v.unit_price)).join('; ')+'. These additional quantities will be approved as new requirements. Purchase orders still need final confirmation.'))return
   setBusy(true);let path=null,quoteSaved=false
   try{
    if(file){
@@ -722,20 +723,21 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
     rfq_item_id:i.id,unit_price:Number(prices[i.id].price),
     available_qty:prices[i.id].available_qty===''||prices[i.id].available_qty==null?null:Number(prices[i.id].available_qty),lead_days:prices[i.id].lead_days===''||prices[i.id].lead_days==null?null:Number(prices[i.id].lead_days),
     discount_percent:Number(prices[i.id].discount_percent||0),tax_percent:Number(prices[i.id].tax_percent||0),moq:Number(prices[i.id].moq||0),order_multiple:Number(prices[i.id].order_multiple||1),
-    notes:encodeSupplierQuoteNotes(prices[i.id])
+    notes:encodeSupplierQuoteNotes({...prices[i.id],variants:(prices[i.id].variants||[]).filter(v=>!String(v.order_qty??'').trim())})
    }))
-   const r=await supabase.rpc('proc_save_quote_v3',{
+   const r=await supabase.rpc(additional.length?'proc_save_quote_with_sizes_v1':'proc_save_quote_v3',{
     p_rfq_id:active.id,p_supplier_id:supplier,p_quote_ref:null,p_lines:lines,
+    ...(additional.length?{p_additional_sizes:additional}:{}),
     p_valid_until:validUntil||null,p_attachment_path:path,p_notes:null,
     p_freight_total:0,p_minimum_order_value:0
    })
    if(r.error)throw r.error
    quoteSaved=true
    setFile(null)
-   flash(quoted.length+' supplier item price(s) saved.'+(nextSupplier?' Next: '+supplierName(nextSupplier.supplier_id)+'.':' Next: compare prices.'))
+   flash(quoted.length+' supplier item price(s) saved.'+(additional.length?' '+additional.length+' additional size line(s) added to order review.':'')+(nextSupplier?' Next: '+supplierName(nextSupplier.supplier_id)+'.':' Next: compare prices.'))
    quoteDrafts.current.delete(active.id+':'+supplier)
    await open({...active,status:r.data.status},nextSupplier?.supplier_id||supplier,false);void load()
-   if(isActiveView('rfq')){setPriceFilter('requested');guideTo(nextSupplier?4:5)}
+   if(isActiveView('rfq')){setPriceFilter(additional.length?'all':'requested');guideTo(nextSupplier?4:5)}
   }catch(e){if(path&&!quoteSaved)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
  }
 
@@ -1122,7 +1124,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    {invite.find(x=>x.supplier_id===supplier)&&<SupplierRequestSelection key={active.id+'-'+supplier+'-'+JSON.stringify(invite.find(x=>x.supplier_id===supplier)?.requested_item_ids)} items={items} invitation={invite.find(x=>x.supplier_id===supplier)} scopes={supplierScopes} disabled={busy||!canEdit||!['pending','prepared'].includes(invite.find(x=>x.supplier_id===supplier)?.status)} onSave={async ids=>{setBusy(true);try{const r=await supabase.rpc('proc_set_rfq_supplier_items_v1',{p_rfq_id:active.id,p_supplier_id:supplier,p_item_ids:ids});if(r.error)throw r.error;setInvite(v=>v.map(x=>x.supplier_id===supplier?r.data:x));setBrowserRfqReady(null);flash('Supplier request items saved. Exports and messages now use this selection.')}catch(e){fail(e)}finally{setBusy(false)}}}/>}
    {loadingQuote&&<p className="muted tiny" role="status">Loading supplier prices…</p>}
    {quoteLoadError&&<div className="notice" role="alert">Supplier prices could not be loaded. Editing is paused to protect the existing quote. <button type="button" className="btn small" disabled={busy||loadingQuote} onClick={()=>loadExistingQuote(active.id,supplier,false)}>Reload Supplier Prices</button></div>}
-   <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
+   <p className="muted tiny section">Only enter the supplier's unit price. Enter a required quantity for any additional size you want to order. Saving adds it as a separate item in order review; leave quantity blank for reference only.</p>
    <div ref={priceEntryRef} tabIndex={-1} style={{scrollMarginTop:96}} className="formgrid section sticky-work-search"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All RFQ items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
    <p className="muted tiny">Showing {visiblePriceItems.length} of {items.length} items. Search preserves every entered price; Saving stores the entire supplier quote, then opens the next supplier needing prices.</p>
    <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>

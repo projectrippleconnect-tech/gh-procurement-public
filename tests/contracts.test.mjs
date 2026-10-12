@@ -306,7 +306,7 @@ test('supplier quotation accepts only prices plus optional remarks and alternati
  assert.equal(notes.validateSupplierQuoteVariants([{size:'2 inch',price:''}]),false)
  assert.equal(notes.validateSupplierQuoteVariants([{size:'',price:'200'}]),false)
  assert.equal(notes.validateSupplierQuoteVariants([{size:'1 inch',price:'-2'}]),false)
- assert.match(buying,/notes:encodeSupplierQuoteNotes\(prices\[i.id\]\)/)
+ assert.match(buying,/notes:encodeSupplierQuoteNotes\(/)
  assert.match(buying,/decodeSupplierQuoteNotes\(x.notes\)/)
  assert.match(buying,/\+ Add size variation/)
  assert.match(buying,/Unit price for /)
