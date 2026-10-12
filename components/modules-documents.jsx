@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {useDangerConfirmation} from './danger-confirmation'
+import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
 import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
@@ -12,6 +12,7 @@ import {InfoButton} from './help-ui'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
 export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+ const confirmAction=useActionConfirmation()
  const confirmDanger=useDangerConfirmation()
  const canEdit=can('procurement.orders.edit')
  const canApprove=can('procurement.orders.approve')
@@ -39,7 +40,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   if(gateway.dispatches?.length)return fail(new Error('A send attempt already exists. Check WhatsApp and its audit status before any resend.'))
   const edited=window.prompt('Caption for '+active.supplier?.name,buildPurchaseOrderCaption(shareArgs));if(edited===null)return
   const caption=edited.trim();if(!caption||caption.length>2000)return fail(new Error('Caption must contain 1–2000 characters.'))
-  if(!window.confirm('Send this purchase-order image and caption to '+active.supplier?.name+' ('+(active.supplier?.whatsapp||active.supplier?.phone)+')?'))return
+  if(!await confirmAction('Send this purchase-order image and caption to '+active.supplier?.name+' ('+(active.supplier?.whatsapp||active.supplier?.phone)+')?'))return
   setShareBusy(true)
   try{const png=await createPurchaseOrderPng(shareArgs);if(png.blob.size>4_500_000)throw new Error('Image is too large for WhatsApp gateway. Use PDF or fewer fields.')
    const pngBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('Could not read PO image.'));reader.readAsDataURL(png.blob)})
@@ -91,7 +92,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  async function action(type){
   if(!active)return
   const message=type==='approve'?'Approve this purchase order?':'Confirm that this purchase order was actually sent to the supplier?'
-  if(!confirm(message))return
+  if(!await confirmAction(message))return
   setBusy(true)
   const r=type==='approve'?await supabase.rpc('proc_approve_po_v2',{p_po_id:active.id}):await supabase.rpc('proc_mark_po_sent_v2',{p_po_id:active.id})
   setBusy(false)
@@ -114,7 +115,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  const filtered=useMemo(()=>rows.filter(r=>(r.po_no+' '+(r.supplier?.name||'')).toLowerCase().includes(search.toLowerCase())),[rows,search])
  async function releaseBalance(line,action){
   const reason=window.prompt(action==='buy_elsewhere'?'Reason for releasing the supplier balance to buy elsewhere:':'Reason for cancelling this need:');if(!reason?.trim())return
-  if(!window.confirm('Release '+qty(remainingDelivery(line))+' '+line.item?.uom+' from '+active.supplier?.name+'? Notify the supplier separately. '+(action==='buy_elsewhere'?'This quantity will return to Still to order.':'This quantity will be removed from the approved need.')))return
+  if(!await confirmAction('Release '+qty(remainingDelivery(line))+' '+line.item?.uom+' from '+active.supplier?.name+'? Notify the supplier separately. '+(action==='buy_elsewhere'?'This quantity will return to Still to order.':'This quantity will be removed from the approved need.')))return
   setBusy(true);try{const r=await supabase.rpc('proc_release_po_balance_v1',{p_po_line_id:line.id,p_action:action,p_reason:reason});if(r.error)throw r.error;flash(qty(r.data.released_qty)+' released. Supplier notification is still required.');await load();const fresh=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',active.id).single();if(fresh.error)throw fresh.error;await open(fresh.data)}catch(e){fail(e)}finally{setBusy(false)}
  }
  const poCols=configuredColumns(fields,'po',[
@@ -296,6 +297,7 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
 }
 
 export function Receiving({activeView='receiving',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+ const confirmAction=useActionConfirmation()
  const canReceive=can('receiving.manage')
  const[pos,setPos]=useState([]),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[cases,setCases]=useState([])
  const[casePage,setCasePage]=useState(0)
@@ -333,7 +335,7 @@ export function Receiving({activeView='receiving',initialFilter='',profile,field
    if(x.received_qty<0||x.accepted_qty<0||x.rejected_qty<0||x.accepted_qty+x.rejected_qty>x.received_qty)return fail(new Error(t('validation.receive_math','Accepted + rejected must not exceed received quantity, and quantities cannot be negative.')))
    if(x.rejected_qty>0&&!String(x.rejection_reason||'').trim())return fail(new Error('Enter a rejection reason for every rejected quantity.'))
   }
-  if(!confirm(t('confirm.post_receipt','Post this goods receipt? Accepted quantities will immediately update stock.')))return
+  if(!await confirmAction(t('confirm.post_receipt','Post this goods receipt? Accepted quantities will immediately update stock.')))return
   setBusy(true)
   if(!receiptKeys.current.has(po.id))receiptKeys.current.set(po.id,globalThis.crypto.randomUUID())
   const pending=attempt||{lines:payload,notes:notes||null};setAttempt(pending)

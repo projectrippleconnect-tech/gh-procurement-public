@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {useDangerConfirmation} from './danger-confirmation'
+import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
@@ -77,7 +77,11 @@ export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,language='en',t=(k,f)=>f||k}){
+ const confirmAction=useActionConfirmation()
+ const[submission,setSubmission]=useState(null)
+ const resultRef=useRef(null)
+ useEffect(()=>{if(submission)resultRef.current?.scrollIntoView({block:'start'})},[submission])
  const confirmDanger=useDangerConfirmation()
  const feature=(key,fallback=true)=>features.find(x=>x.feature_key===key)?.enabled??fallback
  const cycleCfg=features.find(x=>x.feature_key==='stock.cycle_counting')?.config||{}
@@ -395,7 +399,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   if(counted.some(([,v])=>!Number.isFinite(Number(v))||Number(v)<0))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
   const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
   const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
-  if(!confirm(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote))return
+  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
 
   setBusy(true);let path=null
   try{
@@ -417,7 +421,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
    else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
    else message+=checked.length+' item(s) saved for procurement review.'
-   flash(message+(remaining?' '+remaining+' counted item(s) remain safely in your draft. Submit the next batch when ready.':''))
+   setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
    await load()
    if(historyOpen)await loadStockHistory()
   }catch(e){
@@ -486,9 +490,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  ]
 
  return <>
+  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
    <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+Object.values(entry).filter(v=>v!==''&&v!==undefined).length}</button></div></div>
-   <div className="stock-simple-flow" aria-label="Stock entry steps"><b>1 · Enter stock</b><span>→</span><b>2 · Submit Stock</b><span>→</span><b>3 · Done</b></div>
+   <div className="stock-simple-flow" aria-label="Stock entry steps"><b>1 · Enter stock</b><span>→</span><b>2 · Submit Stock</b><span>→</span><b>3 · Review</b></div>
    {historyOpen&&<div className="stock-history-panel section">
     <div className="stock-history-head"><div><strong>{t('stock.history_title','Stock Submission History')}</strong><span>{t('stock.history_hint','Recount anytime. The latest count updates current stock; older submissions stay unchanged.')}</span></div><button className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button></div>
     {historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div><div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div><div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
