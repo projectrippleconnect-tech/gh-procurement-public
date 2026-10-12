@@ -23,12 +23,12 @@ export const Empty=({children='Nothing to show.'})=><div className="empty">{chil
 
 export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavigate,t=(k,f)=>f||k}){
  if(!['stock','requirements','rfq','po','receiving'].includes(view))return null
- const current=PROCUREMENT_STEPS.find(s=>s.id===step)||PROCUREMENT_STEPS[0]
+ const current=view==='receiving'?{title:'Receive delivery',hint:'Choose the purchase order and enter the quantities actually received.'}:PROCUREMENT_STEPS.find(s=>s.id===step)||PROCUREMENT_STEPS[0]
  const available=PROCUREMENT_STEPS.filter(s=>canStep(s.id))
  const previous=[...available].reverse().find(s=>s.id<step),next=available.find(s=>s.id>step)
  return <nav className="workflow-navigation guided-navigation" aria-label="Guided procurement navigation">
-  <div className="guide-title"><div><small>STEP {step} OF 6</small><strong>{t('guide.step'+step,current.title)}</strong></div><span className="guide-progress" aria-label={'Step '+step+' of 6'}>{PROCUREMENT_STEPS.map(s=><i key={s.id} className={s.id===step?'current':''}/>)}</span></div>
-  <p>{t('guide.hint'+step,current.hint)}</p>
+  <div className="guide-title"><div><small>{view==='receiving'?'DELIVERY · AFTER STEP 6':'STEP '+step+' OF 6'}</small><strong>{view==='receiving'?current.title:t('guide.step'+step,current.title)}</strong></div><span className="guide-progress" aria-label={'Step '+step+' of 6'}>{PROCUREMENT_STEPS.map(s=><i key={s.id} className={s.id===step?'current':''}/>)}</span></div>
+  <p>{view==='receiving'?current.hint:t('guide.hint'+step,current.hint)}</p>
   <div className="guide-controls"><button className="btn" aria-label="Previous procurement step" disabled={!previous} onClick={()=>onStep(previous.id)}>← Back</button><label className="guide-section"><span className="sr-only">Go to procurement section</span><select className="select" aria-label="Go to procurement section" value={step} onChange={e=>onStep(Number(e.target.value))}>{available.map(s=><option key={s.id} value={s.id}>{s.id} · {s.title}</option>)}</select></label><button className="btn primary" aria-label="Next procurement step" disabled={!next} onClick={()=>onStep(next.id)}>Next →</button></div>
   {step===6&&<div className="guide-order-links">{canNavigate('po')&&<button className="btn small" onClick={()=>navigate('po')}>Open purchase orders →</button>}{canNavigate('receiving')&&<button className="btn small" onClick={()=>navigate('receiving')}>Receive delivery →</button>}</div>}
  </nav>
