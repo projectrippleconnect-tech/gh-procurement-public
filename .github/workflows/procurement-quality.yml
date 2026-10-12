@@ -42,7 +42,11 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
-      - name: Verify four-stage layouts at mobile, tablet and desktop widths
+      - name: Verify guided layouts at mobile, tablet and desktop widths
+        run: npm run test:ui
+      - name: Verify automatic six-step procurement progression
+        env:
+          GH_UI_GUIDE_APPROVAL: '1'
         run: npm run test:ui
       - name: Preserve browser evidence
         if: always()

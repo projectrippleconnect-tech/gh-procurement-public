@@ -8,7 +8,7 @@ import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteV
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection} from '@/lib/rfq-sheet'
 import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
 import {allRows,containsAny} from '@/lib/query-pages'
-import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
+import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {ItemActivity} from './item-activity'
 import {nextRequirementAction} from '@/lib/procurement-flow'
@@ -16,7 +16,9 @@ import {extractPriceListFile} from '@/lib/price-list-extract'
 import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
 
-export function Requirements({activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
+export function Requirements({activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},guidedStep=2,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,t=(k,f)=>f||k}){
+ const reviewRef=useRef(null),supplierBuilderRef=useRef(null)
+ useEffect(()=>{if(activeView!=='requirements')return;requestAnimationFrame(()=>{const target=(guidedStep===3?supplierBuilderRef.current:null)||reviewRef.current;target?.scrollIntoView({block:'start'});target?.focus({preventScroll:true})})},[activeView,guidedStep,guideRevision])
  const canAdd=can('procurement.requirements.manage')
  const canReview=can('procurement.requirements.manage')
  const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
@@ -157,7 +159,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   const reason=action==='approve'?null:(prompt(action==='hold'?'Reason for holding these items (optional):':'Reason for rejecting these items (optional):')||null)
   const r=await supabase.rpc('proc_review_requirements',{p_requirement_ids:ids,p_action:action,p_selected:action==='approve',p_reason:reason})
   if(r.error)return fail(r.error)
-  flash((r.data||ids.length)+' requirement(s) '+(action==='approve'?'approved for supplier pricing':action==='hold'?'placed on hold':'rejected')+'.');setChosen(new Set());if(action==='approve'){setSelected(new Set(ids));setStage('approved')}else{setSelected(new Set());load()}
+  flash((r.data||ids.length)+' requirement(s) '+(action==='approve'?'approved for supplier pricing':action==='hold'?'placed on hold':'rejected')+'.');setChosen(new Set());if(action==='approve'){setSelected(new Set(ids));setStage('approved');if(isActiveView('requirements'))guideTo(3)}else{setSelected(new Set());load()}
  }
  async function create(){
   if(!canReview)return
@@ -178,7 +180,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   })
   setBusy(false)
   if(r.error)return fail(r.error)
-  flash('RFQ '+r.data.rfq_no+' prepared for '+ids.length+' item(s). Next: send it and enter supplier prices.');setSelected(new Set());setChosen(new Set());setScopeOverrides({});setDue('');load();navigate('rfq')
+  flash('RFQ '+r.data.rfq_no+' prepared for '+ids.length+' item(s). Next: send it and enter supplier prices.');setSelected(new Set());setChosen(new Set());setScopeOverrides({});setDue('');load();if(isActiveView('requirements'))navigate('rfq',r.data.id,3)
  }
 
  const defaults=[
@@ -227,17 +229,16 @@ export function Requirements({activeView='requirements',initialFilter='',profile
    </details>}
   </section>}
   <nav aria-label="Procurement quick actions" className="card pad section">
-   <div className="muted tiny">QUICK PROCUREMENT FLOW</div>
+   <div className="muted tiny">SECTION SHORTCUTS</div>
    <div className="row wrap" style={{gap:8}}>
-    <button type="button" className="btn small" onClick={()=>navigate('stock')}>1 · Check stock</button>
-    <button type="button" className="btn small" onClick={()=>{changeStage('uncovered');setControlFilter('all')}}>2 · Request prices</button>
-    <button type="button" className="btn small" onClick={()=>navigate('rfq')}>3 · Compare & order</button>
-    <button type="button" className="btn small" onClick={()=>navigate('receiving')}>4 · Receive & complete</button>
+    <button type="button" className="btn small" onClick={()=>navigate('stock')}>Check stock</button>
+    <button type="button" className="btn small" onClick={()=>{changeStage('uncovered');setControlFilter('all')}}>Request prices</button>
+    <button type="button" className="btn small" onClick={()=>navigate('rfq')}>Compare & order</button>
+    <button type="button" className="btn small" onClick={()=>navigate('receiving')}>Receive & complete</button>
    </div>
    <div className="muted tiny">Approvals, quotations and purchase-order controls remain in their existing screens.</div>
   </nav>
-  {canReview&&<ProcurementPath active={4} counts={summary} t={t}/>}
-  <div className="row wrap" style={{gap:8,alignItems:'center'}}>
+    <div className="row wrap" style={{gap:8,alignItems:'center'}}>
    <label className="muted tiny" htmlFor="proc-attention-filter">Focus</label>
    <select id="proc-attention-filter" className="input" style={{maxWidth:190}} value={controlFilter} onChange={e=>{setPage(0);setControlFilter(e.target.value)}}>
     <option value="all">All requirements</option><option value="urgent">Urgent priority</option><option value="partial">Partially ordered</option>
@@ -276,7 +277,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   </details>}
 
   <div className="card pad section">
-   <div className="sectionhead"><div><h3>{canReview?t('requirements.review_title','Procurement Review'):t('requirements.my_items','My Procurement Items')}</h3><p>{canReview?t('requirements.review_hint','Latest submitted stock shortages appear here. Select rows, adjust order quantities only when needed, approve, then choose suppliers.'):t('requirements.my_hint','Items you add or count appear here for Admin review.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   <div ref={reviewRef} tabIndex={-1} style={{scrollMarginTop:100}} className="sectionhead"><div><h3>{canReview?t('requirements.review_title','Procurement Review'):t('requirements.my_items','My Procurement Items')}</h3><p>{canReview?t('requirements.review_hint','Latest submitted stock shortages appear here. Select rows, adjust order quantities only when needed, approve, then choose suppliers.'):t('requirements.my_hint','Items you add or count appear here for Admin review.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
    {['to_order','delivery'].includes(stage)&&<div className="notice section">{stage==='to_order'?'Still to order':'Awaiting receipt'} <button className="btn small" onClick={()=>changeStage('all')}>Clear filter</button></div>}
    {canReview&&<div className="toolbar section"><button className={'btn '+(stage==='pending_review'?'primary':'')} onClick={()=>changeStage('pending_review')}>{t('requirements.needs_review','Needs Review')}</button><button className={'btn '+(stage==='approved'?'primary':'')} onClick={()=>changeStage('approved')}>{t('requirements.approved','Approved')}</button><button className={'btn '+(stage==='held'?'primary':'')} onClick={()=>changeStage('held')}>{t('requirements.held','Held')}</button><button className={'btn '+(stage==='all'?'primary':'')} onClick={()=>changeStage('all')}>{t('requirements.all_active','All Active')}</button></div>}
    {canReview&&<div className="toolbar section procurement-bulk-actions"><button className="btn" onClick={()=>setSelected(new Set(rows.map(r=>r.id)))}>{t('requirements.select_all_visible','Select All Visible')}</button>{selected.size>0&&<><span className="muted tiny">{selected.size} {t('requirements.selected_count','selected')}</span>{stage==='pending_review'&&<button className="btn good" onClick={()=>review('approve')}>{t('requirements.approve_continue','Approve & Continue')}</button>}<button className="btn" onClick={()=>review('hold')}>{t('requirements.hold','Hold')}</button><button className="btn bad" onClick={()=>review('reject')}>{t('requirements.reject','Reject')}</button></>}</div>}
@@ -285,7 +286,8 @@ export function Requirements({activeView='requirements',initialFilter='',profile
    <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>
   </div>
 
-  {canReview&&stage==='approved'&&selected.size>0&&<div className="card pad section rfq-builder"><div className="sectionhead"><div><h3>{t('requirements.step4_suppliers','Step 4 · Review & Choose Suppliers')}</h3><p>{t('requirements.choose_suppliers_hint','Select suppliers for the approved items. The app groups the RFQ automatically.')} · {selected.size}</p></div><button className="btn primary" disabled={busy} onClick={create}>{busy?t('common.loading','Loading…'):t('requirements.create_rfq_continue','Create RFQ & Continue')}</button></div>
+  {guidedStep===3&&!(stage==='approved'&&selected.size>0)&&<div className="notice section" role="status">Select approved items below to choose suppliers and create the RFQ. Use Back to review shortages first.</div>}
+  {canReview&&stage==='approved'&&selected.size>0&&<div ref={supplierBuilderRef} tabIndex={-1} style={{scrollMarginTop:100}} className="card pad section rfq-builder"><div className="sectionhead"><div><h3>{t('guide.step3_suppliers','Step 3 · Choose Suppliers')}</h3><p>{t('requirements.choose_suppliers_hint','Select suppliers for the approved items. The app groups the RFQ automatically.')} · {selected.size}</p></div><button className="btn primary" disabled={busy} onClick={create}>{busy?t('common.loading','Loading…'):t('requirements.create_rfq_continue','Create RFQ & Continue')}</button></div>
    <div className="field"><label>{t('requirements.quote_due','Quotation due date')}</label><input className="input" type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
    {suggestedSuppliers.length>0&&<div className="section"><div className="toolbar"><b>{t('requirements.suggested_suppliers','Suggested suppliers')}</b><button className="btn small" onClick={()=>setChosen(new Set(suggestedSuppliers.map(x=>x.supplier_id)))}>{t('requirements.select_suggested','Select Suggested')}</button></div><div className="pillrow">{suggestedSuppliers.map(x=><button type="button" className={'choice-pill '+(chosen.has(x.supplier_id)?'selected-choice':'')} key={x.supplier_id} onClick={()=>setChosen(v=>{const n=new Set(v);n.has(x.supplier_id)?n.delete(x.supplier_id):n.add(x.supplier_id);return n})}><b>{x.supplier_name}</b><span>{x.matched_items}/{x.selected_items}{x.unrestricted?' · general':''}</span></button>)}</div></div>}
    <div className="pillrow section">{suppliers.map(s=><label className={'choice-pill '+(chosen.has(s.id)?'selected-choice':'')} key={s.id}><input type="checkbox" checked={chosen.has(s.id)} onChange={e=>setChosen(v=>{const n=new Set(v);e.target.checked?n.add(s.id):n.delete(s.id);return n})}/>{s.name}</label>)}</div>
@@ -418,7 +420,8 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  </div>
 }
 
-export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
+export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},guidedStep=4,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,onRfqSelected=()=>{},language='en',t=(k,f)=>f||k}){
+ const guidedTargetHandled=useRef(''),rfqListRef=useRef(null),rfqSendRef=useRef(null),rfqHeaderRef=useRef(null)
  const confirmAction=useActionConfirmation()
  const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
  const awardReviewEnabled=features.find(x=>x.feature_key==='quotes.award_review')?.enabled!==false
@@ -447,7 +450,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  const awardEstimate=awardPlan.reduce((sum,x)=>sum+(Number(x.qty)||0)*(Number(x.landed_unit_cost)||0),0)
  const awardProblems=awardPlan.filter(x=>!Number.isFinite(Number(x.qty))||Number(x.qty)<=0||(!x.recommended&&!String(x.override_reason||'').trim()))
  const awardUnselected=items.filter(i=>i.selected_for_po===false)
- const journeyStage=awardOpen?7:(active&&invite.length&&!invite.some(x=>['pending','prepared'].includes(x.status))?6:5)
+
 
  const load=useCallback(async()=>{try{
   const[a,b]=await Promise.all([
@@ -471,6 +474,25 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   setSummaries(map)
  }catch(e){fail(e)}},[fail,page,rfqFilter])
  useEffect(()=>{if(activeView==='rfq')load()},[load,activeView])
+ useEffect(()=>{
+  if(activeView!=='rfq'||!initialFilter||initialFilter==='overdue')return
+  let cancelled=false
+  supabase.from('proc_rfqs').select('*').eq('id',initialFilter).single().then(r=>{if(cancelled)return;if(r.error)fail(r.error);else open(r.data)})
+  return()=>{cancelled=true}
+ },[activeView,initialFilter])
+ useEffect(()=>{
+  if(activeView!=='rfq')return
+  const token=guideRevision+':'+guidedStep+':'+(active?.id||'list')
+  if(guidedTargetHandled.current===token)return
+  if(active&&(loadingQuote||!items.length))return
+  guidedTargetHandled.current=token
+  let target=!active?rfqListRef.current:guidedStep===3?(rfqSendRef.current||rfqHeaderRef.current):guidedStep===4?priceEntryRef.current:comparisonRef.current
+  if(active&&guidedStep===3){const pending=invite.find(x=>['pending','prepared'].includes(x.status));if(pending)setSendMenuId(pending.id)}
+  if(active&&guidedStep===6&&awardOpen)target=awardReviewRef.current
+  else if(active&&guidedStep===6&&canEdit&&comparison.length&&items.every(i=>i.selected_for_po===false||comparison.some(c=>c.rfq_item_id===i.id))){buildAwardReview();return}
+  requestAnimationFrame(()=>{target?.scrollIntoView({block:'start'});target?.focus({preventScroll:true})})
+ },[activeView,guidedStep,guideRevision,active?.id,items.length,loadingQuote,comparison.length])
+
 
  function rememberQuoteDraft(){
   if(!active?.id||!supplier||loadingQuote)return
@@ -485,6 +507,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   quoteLoading.current++
   setItems([]);setInvite([]);setComparison([]);setSupplier('');setPriceSearch('');setPriceFilter('all');setSupplierScopes([])
   setAddSupplierId('');setScopeOverride('')
+  onRfqSelected(r.id)
   setActive(r);setPrices({});setFile(null);setQuoteRef('');setValidUntil('');setFreight('0');setMinOrder('0');setAwardOpen(false);setAwardPlan([]);setSendMenuId('');setBrowserRfqReady(null);setGateway({configured:false,connected:false,sendingEnabled:false,dispatches:[]});void refreshGatewayStatus(r.id);if(profile?.role==='admin')void loadPairStatus()
   const[a,b,c,d,e]=await Promise.all([
    allRows(()=>supabase.from('proc_rfq_items').select('*,requirement:proc_requirements(*,item:proc_items(*))').eq('rfq_id',r.id).order('id')),
@@ -683,7 +706,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    flash(quoted.length+' supplier item price(s) saved. Next: compare prices.')
    quoteDrafts.current.delete(active.id+':'+supplier)
    await open({...active,status:r.data.status},supplier,false);load()
-   comparisonRef.current?.scrollIntoView({block:'start'})
+   if(isActiveView('rfq'))guideTo(5)
   }catch(e){if(path&&!quoteSaved)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
  }
 
@@ -757,6 +780,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    if(remaining>0)return fail(new Error(t('validation.quote_coverage_prefix','Quoted supplier availability/commercial terms do not fully cover')+' '+itemTitle(item.requirement?.item||{})+'. '+t('validation.quote_coverage_suffix','Add another quote or adjust supplier availability.')))
   }
   setAwardPlan(plan);setAwardOpen(true)
+  if(guidedStep!==6)guideTo(6)
   requestAnimationFrame(()=>awardReviewRef.current?.scrollIntoView({block:'start',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}))
  }
 
@@ -986,7 +1010,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   if(!await confirmAction('Confirm that this RFQ was actually sent to '+supplierName(inv.supplier_id)+'?'))return
   const r=await supabase.rpc('proc_mark_rfq_supplier_sent_v1',{p_rfq_id:active.id,p_supplier_id:inv.supplier_id})
   if(r.error)return fail(r.error)
-  flash('Supplier request marked Sent.');await open({...active,status:'sent'});load()
+  flash('Supplier request marked Sent.');await open({...active,status:'sent'});load();if(invite.filter(x=>x.id!==inv.id).every(x=>!['pending','prepared'].includes(x.status)))guideTo(4)
  }
 
  function reminder(inv){
@@ -1019,8 +1043,8 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  const overdue=r=>r.due_date&&r.due_date<businessDate()&&['sent','partially_quoted'].includes(r.status)
 
  return <>
-  <ProcurementPath active={journeyStage} t={t}/>
-  <div className="split rfq-split">
+
+  <div ref={rfqListRef} tabIndex={-1} style={{scrollMarginTop:100}} className="split rfq-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('buying.rfq_title','RFQs & Quotes')} <InfoButton topic="quotation_comparison" language={language}/></h3><p>{t('buying.rfq_hint',"Send the RFQ, enter each supplier price, availability and delivery time, then review the award before ordering.")}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
    {rfqFilter==='overdue'&&<div className="notice section">Overdue supplier requests <button className="btn small" onClick={()=>{setRfqFilter('all');setPage(0)}}>Clear filter</button></div>}
    <div className="stack">{rfqs.map(r=>{const s=summaries[r.id]||{total:0,quoted:0,waiting:0};return <button className={'btn record-button '+(active?.id===r.id?'active-record':'')} key={r.id} disabled={addingSupplier||busy||loadingQuote||quoteOcrBusy} onClick={()=>open(r)}><div><strong>{r.rfq_no}</strong><div className="muted tiny">{s.quoted}/{s.total} prices received · {s.waiting} waiting · due {r.due_date||'—'}</div></div><div className="right">{overdue(r)&&<Badge>overdue</Badge>}<Badge>{r.status}</Badge></div></button>})}</div>
@@ -1030,10 +1054,10 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
    {profile?.role==='admin'&&<details className="section"><summary><strong>WhatsApp Gateway Setup (Administrator)</strong></summary><div className="notice section"><p className="muted tiny">Unregulated third-party WhatsApp Web automation may restrict your account. Use a separate procurement number. Pairing is optional; no messages are sent merely by connecting.</p><div className="toolbar"><span>Session: <strong>{pairState.status}</strong></span><button className="btn small" disabled={pairBusy} onClick={()=>loadPairStatus()}>Refresh Pairing Status</button><button className="btn small" disabled={pairBusy||pairState.status==='WORKING'} onClick={()=>pairAction('start')}>Start Session</button></div>{pairState.status!=='WORKING'&&<div className="formgrid section"><div className="field"><label>Dedicated WhatsApp number</label><input className="input" inputMode="tel" autoComplete="off" value={pairPhone} onChange={e=>setPairPhone(e.target.value)} placeholder="+94771234567"/></div><div className="field"><label>Link with phone number</label><button className="btn" disabled={pairBusy||pairState.status==='NOT_CONFIGURED'||pairState.status==='OFFLINE'} onClick={()=>pairAction('code')}>Request Pairing Code</button></div></div>}{pairState.code&&<p><strong>WhatsApp pairing code: {pairState.code}</strong><span className="muted tiny"> · Enter it using WhatsApp → Linked Devices. Do not share this code.</span></p>}{pairState.qr&&<div className="section"><p className="muted tiny">Alternative: scan this QR using WhatsApp → Linked Devices on a separate device. Refresh if it expires.</p><img src={pairState.qr} alt="WhatsApp linked-device pairing QR" width="240" height="240" style={{maxWidth:'100%',height:'auto'}}/></div>}{pairState.status==='WORKING'&&<p className="muted tiny">WhatsApp session linked. Sending can be enabled by the owner after a private test and migration check.</p>}</div></details>}
 
-   <div className="workflow-task-actions section" aria-label="RFQ next steps"><button className="btn small" onClick={()=>priceEntryRef.current?.scrollIntoView({block:'start'})}>Enter supplier quotes →</button><button className="btn small" onClick={()=>comparisonRef.current?.scrollIntoView({block:'start'})}>Compare prices →</button>{canEdit&&<button className="btn small primary" disabled={busy||loadingQuote||!comparison.length} onClick={buildAwardReview}>Review & create orders →</button>}</div>
-   <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier responses · {pricedCount}/{items.length} items priced · {unpricedCount} awaiting prices. One valid supplier price per item is enough to create an order.</p></div><div className="toolbar"><button className="btn" type="button" onClick={()=>comparisonRef.current?.scrollIntoView({block:'start'})}>View Price Comparison</button>{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Quoted Items ({pricedCount}) →</button>}</div></div>
+   <div className="workflow-task-actions section" aria-label="RFQ next steps"><button className="btn small" onClick={()=>guideTo(4)}>Enter supplier quotes →</button><button className="btn small" onClick={()=>guideTo(5)}>Compare prices →</button>{canEdit&&<button className="btn small primary" disabled={busy||loadingQuote||!comparison.length} onClick={buildAwardReview}>Review & create orders →</button>}</div>
+   <div ref={rfqHeaderRef} tabIndex={-1} style={{scrollMarginTop:96}} className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier responses · {pricedCount}/{items.length} items priced · {unpricedCount} awaiting prices. One valid supplier price per item is enough to create an order.</p></div><div className="toolbar"><button className="btn" type="button" onClick={()=>guideTo(5)}>View Price Comparison</button>{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Quoted Items ({pricedCount}) →</button>}</div></div>
 
-   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="procurement-data-row" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Send a real attached PNG and caption through the private gateway (once configured and linked). Gateway acceptance is not proof of delivery. Check WhatsApp before confirming Sent; never retry unknown attempts blindly. The browser-only manual fallback remains available.</div><div className="toolbar section"><span className="muted tiny">WhatsApp gateway: {gateway.connected?'Connected':gateway.configured?'Not linked / offline':'Not configured'}</span><button className="btn small" onClick={()=>refreshGatewayStatus(active.id)}>Refresh Status</button></div><div className="toolbar section"><button className="btn small primary" disabled={Boolean(gatewayBusy)} onClick={()=>{const previous=gateway.dispatches?.find(d=>d.supplier_id===x.supplier_id);if(!canEdit)return fail(new Error('Your account cannot edit this RFQ. Sign in with an authorized procurement account.'));if(!gateway.connected)return fail(new Error('WhatsApp gateway is disconnected. Tap Refresh Status.'));if(!gateway.sendingEnabled)return fail(new Error('WhatsApp sending is disabled in Railway configuration. Tap Refresh Status after deployment.'));if(previous)return fail(new Error('An attempt already exists ('+previous.status+'). Check WhatsApp and dispatch history before retrying.'));sendAttachedPngViaGateway(x)}}>{gatewayBusy===x.id?'Sending PNG…':'Send Attached PNG + Caption'}</button><button className="btn small" onClick={()=>{const current=window.localStorage.getItem('gh_rfq_whatsapp_caption_template')||'General Hardware — Supplier Price Request\\nRFQ: {rfq_number}\\nDue: {due_date}\\nPlease check the attached RFQ image and reply with your unit rates.';const next=window.prompt('Edit the default caption template. Use {supplier_name}, {rfq_number}, {due_date}. Saved on this device.',current);if(next!==null){if(!next.trim()||next.length>2000)return fail(new Error('Template must be 1–2000 characters.'));window.localStorage.setItem('gh_rfq_whatsapp_caption_template',next);flash('WhatsApp template saved on this device.')}}}>Edit Message Template</button>{gateway.dispatches?.filter(d=>d.supplier_id===x.supplier_id).map(d=><span key={d.id} className="muted tiny">Gateway: {d.status} · {new Date(d.created_at).toLocaleString()} {d.status==='unknown'?'— check WhatsApp before any resend':''}</span>)}</div><div className="muted tiny section">Manual fallback (no gateway): Download the image, open this supplier's chat, and attach it from Downloads.</div><div className="toolbar section"><button className="btn small primary" disabled={browserRfqPreparing===x.id} onClick={()=>prepareBrowserRfq(x)}>{browserRfqPreparing===x.id?'Preparing PNG…':'1 · Download PNG for WhatsApp'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text Only</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG Only</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div>{browserRfqReady?.invitationId===x.id&&<div className="section"><div className="muted tiny">PNG download started: <strong>{browserRfqReady.filename}</strong>. Option A: open WhatsApp with the RFQ text ready, send the text and then attach the PNG from Downloads. Both messages go to this supplier.</div><div className="toolbar section"><a className="btn small primary" href={browserSupplierWhatsappUrl(x,true)} target="_blank" rel="noopener noreferrer">2 · Open WhatsApp + Text · {supplierName(x.supplier_id)}</a></div><div className="muted tiny section">Option B (one image with a caption): copy the RFQ message, open the same supplier chat without prefilled text, attach the saved PNG, paste the copied message as its caption and send.</div><div className="toolbar section"><button className="btn small" onClick={()=>copyBrowserRfqCaption(x)}>Copy PNG Caption</button><a className="btn small" href={browserSupplierWhatsappUrl(x,false)} target="_blank" rel="noopener noreferrer">Open Supplier Chat for Caption</a></div></div>}</div>}</div>)}</div></div>}
+   {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div ref={rfqSendRef} tabIndex={-1} style={{scrollMarginTop:100}} className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="procurement-data-row" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Send a real attached PNG and caption through the private gateway (once configured and linked). Gateway acceptance is not proof of delivery. Check WhatsApp before confirming Sent; never retry unknown attempts blindly. The browser-only manual fallback remains available.</div><div className="toolbar section"><span className="muted tiny">WhatsApp gateway: {gateway.connected?'Connected':gateway.configured?'Not linked / offline':'Not configured'}</span><button className="btn small" onClick={()=>refreshGatewayStatus(active.id)}>Refresh Status</button></div><div className="toolbar section"><button className="btn small primary" disabled={Boolean(gatewayBusy)} onClick={()=>{const previous=gateway.dispatches?.find(d=>d.supplier_id===x.supplier_id);if(!canEdit)return fail(new Error('Your account cannot edit this RFQ. Sign in with an authorized procurement account.'));if(!gateway.connected)return fail(new Error('WhatsApp gateway is disconnected. Tap Refresh Status.'));if(!gateway.sendingEnabled)return fail(new Error('WhatsApp sending is disabled in Railway configuration. Tap Refresh Status after deployment.'));if(previous)return fail(new Error('An attempt already exists ('+previous.status+'). Check WhatsApp and dispatch history before retrying.'));sendAttachedPngViaGateway(x)}}>{gatewayBusy===x.id?'Sending PNG…':'Send Attached PNG + Caption'}</button><button className="btn small" onClick={()=>{const current=window.localStorage.getItem('gh_rfq_whatsapp_caption_template')||'General Hardware — Supplier Price Request\\nRFQ: {rfq_number}\\nDue: {due_date}\\nPlease check the attached RFQ image and reply with your unit rates.';const next=window.prompt('Edit the default caption template. Use {supplier_name}, {rfq_number}, {due_date}. Saved on this device.',current);if(next!==null){if(!next.trim()||next.length>2000)return fail(new Error('Template must be 1–2000 characters.'));window.localStorage.setItem('gh_rfq_whatsapp_caption_template',next);flash('WhatsApp template saved on this device.')}}}>Edit Message Template</button>{gateway.dispatches?.filter(d=>d.supplier_id===x.supplier_id).map(d=><span key={d.id} className="muted tiny">Gateway: {d.status} · {new Date(d.created_at).toLocaleString()} {d.status==='unknown'?'— check WhatsApp before any resend':''}</span>)}</div><div className="muted tiny section">Manual fallback (no gateway): Download the image, open this supplier's chat, and attach it from Downloads.</div><div className="toolbar section"><button className="btn small primary" disabled={browserRfqPreparing===x.id} onClick={()=>prepareBrowserRfq(x)}>{browserRfqPreparing===x.id?'Preparing PNG…':'1 · Download PNG for WhatsApp'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text Only</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG Only</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div>{browserRfqReady?.invitationId===x.id&&<div className="section"><div className="muted tiny">PNG download started: <strong>{browserRfqReady.filename}</strong>. Option A: open WhatsApp with the RFQ text ready, send the text and then attach the PNG from Downloads. Both messages go to this supplier.</div><div className="toolbar section"><a className="btn small primary" href={browserSupplierWhatsappUrl(x,true)} target="_blank" rel="noopener noreferrer">2 · Open WhatsApp + Text · {supplierName(x.supplier_id)}</a></div><div className="muted tiny section">Option B (one image with a caption): copy the RFQ message, open the same supplier chat without prefilled text, attach the saved PNG, paste the copied message as its caption and send.</div><div className="toolbar section"><button className="btn small" onClick={()=>copyBrowserRfqCaption(x)}>Copy PNG Caption</button><a className="btn small" href={browserSupplierWhatsappUrl(x,false)} target="_blank" rel="noopener noreferrer">Open Supplier Chat for Caption</a></div></div>}</div>}</div>)}</div></div>}
 
    {canEdit&&['draft','prepared','sent','partially_quoted','quoted'].includes(active.status)&&<div className="notice section">
     <strong>Add supplier to this RFQ</strong>
@@ -1052,7 +1076,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    {loadingQuote&&<p className="muted tiny" role="status">Loading supplier prices…</p>}
    {quoteLoadError&&<div className="notice" role="alert">Supplier prices could not be loaded. Editing is paused to protect the existing quote. <button type="button" className="btn small" disabled={busy||loadingQuote} onClick={()=>loadExistingQuote(active.id,supplier,false)}>Reload Supplier Prices</button></div>}
    <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
-   <div ref={priceEntryRef} style={{scrollMarginTop:96}} className="formgrid section sticky-work-search"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
+   <div ref={priceEntryRef} tabIndex={-1} style={{scrollMarginTop:96}} className="formgrid section sticky-work-search"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
    <p className="muted tiny">Showing {visiblePriceItems.length} of {items.length} items. Search preserves every entered price; Save Supplier Price saves the entire supplier quote.</p>
    <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
    <tbody>{visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
@@ -1087,14 +1111,14 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    </div>}
 
    <details className="section"><summary>Quotation validity</summary><label className="field">Valid until<input aria-label="Quotation valid until" className="input" type="date" value={validUntil} disabled={!canEdit||busy||loadingQuote} onChange={e=>setValidUntil(e.target.value)}/></label><p className="muted tiny">Expired prices cannot be used for new orders. Confirm current availability before ordering.</p></details>
-   <div ref={comparisonRef} style={{scrollMarginTop:96}}><RfqComparisonSheet onBackToEntry={()=>priceEntryRef.current?.scrollIntoView({block:'start'})} items={items} comparison={comparison} invitations={invite} supplierName={supplierName} canEdit={canEdit} busy={busy||loadingQuote||quoteOcrBusy} onEditPrice={editComparisonPrice} onOrderSelection={togglePoItem} onReview={async()=>{if(selectedUnpriced.length){const next=await selectOnlyPricedItems(false);if(next)buildAwardReview(next)}else buildAwardReview()}}/></div>
+   <div ref={comparisonRef} tabIndex={-1} style={{scrollMarginTop:96}}>{guidedStep===6&&!awardOpen&&<div className="notice section" role="status">Review the priced items below, then tap Review &amp; Create Supplier Orders. Purchase orders are created only after your final confirmation.</div>}<RfqComparisonSheet onBackToEntry={()=>guideTo(4)} items={items} comparison={comparison} invitations={invite} supplierName={supplierName} canEdit={canEdit} busy={busy||loadingQuote||quoteOcrBusy} onEditPrice={editComparisonPrice} onOrderSelection={togglePoItem} onReview={async()=>{if(selectedUnpriced.length){const next=await selectOnlyPricedItems(false);if(next)buildAwardReview(next)}else buildAwardReview()}}/></div>
 
    {active?.status==='awarded'&&items.some(i=>Number(i.requirement?.adjusted_qty||0)>Number(i.requirement?.ordered_qty||0))&&<div className="section" style={{padding:12,border:'1px solid var(--border, #334155)',borderRadius:12}}>
    <strong>Outstanding items need a follow-up RFQ</strong>
    <p className="muted tiny">The original RFQ and purchase orders stay unchanged. Prepare a new RFQ for outstanding requirements, then review its suppliers and quantities before sending.</p>
    <button className="btn primary" disabled={busy||!canEdit} onClick={createFollowUpRfq}>Prepare Follow-up RFQ</button>
   </div>}
-  {awardOpen&&<div ref={awardReviewRef} style={{scrollMarginTop:96}} className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
+  {awardOpen&&<div ref={awardReviewRef} tabIndex={-1} style={{scrollMarginTop:96}} className="award-review section"><div className="sectionhead"><div><h3>{t('guide.step6_order','Step 6 · Review & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
     <div className="section" style={{padding:'10px 12px',border:'1px solid var(--border, #334155)',borderRadius:12}}>
      <strong>Order summary</strong>
      <div className="muted tiny" style={{marginTop:4}}>{awardPlan.length} allocations · {awardSuppliers.length} supplier(s) · {awardUnselected.length} items not selected</div>

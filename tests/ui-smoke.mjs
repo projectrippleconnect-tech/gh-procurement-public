@@ -70,7 +70,7 @@ try{
   const draftSaves=[]
   let grantedPermissions=permissions
   let currentProfile=profile
-  let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false,rfqItemCount=100
+  let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false,rfqItemCount=100,requirementApproval='pending_review'
   const poGatewayRequests=[]
   const setupRequests=[],resetLinkRequests=[]
   let staffInvites=[],staffProfiles=[profile],deleteFailure=true
@@ -128,7 +128,10 @@ try{
     const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||500)
     data=Array.from({length:count},(_,i)=>({id:'exception-'+i,action_id:'action-'+i,action_type:'existing_item',description:'Exception fixture '+(i+1),size:'',uom:'PCS',category:'GENERAL',movement:'FAST',effective_priority:'urgent',priority_score:100,urgency_reason:i===1010?'customer_paid':'manual_urgent',required_qty:1,status:name==='proc_automation_jobs'?'failed':'open',job_type:'rfq_send',entity_type:'rfq',updated_at:'2026-10-11T00:00:00Z',created_at:'2026-10-11T00:00:00Z',grn_no:'GRN-'+(i+1),po_no:'PO-'+(i+1),supplier_name:'Fixture supplier',rejected_qty:1})).slice(offset,offset+limit)
    }
-   else if(name==='proc_v_requirements')data=[requirement]
+   else if(name==='proc_v_requirements')data=[{...requirement,approval_status:requirementApproval}]
+   else if(name==='proc_review_requirements'){requirementApproval=req.postDataJSON().p_action==='approve'?'approved':'held';data=1}
+   else if(name==='proc_create_rfq_v4'){assert.deepEqual(req.postDataJSON().p_requirement_ids,[requirement.id]);assert.deepEqual(req.postDataJSON().p_supplier_ids,[supplier.id]);data=rfq}
+   else if(name==='proc_mark_rfq_supplier_sent_v1'){invitations=invitations.map(i=>({...i,status:'sent'}));rfqStatus='sent';data=true}
    else if(name==='proc_rfqs')data=[{...rfq,status:rfqStatus}]
    else if(name==='proc_suppliers')data=directory
    else if(name==='proc_rfq_suppliers')data=invitations
@@ -144,7 +147,7 @@ try{
    else if(name==='proc_quotes'){const id=url.searchParams.get('supplier_id')?.slice(3);if(id===quoteReadFailure){quoteReadFailure=null;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture quote load failure'})});return}data=savedQuotes.get(id)||null}
    else if(name==='proc_quote_lines'){const id=url.searchParams.get('quote_id')?.slice(3);data=[...savedQuotes.values()].find(q=>q.id===id)?.lines||[]}
    else if(name==='proc_save_quote_v3'){
-    const p=req.postDataJSON();assert.equal(p.p_supplier_id,newSupplier.id,'Saving stays with the selected supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
+    const p=req.postDataJSON();assert.equal(p.p_supplier_id,process.env.GH_UI_GUIDE_APPROVAL==='1'?supplier.id:newSupplier.id,'Saving stays with the selected supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
     savedQuotes.set(p.p_supplier_id,{id:'saved-'+p.p_supplier_id,lines:p.p_lines.map((l,i)=>({...l,id:'saved-line-'+i}))})
     rfqStatus='partially_quoted';invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,status:'quoted'}:x);data={status:rfqStatus}
    }
@@ -257,16 +260,64 @@ try{
   assert.equal(await historyStockInput.inputValue(),'8')
   await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
   await stockDialog.getByRole('button',{name:'Submit stock',exact:true}).click()
-  await page.getByRole('button',{name:'Continue to Procurement Review →',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Procurement Review',exact:true}).waitFor()
   assert.equal(stockSubmissions.length,1)
   assert.equal(stockSubmissions[0].p_lines[0].current_stock,8)
+  const guide=page.getByRole('navigation',{name:'Guided procurement navigation',exact:true})
+  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'2','Stock submission automatically advances to Review')
+  if(process.env.GH_UI_GUIDE_APPROVAL==='1'){
+   rfqItemCount=1
+   await page.getByRole('button',{name:'Select All Visible',exact:true}).click()
+   await page.getByRole('button',{name:'Approve & Continue',exact:true}).click()
+   const builder=page.locator('.rfq-builder')
+   await builder.waitFor()
+   assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'3','Approval advances to the supplier builder')
+   await builder.getByLabel(supplier.name,{exact:true}).check()
+   await builder.getByPlaceholder('Required override reason',{exact:true}).fill('Guided workflow test supplier')
+   await builder.getByRole('button',{name:'Create RFQ & Continue',exact:true}).click()
+   await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
+   assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'3','Creation opens the exact RFQ at the sending step')
+   await page.getByRole('button',{name:'Confirm Sent',exact:true}).click()
+   await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+   await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='4')
+   const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
+   await price.waitFor();await price.fill('123.45')
+   await page.getByRole('button',{name:'Save Supplier Price',exact:true}).click()
+   await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='5')
+   await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
+   await page.locator('.award-review').waitFor()
+   assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'6')
+   assert.ok(!queries.some(u=>u.pathname.endsWith('/proc_finalize_award_plan_v2')),'Guided Next never creates an order without final confirmation')
+   await page.screenshot({path:'test-results/six-step-award-'+width+'.png'})
+   console.log('PASS complete guided stock → approval → exact RFQ → sent → quote save → comparison → order review at '+width+'px')
+   await context.close();continue
+  }
+
+  await guide.getByRole('button',{name:'Previous procurement step',exact:true}).click()
+  await page.getByRole('button',{name:'Continue to Procurement Review →',exact:true}).waitFor()
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
   await page.screenshot({path:'test-results/stock-next-step-'+width+'.png'})
-  await page.getByRole('button',{name:'Continue to Procurement Review →',exact:true}).click()
-  await page.getByRole('heading',{name:'Procurement Review',exact:true}).waitFor()
-  console.log('PASS stock confirmation Cancel/Submit, persistent result and Review continuation at '+width+'px')
-  if(process.env.GH_UI_STOCK_ONLY==='1'){await context.close();continue}
-  await page.getByRole('button',{name:'Go back',exact:true}).click()
   await historyStockInput.fill('8')
+  await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
+  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'2')
+  await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
+  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'3','Next enters the RFQ section on the same screen')
+  await page.getByRole('button',{name:'Go back',exact:true}).click()
+  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'2','History Back restores the previous guided section')
+  await guide.getByLabel('Go to procurement section',{exact:true}).selectOption('1')
+  assert.equal(await historyStockInput.inputValue(),'8','Guided navigation preserves unsent stock entries')
+  await guide.getByLabel('Go to procurement section',{exact:true}).selectOption('4')
+  await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+  await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
+  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'5')
+  await page.getByRole('region',{name:'Scrollable supplier prices',exact:true}).waitFor()
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
+  await page.screenshot({path:'test-results/guided-comparison-'+width+'.png'})
+  await guide.getByRole('button',{name:'Previous procurement step',exact:true}).click()
+  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'4')
+  await guide.getByLabel('Go to procurement section',{exact:true}).selectOption('1')
+  console.log('PASS six-step guide, automatic Review, Back/Next, section jumping and preserved drafts at '+width+'px')
+  if(process.env.GH_UI_STOCK_ONLY==='1'){await context.close();continue}
 
   await navigate('Q RFQs & Quotes')
   await page.getByRole('button',{name:'Go back',exact:true}).click()
@@ -868,7 +919,7 @@ try{
   }
   assert.deepEqual(errors,[],'Browser errors at '+width)
   assert.deepEqual(policyViolations,[],'Procurement, PDF and OCR actions must not violate CSP at '+width)
-  console.log('PASS four-stage navigation and no horizontal overflow at '+width+'px')
+  console.log('PASS guided navigation and no horizontal overflow at '+width+'px')
   await context.close()
  }
 }finally{

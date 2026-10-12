@@ -50,15 +50,14 @@ test('routine shortages stop at buyer review instead of auto-awarding',()=>{
   assert.match(buying,/eq\('has_active_rfq',false\)/)
   assert.doesNotMatch(buying,/proc_try_auto_award_v2/)
   assert.match(buying,/Approve & Continue/)
-  assert.match(buying,/Step 4 · Review & Choose Suppliers/)
+  assert.match(buying,/Step 3 · Choose Suppliers/)
 })
 
-test('procurement path uses four consistent stages including receiving',()=>{
- const ui=read('components/ui.jsx'),docs=read('components/modules-documents.jsx')
- assert.match(ui,/\[1,'Stock'\]/);assert.match(ui,/\[2,'Review & buy'\]/)
- assert.match(ui,/\[3,'Orders'\]/);assert.match(ui,/\[4,'Receive'\]/)
- assert.doesNotMatch(ui,/procurement-completed-strip/)
- assert.match(docs,/ProcurementPath active=\{8\}/)
+test('guided procurement keeps six steps and offers receiving after orders',()=>{
+ const ui=read('components/ui.jsx'),guide=read('lib/workflow-guide.mjs')
+ assert.match(guide,/id:1,title:'Stock entry'/);assert.match(guide,/id:6,title:'Create & send orders'/)
+ assert.match(ui,/Previous procurement step/);assert.match(ui,/Next procurement step/)
+ assert.match(ui,/Go to procurement section/);assert.match(ui,/Receive delivery/)
 })
 
 test('RFQs are prepared until actual transmission is confirmed',()=>{
@@ -390,7 +389,7 @@ test('WAHA session pairing uses a private admin-only proxy and leaves sending di
  assert.doesNotMatch(buying,/window\.GHProcurementAndroid/)
 })
 
-test('procurement control exposes full-dataset ageing, actionable queues and four-stage shortcuts',()=>{
+test('procurement control exposes full-dataset ageing, actionable queues and section shortcuts',()=>{
  const buying=read('components/modules-buying.jsx')
  assert.match(buying,/setControlCounts\(\{outstanding:results\[6\]/)
  assert.match(buying,/\.gt\('remaining_to_order',0\)/)
@@ -399,10 +398,10 @@ test('procurement control exposes full-dataset ageing, actionable queues and fou
  assert.match(buying,/stage==='attention'/)
  assert.match(buying,/stage==='delivery'/)
  assert.match(buying,/value="partial"/)
- assert.match(buying,/1 · Check stock/)
- assert.match(buying,/2 · Request prices/)
- assert.match(buying,/3 · Compare & order/)
- assert.match(buying,/4 · Receive & complete/)
+ assert.match(buying,/Check stock/)
+ assert.match(buying,/Request prices/)
+ assert.match(buying,/Compare & order/)
+ assert.match(buying,/Receive & complete/)
  assert.match(buying,/Insufficient data/)
 })
 

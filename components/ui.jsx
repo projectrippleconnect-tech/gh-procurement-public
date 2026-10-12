@@ -1,5 +1,7 @@
 'use client'
 
+import {PROCUREMENT_STEPS} from '@/lib/workflow-guide.mjs'
+
 export const NAV=[
  ['dashboard','⌂','Home'],['stock','✓','Stock Entry'],['urgent_actions','!','Exceptions'],['requirements','≡','Review'],
  ['company_lists','CL','Company Lists'],['suppliers','♢','Suppliers'],['price_lists','₨','Price Lists'],['rfq','Q','RFQs & Quotes'],['po','PO','Orders'],
@@ -19,18 +21,17 @@ export const Badge=({children})=><span className={'badge '+statusClass(children)
 export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
-export function WorkflowNavigation({view,navigate,canNavigate,t=(k,f)=>f||k}){
- const steps=[['stock','Stock entry'],['requirements','Review & RFQ'],['rfq','Quotes & comparison'],['po','Purchase orders'],['receiving','Receive goods']]
- const current=steps.findIndex(([key])=>key===view)
- if(current<0)return null
- const hints={stock:'Submit your count, then continue to review any shortages.',requirements:'Approve quantities, choose suppliers and create the RFQ to continue.',rfq:'Send requests → enter supplier prices → compare → review and create orders.',po:'Review or approve the order, send it to the supplier, then receive the delivery.',receiving:'Choose the purchase order and confirm the quantities actually received.'}
- return <nav className="workflow-navigation" aria-label="Procurement workflow"><div className="workflow-page-links">{steps.filter(([key])=>canNavigate(key)).map(([key,label])=><button key={key} className={'btn small '+(key===view?'primary':'')} aria-current={key===view?'step':undefined} onClick={()=>navigate(key)}>{t('workflow.'+key,label)}</button>)}</div><p>{t('workflow.'+view+'.hint',hints[view])}</p></nav>
-}
-
-export function ProcurementPath({active=4,counts={},t=(k,f)=>f||k}){
- const steps=[[1,'Stock'],[2,'Review & buy'],[3,'Orders'],[4,'Receive']]
- const current=active<=3?1:active<=6?2:active===7?3:4
- return <div className="procurement-journey" aria-label="Procurement progress"><div className="procurement-stepbar procurement-stepbar-numbered">{steps.map(([n,label])=><div key={n} className={n===current?'active':'upcoming'}><span>{n}</span><b>{label}</b></div>)}</div><p className="muted tiny">Stock → supplier prices → approved orders → accepted deliveries. Open balances stay outstanding.</p></div>
+export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavigate,t=(k,f)=>f||k}){
+ if(!['stock','requirements','rfq','po','receiving'].includes(view))return null
+ const current=view==='receiving'?{title:'Receive delivery',hint:'Choose the purchase order and enter the quantities actually received.'}:PROCUREMENT_STEPS.find(s=>s.id===step)||PROCUREMENT_STEPS[0]
+ const available=PROCUREMENT_STEPS.filter(s=>canStep(s.id))
+ const previous=[...available].reverse().find(s=>s.id<step),next=available.find(s=>s.id>step)
+ return <nav className="workflow-navigation guided-navigation" aria-label="Guided procurement navigation">
+  <div className="guide-title"><div><small>{view==='receiving'?'DELIVERY · AFTER STEP 6':'STEP '+step+' OF 6'}</small><strong>{view==='receiving'?current.title:t('guide.step'+step,current.title)}</strong></div><span className="guide-progress" aria-label={'Step '+step+' of 6'}>{PROCUREMENT_STEPS.map(s=><i key={s.id} className={s.id===step?'current':''}/>)}</span></div>
+  <p>{view==='receiving'?current.hint:t('guide.hint'+step,current.hint)}</p>
+  <div className="guide-controls"><button className="btn" aria-label="Previous procurement step" disabled={!previous} onClick={()=>onStep(previous.id)}>← Back</button><label className="guide-section"><span className="sr-only">Go to procurement section</span><select className="select" aria-label="Go to procurement section" value={step} onChange={e=>onStep(Number(e.target.value))}>{available.map(s=><option key={s.id} value={s.id}>{s.id} · {s.title}</option>)}</select></label><button className="btn primary" aria-label="Next procurement step" disabled={!next} onClick={()=>onStep(next.id)}>Next →</button></div>
+  {step===6&&<div className="guide-order-links">{canNavigate('po')&&<button className="btn small" onClick={()=>navigate('po')}>Open purchase orders →</button>}{canNavigate('receiving')&&<button className="btn small" onClick={()=>navigate('receiving')}>Receive delivery →</button>}</div>}
+ </nav>
 }
 
 export function fieldEnabled(fields,module,key){

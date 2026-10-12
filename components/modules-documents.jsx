@@ -7,7 +7,7 @@ import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
 import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
 import {allRows} from '@/lib/query-pages'
-import {Badge,ListPages,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty,ProcurementPath} from './ui'
+import {Badge,ListPages,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
@@ -131,7 +131,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   {key:'landed_unit_cost',label:'Landed Unit Cost',render:l=>l.landed_unit_cost==null?'—':money(l.landed_unit_cost)},
   {key:'line_total',label:'Line Total',render:l=>money(l.line_total)}
  ])
- return <><ProcurementPath active={7} t={t}/><div className="split document-split">
+ return <><div className="split document-split">
   <div className="card pad"><div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>{t('documents.po_hint','Approval, supplier sharing and delivery tracking. Lists are explicitly paged instead of silently truncated.')}</p></div></div>
    <div className="filters two"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
    <div className="stack section">{filtered.map(po=><button className={'btn record-button '+(active?.id===po.id?'active-record':'')} key={po.id} disabled={busy||shareBusy} onClick={()=>open(po)}><div><strong>{po.po_no}</strong><div className="muted tiny">{po.supplier?.name} · {po.po_date}</div></div><div className="right"><Badge>{po.status}</Badge><div>{money(po.total)}</div></div></button>)}</div>
@@ -364,7 +364,7 @@ export function Receiving({activeView='receiving',initialFilter='',profile,field
  const show=k=>fieldEnabled(fields,'receiving',k)
  const label=(k,v)=>fieldLabel(fields,'receiving',k,v)
  const receiveColumns='minmax(0,1fr) '+(show('received_qty')?'56px ':'')+(show('accepted_qty')?'56px ':'')+'32px'
- return <div className="stack"><ProcurementPath active={8} t={t}/>
+ return <div className="stack">
   <div className="card pad">
    <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Accepted stock is retry-safe and cannot exceed the outstanding PO quantity. Rejected quantities create follow-up cases automatically.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!visibleLines.length||busy||Boolean(attempt)} onClick={setAllFull}>✓ Mark All Remaining Received</button><button className="btn primary" disabled={busy||!lines.length} onClick={post}>{busy?'Posting…':'Post GRN'}</button></div>}</div>
    <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><select aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>setPoId(e.target.value)}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</select></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>

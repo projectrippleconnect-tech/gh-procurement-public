@@ -49,7 +49,7 @@ export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
-  <div className="card pad section"><h3>Today's work</h3><div className="toolbar section">{canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>Review outstanding items</button>}{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq')}>Enter / compare prices</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','pending_approval')}>Approve orders</button>}{canNavigate('receiving')&&<button className="btn" onClick={()=>navigate('receiving')}>Receive deliveries</button>}<button className="btn small" onClick={load}>Refresh work queues</button></div></div>
+  <div className="card pad section"><h3>Today's work</h3><div className="toolbar section">{canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>Review outstanding items</button>}{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq')}>Enter / compare prices</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','pending_approval')}>Approve orders</button>}{canNavigate('receiving')&&<button className="btn" onClick={()=>navigate('receiving')}>Receive deliveries</button>}<button className="btn small" onClick={load}>Refresh work queues</button></div></div>
   <div className="grid metrics">{cards.map(x=>{
    const key=x[0].slice('dashboard.'.length),target=destinations[key]
    const actionable=key==='overdue_actions'?(canNavigate('rfq')||canNavigate('po')):target&&canNavigate(target[0])
@@ -77,7 +77,7 @@ export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
  const[submission,setSubmission]=useState(null)
  const resultRef=useRef(null)
@@ -424,6 +424,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
    await load()
    if(historyOpen)await loadStockHistory()
+   if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
   }catch(e){
    if(path)await supabase.storage.from('gh-procurement').remove([path])
    fail(e)
