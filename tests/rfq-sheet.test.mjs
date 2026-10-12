@@ -59,3 +59,21 @@ test('large comparison preserves sparse items, supplier order, ties and input re
  assert.equal(quoteSheetRows(input,quotes,'','priced').length,6666)
  assert.equal(JSON.stringify(quotes),original)
 })
+
+import {supplierQuoteProgress,nextQuoteSupplier} from '../lib/rfq-sheet.js'
+test('follow-ups count persisted requested prices, including zero, regardless of quoted status',()=>{
+ const invitations=[{id:'a',supplier_id:'s1',status:'quoted',requested_item_ids:['row-1','row-3'],sent_at:'2026-10-10T00:00:00Z'},{id:'b',supplier_id:'s2',status:'sent',requested_item_ids:['row-1']},{id:'c',supplier_id:'s3',status:'declined'}]
+ const progress=supplierQuoteProgress(items,invitations,[{supplier_id:'s1',rfq_item_id:'row-1',unit_price:0},{supplier_id:'s2',rfq_item_id:'row-99',unit_price:10}],[],{now:Date.parse('2026-10-12T00:00:00Z'),reminderHours:24})
+ assert.equal(progress[0].label,'Partial prices');assert.equal(progress[0].missing,1);assert.equal(progress[0].reminderDue,true)
+ assert.equal(progress[1].received,0);assert.equal(progress[1].waiting,true)
+ assert.equal(progress[2].waiting,false)
+ assert.equal(nextQuoteSupplier(progress,'s1').supplier_id,'s2');assert.equal(nextQuoteSupplier(progress,'s2'),null)
+ const complete=supplierQuoteProgress(items,[invitations[0]],[{supplier_id:'s1',rfq_item_id:'row-1',unit_price:0},{supplier_id:'s1',rfq_item_id:'row-3',unit_price:10}])
+ assert.equal(complete[0].waiting,false);assert.equal(complete[0].reminderDue,false)
+})
+test('overdue follow-ups include quoted suppliers without lines, but not empty requests or invalid prices',()=>{
+ const progress=supplierQuoteProgress(items,[{supplier_id:'s1',status:'quoted',requested_item_ids:['row-1']},{supplier_id:'s2',status:'sent',requested_item_ids:[]}],[{supplier_id:'s1',rfq_item_id:'row-1',unit_price:null}],[],{now:Date.parse('2026-10-12T00:00:00Z'),dueDate:'2026-10-11'})
+ assert.equal(progress[0].label,'Prices not entered');assert.equal(progress[0].reminderDue,true)
+ assert.equal(progress[1].waiting,false);assert.equal(progress[1].label,'No items requested')
+ assert.equal(nextQuoteSupplier(progress,'unknown'),null)
+})
