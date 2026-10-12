@@ -456,6 +456,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  const[quoteDraftState,setQuoteDraftState]=useState('Saved prices loaded')
  const draftStorageKey=(rfqId,supplierId)=>'gh-quote-draft:'+profile.id+':'+rfqId+':'+supplierId
  useEffect(()=>{if(!active?.id||!supplier||loadingQuote||quoteLoadError||quoteConflict)return;setQuoteDraftState('Saving draft…');const timer=setTimeout(()=>{try{localStorage.setItem(draftStorageKey(active.id,supplier),JSON.stringify({prices,validUntil,quoteRef,freight,minOrder,quoteNotes,revision:loadedRevision.current,base:loadedQuote.current}));setQuoteDraftState('Draft saved on this device')}catch{setQuoteDraftState('Draft not saved · keep this screen open')}},250);return()=>clearTimeout(timer)},[active?.id,supplier,prices,validUntil,quoteRef,freight,minOrder,quoteNotes,loadingQuote,quoteLoadError,quoteConflict])
+ useEffect(()=>{const flush=()=>{if(!loadingQuote&&!quoteLoadError&&!quoteConflict)rememberQuoteDraft()};window.addEventListener('pagehide',flush);return()=>window.removeEventListener('pagehide',flush)},[active?.id,supplier,prices,validUntil,quoteRef,freight,minOrder,quoteNotes,loadingQuote,quoteLoadError,quoteConflict])
  const[priceSearch,setPriceSearch]=useState(''),[priceFilter,setPriceFilter]=useState('requested'),[supplierScopes,setSupplierScopes]=useState([])
  const reminderHours=features.find(x=>x.feature_key==='quotes.minimum_quotes')?.config?.reminder_hours??24
  const quoteProgress=supplierQuoteProgress(items,invite,savedQuoteLines,supplierScopes,{dueDate:active?.due_date,reminderHours})
@@ -517,9 +518,11 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
 
 
  function rememberQuoteDraft(){
-  if(!active?.id||!supplier||loadingQuote)return
+  if(!active?.id||!supplier||loadingQuote||quoteLoadError||quoteConflict)return
   const key=active.id+':'+supplier
-  quoteDrafts.current.set(key,{prices,file,validUntil,quoteRef,freight,minOrder,quoteNotes,revision:loadedRevision.current,base:loadedQuote.current})
+  const draft={prices,file,validUntil,quoteRef,freight,minOrder,quoteNotes,revision:loadedRevision.current,base:loadedQuote.current}
+  quoteDrafts.current.set(key,draft)
+  if(!quoteLoadError&&!quoteConflict){try{const {file:localFile,...persisted}=draft;localStorage.setItem(draftStorageKey(active.id,supplier),JSON.stringify(persisted))}catch{setQuoteDraftState('Draft not saved · keep this screen open')}}
  }
 
  async function open(r,preferredSupplier='',preserveDraft=true){
