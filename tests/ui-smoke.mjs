@@ -36,7 +36,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search',
+ const permissions=['admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search','suppliers.add',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -145,7 +145,7 @@ try{
    else if(name==='proc_create_rfq_v4'){assert.deepEqual(req.postDataJSON().p_requirement_ids,[requirement.id]);assert.deepEqual(req.postDataJSON().p_supplier_ids,[supplier.id]);data=rfq}
    else if(name==='proc_mark_rfq_supplier_sent_v1'){invitations=invitations.map(i=>({...i,status:'sent'}));rfqStatus='sent';data=true}
    else if(name==='proc_rfqs')data=[{...rfq,status:rfqStatus}]
-   else if(name==='proc_suppliers')data=directory
+   else if(name==='proc_suppliers'){if(req.method()==='POST'){const payload=req.postDataJSON();assert.equal(payload.whatsapp,'+94771234567');data={...payload,id:'quick-created-supplier'};directory=[...directory,data]}else data=directory}
    else if(name==='proc_rfq_suppliers')data=invitations
    else if(name==='proc_add_rfq_supplier_v1'){
     assert.deepEqual(req.postDataJSON(),{p_rfq_id:rfq.id,p_supplier_id:newSupplier.id,p_scope_override_reason:null})
@@ -156,10 +156,10 @@ try{
    }
    else if(name==='proc_rfq_items')data=Array.from({length:rfqItemCount},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true}))
    else if(name==='proc_v_quote_comparison')data=[{rfq_item_id:'00000000-0000-4000-8000-000000000008',supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-fixture',unit_price:100,landed_unit_cost:100,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1}]
-   else if(name==='proc_quotes'){const id=url.searchParams.get('supplier_id')?.slice(3);if(id===quoteReadFailure){quoteReadFailure=null;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture quote load failure'})});return}data=savedQuotes.get(id)||null}
+   else if(name==='proc_quotes'){const id=url.searchParams.get('supplier_id')?.slice(3);if(id===quoteReadFailure){quoteReadFailure=null;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture quote load failure'})});return}data=id?(savedQuotes.get(id)||null):[...savedQuotes.entries()].map(([supplier_id,q])=>({...q,supplier_id}))}
    else if(name==='proc_quote_lines'){const id=url.searchParams.get('quote_id')?.slice(3);data=[...savedQuotes.values()].find(q=>q.id===id)?.lines||[]}
    else if(name==='proc_save_quote_v3'){
-    const p=req.postDataJSON();assert.equal(p.p_supplier_id,process.env.GH_UI_GUIDE_APPROVAL==='1'?supplier.id:newSupplier.id,'Saving stays with the selected supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
+    const p=req.postDataJSON();assert.ok([supplier.id,newSupplier.id].includes(p.p_supplier_id),'Saving uses an invited supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
     savedQuotes.set(p.p_supplier_id,{id:'saved-'+p.p_supplier_id,lines:p.p_lines.map((l,i)=>({...l,id:'saved-line-'+i}))})
     rfqStatus='partially_quoted';invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,status:'quoted'}:x);data={status:rfqStatus}
    }
@@ -340,7 +340,7 @@ try{
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='4')
    const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
    await price.waitFor();await price.fill('123.45')
-   await page.getByRole('button',{name:'Save Supplier Price',exact:true}).click()
+   await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='5')
    await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
    await page.locator('.award-review').waitFor()
@@ -736,7 +736,7 @@ try{
     quoteReadFailure=newSupplier.id
     await quoteSelect.selectOption(newSupplier.id)
     await page.getByRole('button',{name:'Reload Supplier Prices',exact:true}).waitFor()
-    assert.equal(await page.getByRole('button',{name:'Save Supplier Price',exact:true}).isDisabled(),true,'Failed quote loads block overwriting existing prices')
+    assert.equal(await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).isDisabled(),true,'Failed quote loads block overwriting existing prices')
     await page.getByRole('button',{name:'Reload Supplier Prices',exact:true}).click()
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await price.inputValue(),'','The new supplier has a separate quotation')
@@ -751,11 +751,25 @@ try{
     await quoteSelect.selectOption(newSupplier.id)
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await price.inputValue(),'777','Each supplier retains its own draft')
-    await page.getByRole('button',{name:'Save Supplier Price',exact:true}).click()
+    await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
     await page.getByText('1 supplier item price(s) saved.',{exact:false}).waitFor()
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await quoteSelect.inputValue(),newSupplier.id,'Saving does not return to the first supplier')
     assert.equal(await price.inputValue(),'777','The saved supplier quote reloads correctly')
+    await quoteSelect.selectOption(supplier.id)
+    await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
+    await attachment.setInputFiles([])
+    await page.getByRole('button',{name:'Save & Next Supplier →',exact:true}).click()
+    await page.waitForFunction(id=>document.querySelector('#rfq-quote-supplier')?.value===id,newSupplier.id)
+    await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
+    assert.equal(await price.inputValue(),'777','Save automatically advances without overwriting the next supplier quote')
+    await page.getByRole('button',{name:'+ Quick Create Supplier',exact:true}).click()
+    await page.getByLabel('Supplier name',{exact:true}).fill('Quick RFQ Supplier')
+    await page.getByLabel('Phone / WhatsApp',{exact:true}).fill('+94771234567')
+    await page.getByRole('button',{name:'Create & Select Supplier',exact:true}).click()
+    await page.waitForFunction(()=>document.querySelector('#rfq-add-supplier')?.value==='quick-created-supplier')
+    assert.equal(await quoteSelect.inputValue(),newSupplier.id,'Quick creation preserves the current supplier quotation')
+
     await page.getByRole('button',{name:'View Price Comparison',exact:true}).click()
     await sheet.getByRole('button',{name:'Enter or edit price for '+item.description+' · '+item.size+' from '+supplier.name,exact:true}).click()
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
@@ -766,13 +780,13 @@ try{
     const orderCheckbox=sheet.locator('tbody tr').first().locator('input[type="checkbox"]')
     // This controlled checkbox updates after its server write succeeds.
     await orderCheckbox.click()
-    await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Save Supplier Price'&&b.disabled))
+    await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>/^Save & (Next Supplier|Compare Prices)/.test(b.textContent)&&b.disabled))
     assert.equal(await orderCheckbox.isChecked(),false,'Excluded items update after the server confirms the write')
     await page.getByRole('button',{name:'Review & Create Supplier Orders',exact:true}).click()
     await page.getByText('Select at least one priced item to review. Your excluded items remain unticked.',{exact:true}).waitFor()
     assert.equal(await orderCheckbox.isChecked(),false,'Review cannot reselect an excluded priced item')
     await orderCheckbox.click()
-    await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Save Supplier Price'&&b.disabled))
+    await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>/^Save & (Next Supplier|Compare Prices)/.test(b.textContent)&&b.disabled))
     assert.equal(await orderCheckbox.isChecked(),true,'Included items update after the server confirms the write')
     await page.getByRole('button',{name:'Review & Create Supplier Orders',exact:true}).click()
     await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
