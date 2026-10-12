@@ -64,7 +64,7 @@ try{
    assert.fail(message)
   }
   let exceptionFixtures=false
-  const savedQuotes=new Map()
+  const savedQuotes=new Map(),additionalCalls=[]; let extraSizeItems=[]
   let quoteReadFailure=null
   let draftSaveFailure=false
   const draftSaves=[]
@@ -154,12 +154,12 @@ try{
     invitations=[...invitations,invitation]
     data={invitation,rfq_status:rfqStatus,added:true}
    }
-   else if(name==='proc_rfq_items')data=Array.from({length:rfqItemCount},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true}))
-   else if(name==='proc_v_quote_comparison')data=[{rfq_item_id:'00000000-0000-4000-8000-000000000008',supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-fixture',unit_price:100,landed_unit_cost:100,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1}]
+   else if(name==='proc_rfq_items')data=Array.from({length:rfqItemCount},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true})).concat(extraSizeItems)
+   else if(name==='proc_v_quote_comparison')data=[{rfq_item_id:'00000000-0000-4000-8000-000000000008',supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-fixture',unit_price:100,landed_unit_cost:100,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1}].concat(extraSizeItems.map(i=>({rfq_item_id:i.id,supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-size',unit_price:40,landed_unit_cost:40,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1})))
    else if(name==='proc_quotes'){const id=url.searchParams.get('supplier_id')?.slice(3);if(id===quoteReadFailure){quoteReadFailure=null;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture quote load failure'})});return}data=id?(savedQuotes.get(id)||null):[...savedQuotes.entries()].map(([supplier_id,q])=>({...q,supplier_id}))}
    else if(name==='proc_quote_lines'){const id=url.searchParams.get('quote_id')?.slice(3);data=[...savedQuotes.values()].find(q=>q.id===id)?.lines||[]}
-   else if(name==='proc_save_quote_v3'){
-    const p=req.postDataJSON();assert.ok([supplier.id,newSupplier.id].includes(p.p_supplier_id),'Saving uses an invited supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
+   else if(name==='proc_save_quote_v3'||name==='proc_save_quote_with_sizes_v1'){
+    const p=req.postDataJSON();if(name==='proc_save_quote_with_sizes_v1'){additionalCalls.push(p);assert.deepEqual(p.p_additional_sizes,[{source_rfq_item_id:'00000000-0000-4000-8000-000000000008',size:'2 ft',unit_price:40,qty:6,remarks:''}]);extraSizeItems=[{id:'additional-size',rfq_id:rfq.id,requested_qty:6,selected_for_po:true,requirement:{...requirement,adjusted_qty:6,item:{...item,size:'2 ft'}}}];p.p_lines.push({rfq_item_id:'additional-size',unit_price:40,notes:null})}assert.ok([supplier.id,newSupplier.id].includes(p.p_supplier_id),'Saving uses an invited supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
     savedQuotes.set(p.p_supplier_id,{id:'saved-'+p.p_supplier_id,lines:p.p_lines.map((l,i)=>({...l,id:'saved-line-'+i}))})
     rfqStatus='partially_quoted';invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,status:'quoted'}:x);data={status:rfqStatus}
    }
@@ -256,6 +256,39 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_SIZE_ORDER==='1'){
+   rfqItemCount=1
+   await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('36')
+   let add=page.getByRole('button',{name:'+ Add size variation',exact:true}).filter({visible:true})
+   if(!await add.count())await page.locator('.mobile-card-list details > summary').filter({visible:true}).first().click()
+   await add.first().click()
+   const row=page.locator('.formgrid').filter({has:page.getByPlaceholder('e.g. 1½ inch',{exact:true})}).filter({visible:true}).first()
+   await row.getByPlaceholder('e.g. 1½ inch',{exact:true}).fill('2 ft')
+   await row.getByPlaceholder('Price',{exact:true}).fill('40')
+   await row.getByLabel('Additional size required quantity',{exact:true}).fill('0')
+   await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).click()
+   await page.getByText(/Required quantities must be greater than zero/).waitFor()
+   assert.equal(additionalCalls.length,0,'Invalid quantity must not save')
+   await row.getByLabel('Additional size required quantity',{exact:true}).fill('6')
+   await row.getByText(/Separate order line/).waitFor()
+   await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).click()
+   const dialog=page.getByRole('dialog');await dialog.waitFor()
+   await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
+   assert.equal(additionalCalls.length,0,'Cancelling must not add an item')
+   assert.equal(await row.getByLabel('Additional size required quantity',{exact:true}).inputValue(),'6')
+   await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).click()
+   await dialog.getByRole('button',{name:'Continue',exact:true}).click()
+   await page.getByText(/1 additional size line\(s\) added to order review/).waitFor()
+   assert.equal(additionalCalls.length,1)
+   await page.getByRole('button',{name:/Review & Create Supplier Orders/}).click()
+   await page.getByText(/Step 6 · Review & Create Orders/).waitFor()
+   assert.equal(await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).count(),0,'Promoted size is a separate item instead of a stale alternative')
+   await page.screenshot({path:'test-results/additional-size-'+width+'.png',fullPage:false})
+   assert.deepEqual(errors,[])
+   console.log('PASS additional-size quantity, confirmation cancellation, save and order review '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_BULK_SEND==='1'){
    const thirdSupplier={...supplier,id:'00000000-0000-4000-8000-000000000014',name:'Third supplier',phone:'+94770000003',whatsapp:'+94770000003'}
    directory=[supplier,newSupplier,thirdSupplier]
@@ -340,7 +373,7 @@ try{
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='4')
    const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
    await price.waitFor();await price.fill('05');assert.equal(await price.inputValue(),'5');await price.fill('123.45')
-   if(width<760){const row=page.locator('.quote-bill-row').first();assert.ok((await row.boundingBox()).height<160,'Long item stays compact');await row.locator('summary').click();await row.getByRole('button',{name:'+ Add size variation',exact:true}).click();await row.getByPlaceholder('e.g. 1½ inch').fill('2 feet');await row.getByPlaceholder('Price',{exact:true}).fill('40');await row.getByPlaceholder('Reference only').fill('6');await page.screenshot({path:'test-results/compact-quote-variation-'+width+'.png'});await row.getByRole('button',{name:'Remove size',exact:true}).click();await row.locator('summary').click()}
+   if(width<760){const row=page.locator('.quote-bill-row').first();assert.ok((await row.boundingBox()).height<160,'Long item stays compact');await row.locator('summary').click();await row.getByRole('button',{name:'+ Add size variation',exact:true}).click();await row.getByPlaceholder('e.g. 1½ inch').fill('2 feet');await row.getByPlaceholder('Price',{exact:true}).fill('40');await row.getByLabel('Additional size required quantity',{exact:true}).fill('6');await page.screenshot({path:'test-results/compact-quote-variation-'+width+'.png'});await row.getByRole('button',{name:'Remove size',exact:true}).click();await row.locator('summary').click()}
    await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='5')
    await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
@@ -659,7 +692,8 @@ try{
     directory=[supplier,newSupplier]
     await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
     await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
-    const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
+    await page.getByLabel('Price entry filter',{exact:true}).selectOption('all')
+    const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
     const attachment=page.locator('.content > section:not([hidden]) input[type="file"]').first()
     const quotePdf=new jsPDF()
     quotePdf.setFontSize(12)
@@ -706,7 +740,7 @@ try{
     }
     await price.fill('123.45')
     const addSize=page.getByRole('button',{name:'+ Add size variation',exact:true}).filter({visible:true})
-    if(!await addSize.count())await page.locator('.mobile-card-list details').filter({visible:true}).first().locator('summary').click()
+    if(!await addSize.count())await page.locator('.mobile-card-list details > summary').filter({visible:true}).first().click()
     await addSize.first().click()
     await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).filter({visible:true}).first().fill('3 inch')
     const alternatives=page.locator('.formgrid').filter({has:page.getByPlaceholder('e.g. 1½ inch',{exact:true})}).filter({visible:true}).first()
@@ -736,6 +770,7 @@ try{
     await attachment.setInputFiles({name:'supplier-A.pdf',mimeType:'application/pdf',buffer:Buffer.from('Fixture attachment, never uploaded')})
     quoteReadFailure=newSupplier.id
     await quoteSelect.selectOption(newSupplier.id)
+    await page.getByLabel('Price entry filter',{exact:true}).selectOption('all')
     await page.getByRole('button',{name:'Reload Supplier Prices',exact:true}).waitFor()
     assert.equal(await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).isDisabled(),true,'Failed quote loads block overwriting existing prices')
     await page.getByRole('button',{name:'Reload Supplier Prices',exact:true}).click()
@@ -745,11 +780,13 @@ try{
     assert.equal(await page.getByText('Selected attachment: supplier-A.pdf',{exact:true}).count(),0,'Attachments stay with their supplier')
     await price.fill('777')
     await quoteSelect.selectOption(supplier.id)
+    await page.getByLabel('Price entry filter',{exact:true}).selectOption('all')
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await price.inputValue(),'123.45','Switching suppliers restores unsaved prices')
     assert.equal(await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).first().inputValue(),'3 inch','Supplier draft restores alternative sizes')
     await page.getByText('Selected attachment: supplier-A.pdf',{exact:true}).waitFor()
     await quoteSelect.selectOption(newSupplier.id)
+    await page.getByLabel('Price entry filter',{exact:true}).selectOption('all')
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     assert.equal(await price.inputValue(),'777','Each supplier retains its own draft')
     await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
@@ -758,6 +795,7 @@ try{
     assert.equal(await quoteSelect.inputValue(),newSupplier.id,'Saving does not return to the first supplier')
     assert.equal(await price.inputValue(),'777','The saved supplier quote reloads correctly')
     await quoteSelect.selectOption(supplier.id)
+    await page.getByLabel('Price entry filter',{exact:true}).selectOption('all')
     await page.waitForFunction(()=>{const input=document.querySelector('[data-rfq-price-item]');return !!input&&!input.disabled})
     await attachment.setInputFiles([])
     await page.getByRole('button',{name:'Save & Next Supplier →',exact:true}).click()
