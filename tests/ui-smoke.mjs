@@ -5,6 +5,8 @@ import {spawn} from 'node:child_process'
 import assert from 'node:assert/strict'
 import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {jsPDF} from 'jspdf'
+// The default smoke flow follows the current focused UI. Specialized modes retain their own checks.
+if(!Object.keys(process.env).some(k=>k.startsWith('GH_UI_')&&!['GH_UI_BROWSER_CHANNEL','GH_UI_BROWSER_EXECUTABLE'].includes(k)))process.env.GH_UI_FOCUSED='1'
 const root='http://127.0.0.1:3100'
 const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3100'],{stdio:'inherit'})
 let browser
@@ -42,7 +44,7 @@ try{
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
   category:'GENERAL',description:'Fixture hardware item with a long description',size:'2 inch',uom:'PCS',
   movement:'FAST',max_stock:20,reorder_level:10,current_stock:10,active:true,is_due:true}
- const requirement={...item,id:'00000000-0000-4000-8000-000000000004',requirement_no:'REQ-FIXTURE',
+ const requirement={...item,source_count_line_id:'count-line-fixture',id:'00000000-0000-4000-8000-000000000004',requirement_no:'REQ-FIXTURE',
   adjusted_qty:10,remaining_to_order:10,ordered_qty:0,ordered_not_received:0,status:'open',
   approval_status:'pending_review',source_type:'stock_count',priority:'normal',created_at:new Date().toISOString()}
  const supplier={id:'00000000-0000-4000-8000-000000000005',name:'Fixture supplier',phone:'+94779792078',whatsapp:'+94779792078',active:true}
@@ -50,7 +52,8 @@ try{
  const rfq={id:'00000000-0000-4000-8000-000000000006',rfq_no:'RFQ-FIXTURE',status:'prepared',due_date:'2099-01-01'}
  const po={id:'00000000-0000-4000-8000-000000000007',po_no:'PO-FIXTURE',supplier_id:supplier.id,supplier,status:'sent',total:1000,po_date:'2099-01-01'}
  const otherPo={...po,id:'00000000-0000-4000-8000-000000000011',po_no:'PO-SECOND'}
- for(const width of [320,390,768,1366]){
+ for(const width of (process.env.GH_UI_WIDTHS?process.env.GH_UI_WIDTHS.split(',').map(Number):[320,390,768,1366])){
+  let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
   const errors=[],queries=[],receipts=[],stockSubmissions=[],policyViolations=[]
@@ -156,17 +159,24 @@ try{
    }
    else if(name==='proc_rfq_items')data=Array.from({length:rfqItemCount},(_,i)=>({id:i===0?'00000000-0000-4000-8000-000000000008':'sheet-item-'+i,rfq_id:rfq.id,requirement_id:requirement.id,requirement:{...requirement,item:i===0?item:{...item,description:'Bathroom fixture '+i,category:'BATHROOM'}},requested_qty:10,selected_for_po:true})).concat(extraSizeItems)
    else if(name==='proc_v_quote_comparison')data=[{rfq_item_id:'00000000-0000-4000-8000-000000000008',supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-fixture',unit_price:100,landed_unit_cost:100,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1}].concat(extraSizeItems.map(i=>({rfq_item_id:i.id,supplier_id:supplier.id,supplier_name:supplier.name,quote_line_id:'quote-size',unit_price:40,landed_unit_cost:40,landed_rank:1,available_qty:null,lead_days:null,moq:0,order_multiple:1})))
+   else if(name==='proc_quote_snapshot_v1'){
+    const supplierId=req.postDataJSON().p_supplier_id
+    if(supplierId===quoteReadFailure){quoteReadFailure=null;return route.fulfill({status:400,json:{message:'Fixture quote load failure'}})}
+    const q=savedQuotes.get(supplierId)||null;data={quote:q,lines:q?.lines||[],revision:JSON.stringify(q)}
+   }
    else if(name==='proc_quotes'){const id=url.searchParams.get('supplier_id')?.slice(3);if(id===quoteReadFailure){quoteReadFailure=null;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture quote load failure'})});return}data=id?(savedQuotes.get(id)||null):[...savedQuotes.entries()].map(([supplier_id,q])=>({...q,supplier_id}))}
    else if(name==='proc_quote_lines'){const id=url.searchParams.get('quote_id')?.slice(3);data=[...savedQuotes.values()].find(q=>q.id===id)?.lines||[]}
-   else if(name==='proc_save_quote_v3'||name==='proc_save_quote_with_sizes_v1'){
-    const p=req.postDataJSON();if(name==='proc_save_quote_with_sizes_v1'){additionalCalls.push(p);assert.deepEqual(p.p_additional_sizes,[{source_rfq_item_id:'00000000-0000-4000-8000-000000000008',size:'2 ft',unit_price:40,qty:6,remarks:''}]);extraSizeItems=[{id:'additional-size',rfq_id:rfq.id,requested_qty:6,selected_for_po:true,requirement:{...requirement,adjusted_qty:6,item:{...item,size:'2 ft'}}}];p.p_lines.push({rfq_item_id:'additional-size',unit_price:40,notes:null})}assert.ok([supplier.id,newSupplier.id].includes(p.p_supplier_id),'Saving uses an invited supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
-    savedQuotes.set(p.p_supplier_id,{id:'saved-'+p.p_supplier_id,lines:p.p_lines.map((l,i)=>({...l,id:'saved-line-'+i}))})
+   else if(name==='proc_save_quote_guarded_v1'){
+    const p=req.postDataJSON();if(p.p_expected_revision!==JSON.stringify(savedQuotes.get(p.p_supplier_id)||null))return route.fulfill({status:409,json:{code:'40001',message:'Saved supplier quotation changed'}});if(p.p_additional_sizes?.length){additionalCalls.push(p);assert.deepEqual(p.p_additional_sizes,[{source_rfq_item_id:'00000000-0000-4000-8000-000000000008',size:'2 ft',unit_price:40,qty:6,remarks:''}]);extraSizeItems=[{id:'additional-size',rfq_id:rfq.id,requested_qty:6,selected_for_po:true,requirement:{...requirement,adjusted_qty:6,item:{...item,size:'2 ft'}}}];p.p_lines.push({rfq_item_id:'additional-size',unit_price:40,notes:null})}assert.ok([supplier.id,newSupplier.id].includes(p.p_supplier_id),'Saving uses an invited supplier');assert.equal(p.p_attachment_path,null,'Another supplier’s attachment is not uploaded')
+    savedQuotes.set(p.p_supplier_id,{id:'saved-'+p.p_supplier_id,quote_ref:p.p_quote_ref,freight_total:p.p_freight_total,minimum_order_value:p.p_minimum_order_value,valid_until:p.p_valid_until,notes:p.p_notes,lines:p.p_lines.map((l,i)=>({...l,id:'saved-line-'+i}))})
     rfqStatus='partially_quoted';invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,status:'quoted'}:x);data={status:rfqStatus}
    }
    else if(name==='proc_set_rfq_supplier_items_v1'){const p=req.postDataJSON();invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,requested_item_ids:p.p_item_ids}:x);data=invitations.find(x=>x.supplier_id===p.p_supplier_id)}
-   else if(name==='proc_purchase_orders')data=[{...po,status:poFixtureStatus},otherPo]
+   else if(name==='proc_finalize_award_with_variations_v1')data=[{po_id:po.id,po_no:po.po_no,supplier_id:supplier.id}]
+   else if(name==='proc_purchase_orders'){data=[{...po,status:poFixtureStatus},otherPo];const scope=url.searchParams.get('id');if(scope?.startsWith('in.'))data=data.filter(x=>scope.includes(x.id));if(url.searchParams.get('status')==='eq.approved')data=data.filter(x=>x.status==='approved')}
    else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
    else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
+   else if(name==='proc_po_lines'&&url.searchParams.has('source_quote_line_id'))data=[{po_id:po.id,po:{...po,status:poFixtureStatus}}]
    else if(name==='proc_po_lines'){
     const first={id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}
     data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):receivingManyRows?[first,...Array.from({length:8},(_,i)=>({...first,id:'receiving-line-'+i,item:{...item,description:'Receiving fixture '+(i+2)}}))]:[first]
@@ -177,7 +187,9 @@ try{
    else if(name==='proc_submit_stock_and_continue_v3'){stockSubmissions.push(req.postDataJSON());data={automation:{status:'review_required',submitted_items:1,requirements:1}}}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
    else if(name==='proc_admin_reset_preview_v1')data={scope:req.postDataJSON().p_scope,counts:{proc_purchase_orders:2,proc_stock_balances:1},token:'fixture-preview-token'}
-   else if(name==='proc_settings')data=[{key:'company_profile',value:{name:'General Hardware',town:'Nawalapitiya'}}]
+   else if(name==='proc_stock_count_lines')data=[{count_id:'count-fixture'}]
+   else if(name==='proc_stock_counts')data=[{id:'count-fixture',count_no:'COUNT-FIXTURE',submitted_at:'2026-10-12T09:00:00Z',counted_by:profile.id}]
+   else if(name==='proc_settings'){if(req.method()==='POST')interfacePreference=req.postDataJSON().value;data=[{key:'company_profile',value:{name:'General Hardware',town:'Nawalapitiya'}},...(interfacePreference?[{key:'interface_preferences',value:interfacePreference}]:[])]}
    else if(name==='proc_feature_settings')data=[{feature_key:'stock.server_drafts',enabled:true}]
    else if(name==='proc_stock_count_drafts'){
     if(req.method()==='POST'){
@@ -256,9 +268,92 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_FOCUSED==='1'){
+   rfqItemCount=6
+   await navigate('Q RFQs & Quotes')
+   await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
+   const guide=page.getByRole('navigation',{name:'Guided procurement navigation',exact:true})
+   assert.ok(await guide.getByText('STAGE 1 OF 3',{exact:true}).isVisible())
+   assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).count(),0,'Sending interface hides prices')
+   await page.getByRole('button',{name:'Save & enter received quotes →',exact:true}).click()
+   const input=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
+   await input.waitFor();await input.fill('05');assert.equal(await input.inputValue(),'5')
+   await input.fill('123.45');await page.waitForTimeout(400)
+   assert.equal(await page.locator('.rfq-bulk-send').filter({visible:true}).count(),0,'Quote interface hides sending')
+   assert.equal(await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).filter({visible:true}).count(),0,'Quote interface hides comparison')
+   await page.locator('.stock-source > summary').click()
+   await page.getByText(/COUNT-FIXTURE.*02:30/).waitFor()
+   await page.locator('.stock-source > summary').click()
+   await page.getByRole('button',{name:'Focus entry',exact:true}).click()
+   await page.evaluate(()=>window.scrollTo(0,0))
+   await page.screenshot({path:'test-results/focused-quotes-'+width+'.png'})
+   const dock=page.locator('.task-dock').filter({visible:true}).first()
+   assert.ok(await dock.isVisible())
+   const bounds=await dock.boundingBox();assert.ok(bounds.y<844,'Main action stays in viewport')
+   await page.getByRole('button',{name:'Exit focus',exact:true}).click()
+   assert.ok(await guide.getByText('STAGE 2 OF 3',{exact:true}).isVisible())
+   await page.reload();await page.locator('.app').waitFor()
+   await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
+   assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'123.45','Refresh restores unsaved supplier prices')
+   savedQuotes.set(supplier.id,{id:'changed-server-quote',lines:[{id:'changed-line',rfq_item_id:'00000000-0000-4000-8000-000000000008',unit_price:222,notes:null}]})
+   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.getByRole('button',{name:'Restore my draft for review',exact:true}).waitFor()
+   assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'222','A newer server quote is never silently overwritten by a stale draft')
+   assert.equal(await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).isDisabled(),true,'Conflict must be resolved before saving')
+   await page.getByRole('button',{name:'Restore my draft for review',exact:true}).click()
+   savedQuotes.set(supplier.id,{id:'changed-again-quote',freight_total:88,minimum_order_value:250,quote_ref:'CURRENT',notes:'Supplier terms',lines:[{id:'changed-again-line',rfq_item_id:'00000000-0000-4000-8000-000000000008',unit_price:333,notes:null}]})
+   await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).click()
+   await page.getByRole('button',{name:'Restore my draft for review',exact:true}).waitFor()
+   assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'333','Save-time conflict reloads the newer saved quotation')
+   await page.getByRole('button',{name:'Keep current saved prices',exact:true}).click()
+   await page.locator('.rfq-task-screen details').filter({hasText:'Quotation validity & commercial terms'}).locator('summary').click()
+   assert.equal(await page.getByLabel('Supplier freight',{exact:true}).inputValue(),'88')
+   await page.getByLabel('Quotation reference',{exact:true}).fill('REVISED')
+   await page.getByLabel('Supplier freight',{exact:true}).fill('90')
+   await page.getByLabel('Minimum order value',{exact:true}).fill('275')
+   await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('123.45')
+   await page.waitForTimeout(400)
+   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
+   assert.equal(await page.getByLabel('Supplier freight',{exact:true}).inputValue(),'90','Commercial draft restores after refresh')
+   assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'123.45')
+   await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).click()
+   await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).waitFor()
+   assert.equal(savedQuotes.get(supplier.id).freight_total,90);assert.equal(savedQuotes.get(supplier.id).minimum_order_value,275);assert.equal(savedQuotes.get(supplier.id).quote_ref,'REVISED')
+   assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).count(),0,'Comparison hides entry')
+   await page.getByRole('button',{name:'Review & Create Supplier Orders',exact:true}).click()
+   await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
+   await page.getByRole('heading',{name:'Choose prices · Review & create orders',exact:true}).waitFor()
+   assert.equal(await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).filter({visible:true}).count(),0,'Review hides comparison')
+   assert.ok(!queries.some(u=>u.pathname.includes('proc_finalize_award')),'Opening review never creates a PO')
+   await page.screenshot({path:'test-results/focused-review-'+width+'.png'})
+   await page.getByRole('button',{name:'Approve & create POs →',exact:true}).click()
+   await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
+   await page.getByText(/Showing the 1 PO\(s\) created for this order/).waitFor()
+   assert.ok(queries.some(u=>u.pathname.endsWith('/proc_purchase_orders')&&u.searchParams.get('id')==='in.('+po.id+')'),'Created order list is scoped to this batch')
+   assert.ok(await page.getByText('STAGE 3 OF 3',{exact:true}).isVisible())
+   await navigate('⚙ Admin')
+   await page.getByText('Interface · Fonts & spacing',{exact:true}).click()
+   await page.getByRole('button',{name:'Large',exact:true}).click()
+   const settings=page.locator('.admin-accordion').filter({has:page.getByText('Interface · Fonts & spacing',{exact:true})})
+   await settings.getByRole('button',{name:'Save interface settings',exact:true}).click()
+   await page.getByText('Interface settings saved for all staff.',{exact:true}).waitFor()
+   assert.equal(interfacePreference.mobile.reorder,22)
+   await navigate('✓ Stock Entry')
+   await page.locator('.stock-reorder-value').filter({visible:true}).first().waitFor()
+   const expected=width<=700?'22px':'18px'
+   assert.equal(await page.locator('.stock-reorder-value').filter({visible:true}).first().evaluate(el=>getComputedStyle(el).fontSize),expected,'Saved font settings apply on correct device')
+   assert.ok((await page.evaluate(()=>document.documentElement.scrollWidth))<=width+1,'No horizontal overflow')
+   assert.deepEqual(errors,[])
+   console.log('PASS focused tasks, draft recovery, submission time, review guards and font settings '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_SIZE_ORDER==='1'){
    rfqItemCount=1
    await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.getByRole('button',{name:'Save & enter received quotes →',exact:true}).click()
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('36')
    let add=page.getByRole('button',{name:'+ Add size variation',exact:true}).filter({visible:true})
    if(!await add.count())await page.locator('.mobile-card-list details > summary').filter({visible:true}).first().click()
@@ -282,7 +377,7 @@ try{
    await page.getByText(/1 additional size line\(s\) added to order review/).waitFor()
    assert.equal(additionalCalls.length,1)
    await page.getByRole('button',{name:/Review & Create Supplier Orders/}).click()
-   await page.getByText(/Step 6 · Review & Create Orders/).waitFor()
+   await page.getByText(/Choose prices · Review & create orders/).waitFor()
    assert.equal(await page.getByPlaceholder('e.g. 1½ inch',{exact:true}).count(),0,'Promoted size is a separate item instead of a stale alternative')
    await page.screenshot({path:'test-results/additional-size-'+width+'.png',fullPage:false})
    assert.deepEqual(errors,[])
@@ -376,7 +471,7 @@ try{
    if(width<760){const row=page.locator('.quote-bill-row').first();assert.ok((await row.boundingBox()).height<160,'Long item stays compact');await row.locator('summary').click();await row.getByRole('button',{name:'+ Add size variation',exact:true}).click();await row.getByPlaceholder('e.g. 1½ inch').fill('2 feet');await row.getByPlaceholder('Price',{exact:true}).fill('40');await row.getByLabel('Additional size required quantity',{exact:true}).fill('6');await page.screenshot({path:'test-results/compact-quote-variation-'+width+'.png'});await row.getByRole('button',{name:'Remove size',exact:true}).click();await row.locator('summary').click()}
    await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='5')
-   await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()
+   await page.getByRole('button',{name:'Review & Create Supplier Orders',exact:true}).click()
    await page.locator('.award-review').waitFor()
    assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'6')
    assert.ok(!queries.some(u=>u.pathname.endsWith('/proc_finalize_award_plan_v2')),'Guided Next never creates an order without final confirmation')

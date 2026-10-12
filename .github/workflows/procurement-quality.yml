@@ -44,7 +44,7 @@ jobs:
         run: google-chrome --version
       - name: Verify guided layouts at mobile, tablet and desktop widths
         run: npm run test:ui
-      - name: Verify automatic six-step procurement progression
+      - name: Verify automatic three-stage procurement progression
         env:
           GH_UI_GUIDE_APPROVAL: '1'
         run: npm run test:ui
@@ -63,3 +63,22 @@ jobs:
           name: procurement-ui-evidence
           path: test-results/
           if-no-files-found: ignore
+
+  quote-conflicts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: isolated_quotes
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify atomic quotation guards in disposable PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: psql -h 127.0.0.1 -U postgres -d isolated_quotes -v ON_ERROR_STOP=1 -f tests/sql/quote-conflict-isolated.sql

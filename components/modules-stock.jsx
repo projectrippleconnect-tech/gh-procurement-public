@@ -8,10 +8,10 @@ import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows} from '@/lib/query-pages'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
-import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
+import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 
-export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
+export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
  const[loadState,setLoadState]=useState({})
  const loadSerial=useRef(0)
@@ -49,6 +49,7 @@ export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
+  {lastWork&&canNavigate(lastWork.view)&&<button className="btn primary section" onClick={resumeWork}>Continue order / task →</button>}
   <div className="card pad section"><h3>Today's work</h3><div className="toolbar section">{canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>Review outstanding items</button>}{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq')}>Enter / compare prices</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','pending_approval')}>Approve orders</button>}{canNavigate('receiving')&&<button className="btn" onClick={()=>navigate('receiving')}>Receive deliveries</button>}<button className="btn small" onClick={load}>Refresh work queues</button></div></div>
   <div className="grid metrics">{cards.map(x=>{
    const key=x[0].slice('dashboard.'.length),target=destinations[key]
@@ -453,7 +454,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
  function submissionTime(v){
   if(!v)return '—'
-  try{return new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}catch{return String(v)}
+  try{return new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Colombo'})}catch{return String(v)}
  }
  async function loadStockHistory(){
   setHistoryLoading(true)
@@ -537,7 +538,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    <div className="guided-progress"><i style={{width:(items.length?Math.min(100,(completedCount/items.length)*100):0)+'%'}}/></div>
 
    <div className="guided-item">
-    <div className="stock-card-title"><div><h2 title={itemTitle(current)}>{itemTitle(current)}</h2></div><Badge>{current.movement}</Badge></div>
+    <div className="stock-card-title"><div><h2 title={itemTitle(current)}><ItemLabel item={current}/></h2></div><Badge>{current.movement}</Badge></div>
     <div className="guided-meta">{[current.brand,current.uom].filter(Boolean).map(x=><span key={x}>{x}</span>)}{rowField('reorder_level',true)&&<span className="stock-reorder-value">Reorder: {qty(current.reorder_level)}</span>}</div>
     <div className="guided-entry"><label>{t('stock.physical','Physical Stock')}</label><input ref={guidedInput} className="input" inputMode="decimal" enterKeyHint="next" value={entry[current.item_id]??''} onChange={e=>setCount(current.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveNext()}}} placeholder="Enter quantity"/></div>
     {!isCounter&&<div className="guided-stats"><div><span>{t('stock.max','Maximum Stock')} <InfoButton topic="maximum_stock" language={language}/></span><b>{qty(current.max_stock)}</b></div><div><span>{t('stock.reorder','Reorder Level')} <InfoButton topic="reorder_level" language={language}/></span><b>{qty(current.reorder_level)}</b></div><div><span>{t('stock.suggested','Suggested')}</span><b className="warn-text">{suggested(current)===null?'—':qty(suggested(current))}</b></div></div>}
@@ -572,7 +573,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
      ].filter(Boolean)
      return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')} key={i.item_id}>
       <button type="button" className="stock-dense-info" title={itemTitle(i)} onClick={()=>setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}>
-       <span className="stock-dense-title">{itemTitle(i)}</span>
+       <span className="stock-dense-title"><ItemLabel item={i}/></span>
        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
       </button>
       <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={itemTitle(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>

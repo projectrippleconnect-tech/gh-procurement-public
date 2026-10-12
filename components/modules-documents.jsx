@@ -51,17 +51,20 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
    flash('WhatsApp gateway accepted the PO image + caption. Check WhatsApp before confirming Sent.')
   }catch(e){fail(e)}finally{setShareBusy(false);await refreshPoGateway(active.id)}
  }
- const pageSize=100
+ const batchIds=initialFilter.startsWith('batch:')?initialFilter.slice(6).split(',').filter(id=>/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)):[]
+ const batchKey=batchIds.join(',')
+ const pageSize=20
  const opening=useRef(0)
  const load=useCallback(async()=>{
   let q=supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
+  if(batchKey)q=q.in('id',batchKey.split(','))
   if(filter==='open')q=q.in('status',['pending_approval','approved','sent','partially_received'])
   else if(filter==='non_cancelled')q=q.neq('status','cancelled')
   else if(filter==='overdue')q=q.lt('expected_date',businessDate()).in('status',['sent','partially_received'])
   else if(filter!=='all')q=q.eq('status',filter)
   const r=await q
   if(r.error)fail(r.error);else{setRows(r.data||[]);setTotal(r.count||0)}
- },[filter,page,fail])
+ },[filter,page,fail,batchKey])
  useEffect(()=>{if(activeView==='po')load()},[load,activeView])
  useEffect(()=>{setPage(0)},[filter])
  useEffect(()=>{if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter))return;let cancelled=false;(async()=>{const r=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',initialFilter).single();if(cancelled)return;if(r.error)return fail(r.error);void open(r.data)})();return()=>{cancelled=true}},[initialFilter,fail])
@@ -133,6 +136,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   {key:'line_total',label:'Line Total',render:l=>money(l.line_total)}
  ])
  const renderOrder=()=> <div className="po-expanded" id={'po-details-'+active.id}>
+   <div className="order-progress" role="status"><strong>{['sent','partially_received','received','closed'].includes(active.status)?'PO completion · 100% · preparation and sending complete':active.status==='cancelled'?'Order cancelled':active.status==='approved'?'PO completion · 67% · approved, sending remains':'PO completion · 33% · created, approval remains'}</strong><small>Delivery is tracked separately.</small></div>
    <div className="sectionhead"><div><h3>{active.po_no}</h3><p>{active.supplier?.name} · {active.po_date}</p></div><Badge>{active.status}</Badge></div>
    <details className="section po-order-meta"><summary>Order details · dates, terms & remarks</summary><div className="document-meta">
     {fieldEnabled(fields,'po','supplier')&&<div><span>{fieldLabel(fields,'po','supplier','Supplier')}</span><b>{active.supplier?.name||'—'}</b></div>}
@@ -146,7 +150,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
    {!linesReady?<p role="status">Loading PO items…</p>:<div className="po-bill section" style={{'--po-numeric-columns':poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).length}} role="region" aria-label="Purchase order bill">
     <div className="po-bill-head"><span>Item / size</span>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.label}</span>)}</div>
     {lines.map(l=><details className="po-bill-line" key={l.id}>
-     <summary><strong title={itemTitle(l.item||{})}>{itemTitle(l.item||{})}</strong>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.key==='qty'?qty(l.qty):Number(l[c.key]||0).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>)}</summary>
+     <summary><strong title={itemTitle(l.item||{})}><ItemLabel item={l.item||{}}/></strong>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.key==='qty'?qty(l.qty):Number(l[c.key]||0).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>)}</summary>
      <div className="po-line-details"><strong>{itemTitle(l.item||{})}</strong><dl>{poCols.map(c=><div key={c.key}><dt>{c.label}</dt><dd>{c.render(l)}</dd></div>)}{l.notes&&<div><dt>Remarks</dt><dd>{l.notes}</dd></div>}</dl></div>
     </details>)}
    </div>}
@@ -174,7 +178,8 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  </div>
  return <div className="card pad po-orders">
   <div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>Tap a PO row to expand its bill, details and supplier actions.</p></div></div>
-  {canEdit&&<PoBulkSend company={company} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
+  {canEdit&&batchKey&&<PoBulkSend orderIds={batchIds} company={company} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
+  {batchKey&&<div className="notice section">Showing the {batchIds.length} PO(s) created for this order. <button className="btn small" onClick={()=>navigate('po','all')}>View all orders</button></div>}
   <div className="filters two section"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
   <div className="po-order-list section">{filtered.map(po=><div className="po-order" key={po.id}>
    <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
