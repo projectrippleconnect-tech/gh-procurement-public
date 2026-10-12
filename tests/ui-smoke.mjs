@@ -10,6 +10,11 @@ if(!Object.keys(process.env).some(k=>k.startsWith('GH_UI_')&&!['GH_UI_BROWSER_CH
 const root='http://127.0.0.1:3100'
 const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3100'],{stdio:'inherit'})
 let browser
+async function setRange(locator,value){
+ await locator.focus();await locator.press('Home')
+ const min=Number(await locator.getAttribute('min'))
+ for(let n=min;n<value;n++)await locator.press('ArrowRight')
+}
 try{
  for(let attempt=0;attempt<100;attempt++){
   try{if((await fetch(root)).ok)break}catch{}
@@ -337,6 +342,8 @@ try{
    assert.ok(queries.some(u=>u.pathname.endsWith('/proc_purchase_orders')&&u.searchParams.get('id')==='in.('+po.id+')'),'Created order list is scoped to this batch')
    assert.ok(await page.getByText('STAGE 3 OF 3',{exact:true}).isVisible())
    await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   await page.getByRole('region',{name:'Purchase order bill',exact:true}).waitFor()
+   await page.screenshot({path:'test-results/po-before-approval-'+width+'.png'})
    await page.getByRole('button',{name:'Approve PO',exact:true}).click()
    await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
    await page.getByText('Purchase order approved.',{exact:true}).waitFor()
@@ -359,14 +366,14 @@ try{
    await page.getByRole('button',{name:'Large',exact:true}).click()
    const settings=page.locator('.admin-accordion').filter({has:page.getByText('Interface · Fonts & spacing',{exact:true})})
    for(const [label,value] of [['Item description',17],['Size / variation',13],['Reorder level',21],['Stock, quantity & price inputs',19],['Row spacing',8]]){
-    await settings.getByRole('slider',{name:new RegExp('^'+label.replaceAll('&','&'))}).fill(String(value))
+    await setRange(settings.getByRole('slider',{name:new RegExp('^'+label)}),value)
    }
    assert.equal(await settings.getByLabel('Preview stock input',{exact:true}).evaluate(el=>getComputedStyle(el).fontSize),'19px','Independent input font previews immediately')
    await settings.getByRole('button',{name:'Reset preview to defaults',exact:true}).click()
    assert.equal(await settings.getByLabel('Preview stock input',{exact:true}).evaluate(el=>getComputedStyle(el).fontSize),'16px')
    await settings.getByRole('button',{name:'Large',exact:true}).click()
    await settings.getByLabel('Preview device',{exact:true}).selectOption('desktop')
-   await settings.getByRole('slider',{name:/^Item description/}).fill('20')
+   await setRange(settings.getByRole('slider',{name:/^Item description/}),20)
    assert.equal(await settings.getByRole('slider',{name:/^Reorder level/}).inputValue(),'18','Mobile preset does not change desktop settings')
    await settings.getByLabel('Preview device',{exact:true}).selectOption('mobile')
    await settings.getByRole('button',{name:'Save interface settings',exact:true}).click()
