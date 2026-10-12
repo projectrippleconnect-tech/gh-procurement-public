@@ -1090,6 +1090,10 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
 
    <div className="mobile-card-list section">
     <div className="muted tiny" style={{marginBottom:8}}>Quick price entry · tap Details only for remarks or alternative sizes</div>
+    <div className="muted tiny" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid var(--border, #334155)',fontWeight:700}}>
+     <span>Item</span><span>Unit price (Rs.)</span><span style={{textAlign:'center'}} title="Include in purchase order">Order ✓</span>
+    </div>
+    <p className="muted tiny" style={{margin:'6px 0 8px'}}>Blue tick = include in purchase order. It does not mean a price has been received.</p>
     {visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8}}>
       <div style={{minWidth:0}}><strong style={{fontSize:14,lineHeight:1.3,display:'block',overflowWrap:'anywhere'}}>{itemTitle(i.requirement?.item||{})}</strong><span className="muted tiny">{qty(i.requested_qty)} {i.requirement?.item?.uom||''}</span></div>
