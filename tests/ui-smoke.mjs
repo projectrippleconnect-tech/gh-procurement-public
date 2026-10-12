@@ -691,7 +691,8 @@ try{
     directory=[supplier,newSupplier]
     await page.getByRole('button',{name:'Refresh Suppliers',exact:true}).click()
     await newSelect.locator('option[value="'+newSupplier.id+'"]').waitFor({state:'attached'})
-    const price=page.locator('input[placeholder="Price"],input[placeholder="Rs."]').filter({visible:true}).first()
+    await page.getByLabel('Price entry filter',{exact:true}).selectOption('all')
+    const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
     const attachment=page.locator('.content > section:not([hidden]) input[type="file"]').first()
     const quotePdf=new jsPDF()
     quotePdf.setFontSize(12)
