@@ -19,6 +19,14 @@ export const Badge=({children})=><span className={'badge '+statusClass(children)
 export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
+export function WorkflowNavigation({view,navigate,canNavigate,t=(k,f)=>f||k}){
+ const steps=[['stock','Stock entry'],['requirements','Review & RFQ'],['rfq','Quotes & comparison'],['po','Purchase orders'],['receiving','Receive goods']]
+ const current=steps.findIndex(([key])=>key===view)
+ if(current<0)return null
+ const hints={stock:'Submit your count, then continue to review any shortages.',requirements:'Approve quantities, choose suppliers and create the RFQ to continue.',rfq:'Send requests → enter supplier prices → compare → review and create orders.',po:'Review or approve the order, send it to the supplier, then receive the delivery.',receiving:'Choose the purchase order and confirm the quantities actually received.'}
+ return <nav className="workflow-navigation" aria-label="Procurement workflow"><div className="workflow-page-links">{steps.filter(([key])=>canNavigate(key)).map(([key,label])=><button key={key} className={'btn small '+(key===view?'primary':'')} aria-current={key===view?'step':undefined} onClick={()=>navigate(key)}>{t('workflow.'+key,label)}</button>)}</div><p>{t('workflow.'+view+'.hint',hints[view])}</p></nav>
+}
+
 export function ProcurementPath({active=4,counts={},t=(k,f)=>f||k}){
  const steps=[[1,'Stock'],[2,'Review & buy'],[3,'Orders'],[4,'Receive']]
  const current=active<=3?1:active<=6?2:active===7?3:4

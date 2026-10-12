@@ -53,7 +53,7 @@ try{
  for(const width of [320,390,768,1366]){
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  const errors=[],queries=[],receipts=[],policyViolations=[]
+  const errors=[],queries=[],receipts=[],stockSubmissions=[],policyViolations=[]
   await page.exposeFunction('ghRecordCspViolation',data=>policyViolations.push(data))
   await context.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.ghRecordCspViolation({directive:e.effectiveDirective,blocked:e.blockedURI})))
   async function requireQuery(predicate,message){
@@ -159,6 +159,7 @@ try{
    else if(name==='proc_search_item_master_v2')data=[{...item,item_code:'FIXTURE-ITEM',total_count:1}]
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
+   else if(name==='proc_submit_stock_and_continue_v3'){stockSubmissions.push(req.postDataJSON());data={automation:{status:'review_required',submitted_items:1,requirements:1}}}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
    else if(name==='proc_admin_reset_preview_v1')data={scope:req.postDataJSON().p_scope,counts:{proc_purchase_orders:2,proc_stock_balances:1},token:'fixture-preview-token'}
    else if(name==='proc_settings')data=[{key:'company_profile',value:{name:'General Hardware',town:'Nawalapitiya'}}]
@@ -246,6 +247,27 @@ try{
   const historyStockInput=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
   await historyStockInput.waitFor()
   await historyStockInput.fill('8')
+  await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
+  const stockDialog=page.getByRole('dialog',{name:'Submit stock count',exact:true})
+  await stockDialog.waitFor()
+  await page.screenshot({path:'test-results/stock-confirmation-'+width+'.png'})
+  assert.equal(await page.locator('[inert]').count(),1)
+  await stockDialog.getByRole('button',{name:'Cancel',exact:true}).click()
+  assert.equal(stockSubmissions.length,0,'Cancel leaves the stock draft unchanged')
+  assert.equal(await historyStockInput.inputValue(),'8')
+  await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
+  await stockDialog.getByRole('button',{name:'Submit stock',exact:true}).click()
+  await page.getByRole('button',{name:'Continue to Procurement Review →',exact:true}).waitFor()
+  assert.equal(stockSubmissions.length,1)
+  assert.equal(stockSubmissions[0].p_lines[0].current_stock,8)
+  await page.screenshot({path:'test-results/stock-next-step-'+width+'.png'})
+  await page.getByRole('button',{name:'Continue to Procurement Review →',exact:true}).click()
+  await page.getByRole('heading',{name:'Procurement Review',exact:true}).waitFor()
+  console.log('PASS stock confirmation Cancel/Submit, persistent result and Review continuation at '+width+'px')
+  if(process.env.GH_UI_STOCK_ONLY==='1'){await context.close();continue}
+  await page.getByRole('button',{name:'Go back',exact:true}).click()
+  await historyStockInput.fill('8')
+
   await navigate('Q RFQs & Quotes')
   await page.getByRole('button',{name:'Go back',exact:true}).click()
   await page.getByRole('heading',{name:'Stock Entry',exact:true}).first().waitFor()
@@ -642,8 +664,8 @@ try{
     await orderCheckbox.click()
     await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Save Supplier Price'&&b.disabled))
     assert.equal(await orderCheckbox.isChecked(),true,'Included items update after the server confirms the write')
-    page.once('dialog',dialog=>dialog.accept())
     await page.getByRole('button',{name:'Review & Create Supplier Orders',exact:true}).click()
+    await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
     await page.locator('.award-review').waitFor()
     assert.equal(await page.getByLabel('Award quantity for '+item.description+' · '+item.size,{exact:true}).inputValue(),'10','A one-quote item reaches the final quantity review')
     assert.ok(!queries.some(u=>u.pathname.endsWith('/proc_finalize_award_plan_v2')),'Opening the review does not create purchase orders')
@@ -703,6 +725,7 @@ try{
      if(savedAttempt)await page.getByText('A receipt attempt is saved.',{exact:false}).waitFor()
      else await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
      await page.getByRole('button',{name:'Post GRN',exact:true}).click()
+     await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
      await page.getByText('Fixture receipt retry',{exact:true}).waitFor()
      await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Posting…'))
      await page.waitForTimeout(100)
@@ -755,9 +778,10 @@ try{
      let dialogNumber=0;const sendDialog=async d=>{dialogNumber++;await d.accept(d.type()==='prompt'?'PO fixture caption':undefined)}
      page.on('dialog',sendDialog)
      await page.getByRole('button',{name:'Send PO PNG + Caption',exact:true}).click()
+     await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
      await page.getByText('WhatsApp gateway accepted the PO image + caption.',{exact:false}).waitFor()
      page.off('dialog',sendDialog)
-     assert.equal(dialogNumber,2);assert.equal(poGatewayRequests.length,1)
+     assert.equal(dialogNumber,1);assert.equal(poGatewayRequests.length,1)
      assert.equal(poGatewayRequests[0].poId,po.id);assert.equal(poGatewayRequests[0].caption,'PO fixture caption')
      assert.equal(Buffer.from(poGatewayRequests[0].pngBase64,'base64').subarray(0,8).toString('hex'),'89504e470d0a1a0a')
      assert.equal(poGatewayRequests[0].supplierId,undefined,'Recipient is resolved server-side from PO')

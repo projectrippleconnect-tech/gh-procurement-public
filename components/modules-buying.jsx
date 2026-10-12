@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {useDangerConfirmation} from './danger-confirmation'
+import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
 import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection} from '@/lib/rfq-sheet'
@@ -419,6 +419,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
 }
 
 export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},language='en',t=(k,f)=>f||k}){
+ const confirmAction=useActionConfirmation()
  const commercialEnabled=features.find(x=>x.feature_key==='quotes.commercial_terms')?.enabled!==false
  const awardReviewEnabled=features.find(x=>x.feature_key==='quotes.award_review')?.enabled!==false
 
@@ -426,7 +427,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  const[rfqs,setRfqs]=useState([]),[rfqTotal,setRfqTotal]=useState(0),[page,setPage]=useState(0),[summaries,setSummaries]=useState({}),[suppliers,setSuppliers]=useState([])
  const[active,setActive]=useState(null),[items,setItems]=useState([]),[invite,setInvite]=useState([]),[comparison,setComparison]=useState([])
  const canEdit=can('procurement.rfq.manage')&&(!active||['draft','prepared','sent','partially_quoted','quoted'].includes(active.status))
- const opening=useRef(0),quoteLoading=useRef(0),priceEntryRef=useRef(null),comparisonRef=useRef(null),quoteDrafts=useRef(new Map()),loadedQuote=useRef('{}')
+ const opening=useRef(0),quoteLoading=useRef(0),priceEntryRef=useRef(null),comparisonRef=useRef(null),awardReviewRef=useRef(null),quoteDrafts=useRef(new Map()),loadedQuote=useRef('{}')
  const[loadingQuote,setLoadingQuote]=useState(false),[quoteLoadError,setQuoteLoadError]=useState(false)
  const[addSupplierId,setAddSupplierId]=useState(''),[scopeOverride,setScopeOverride]=useState(''),[addingSupplier,setAddingSupplier]=useState(false)
  const[supplier,setSupplier]=useState(''),[quoteRef,setQuoteRef]=useState(''),[validUntil,setValidUntil]=useState(''),[prices,setPrices]=useState({}),[file,setFile]=useState(null),[quoteOcrBusy,setQuoteOcrBusy]=useState(false)
@@ -679,9 +680,10 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    if(r.error)throw r.error
    quoteSaved=true
    setFile(null)
-   flash(quoted.length+' supplier item price(s) saved. Next: Review quoted items, or select another supplier to enter more prices. No purchase order has been created.')
+   flash(quoted.length+' supplier item price(s) saved. Next: compare prices.')
    quoteDrafts.current.delete(active.id+':'+supplier)
    await open({...active,status:r.data.status},supplier,false);load()
+   comparisonRef.current?.scrollIntoView({block:'start'})
   }catch(e){if(path&&!quoteSaved)await supabase.storage.from('gh-procurement').remove([path]);fail(e)}finally{setBusy(false)}
  }
 
@@ -700,7 +702,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   const next=pricedReviewSelection(items,comparison,includeExcluded!==false)
   const count=next.filter(i=>i.selected_for_po).length
   if(!count)return fail(new Error('Select at least one priced item to review. Your excluded items remain unticked.'))
-  if(!window.confirm('Review '+count+' priced item(s) and leave unpriced items outstanding? '+(includeExcluded===false?'Your unticked items remain excluded. ':'')+'This changes only the current RFQ order selection.'))return
+  if(!await confirmAction('Review '+count+' priced item(s) and leave unpriced items outstanding? '+(includeExcluded===false?'Your unticked items remain excluded. ':'')+'This changes only the current RFQ order selection.'))return
   setBusy(true)
   try{
    const ids=items.filter((i,index)=>!next[index].selected_for_po&&i.selected_for_po!==false).map(i=>i.id)
@@ -755,6 +757,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    if(remaining>0)return fail(new Error(t('validation.quote_coverage_prefix','Quoted supplier availability/commercial terms do not fully cover')+' '+itemTitle(item.requirement?.item||{})+'. '+t('validation.quote_coverage_suffix','Add another quote or adjust supplier availability.')))
   }
   setAwardPlan(plan);setAwardOpen(true)
+  requestAnimationFrame(()=>awardReviewRef.current?.scrollIntoView({block:'start',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}))
  }
 
  function itemNeedsSpeed(itemId){
@@ -808,7 +811,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   const supplierIds=[...new Set(invite.map(x=>x.supplier_id).filter(Boolean))]
   if(!pending.length)return fail(new Error('No outstanding requirements remain in this RFQ.'))
   if(!supplierIds.length)return fail(new Error('Add a supplier before preparing a follow-up RFQ.'))
-  if(!window.confirm('Prepare a NEW follow-up RFQ for '+pending.length+' outstanding item(s), using '+supplierIds.length+' existing supplier(s)? This does not resend WhatsApp messages or create purchase orders.'))return
+  if(!await confirmAction('Prepare a NEW follow-up RFQ for '+pending.length+' outstanding item(s), using '+supplierIds.length+' existing supplier(s)? This does not resend WhatsApp messages or create purchase orders.'))return
   setBusy(true)
   try{
    const ids=[...new Set(pending.map(i=>i.requirement_id))]
@@ -827,7 +830,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   if(!awardPlan.length||awardProblems.length)return fail(new Error('Resolve invalid quantities and missing supplier-change reasons before creating orders.'))
   const supplierLines=awardSuppliers.map(id=>{const rows=awardPlan.filter(x=>x.supplier_id===id);return (rows[0]?.supplier_name||'Supplier')+': '+rows.length+' allocation(s)'}).join('\\n')
   const remaining=awardUnselected.length
-  if(!window.confirm('FINAL PURCHASE ORDER CONFIRMATION\\n\\n'+awardPlan.length+' allocation(s) for '+awardSuppliers.length+' supplier(s).\\n'+supplierLines+'\\nEstimated landed goods value: '+money(awardEstimate)+'\\n\\n'+(remaining?remaining+' unselected item(s) will NOT be ordered. The current RFQ will be marked awarded; create a new RFQ later for outstanding requirements.\\n\\n':'')+'Proceed to create purchase orders?'))return
+  if(!await confirmAction('FINAL PURCHASE ORDER CONFIRMATION\\n\\n'+awardPlan.length+' allocation(s) for '+awardSuppliers.length+' supplier(s).\\n'+supplierLines+'\\nEstimated landed goods value: '+money(awardEstimate)+'\\n\\n'+(remaining?remaining+' unselected item(s) will NOT be ordered. The current RFQ will be marked awarded; create a new RFQ later for outstanding requirements.\\n\\n':'')+'Proceed to create purchase orders?'))return
   setBusy(true)
   try{
    const p=await supabase.rpc('proc_finalize_award_plan_v2',{p_rfq_id:active.id,p_allocations:awardPlan.map(x=>({
@@ -879,7 +882,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  }
  async function pairAction(action){
   if(profile?.role!=='admin'||pairBusy)return
-  if(action==='code'&&!window.confirm('Request a WhatsApp linking code for '+pairPhone+'? Only pair a dedicated number you control. Unofficial WhatsApp clients can risk account restriction.'))return
+  if(action==='code'&&!await confirmAction('Request a WhatsApp linking code for '+pairPhone+'? Only pair a dedicated number you control. Unofficial WhatsApp clients can risk account restriction.'))return
   setPairBusy(true)
   try{
    const {data:{session}}=await supabase.auth.getSession()
@@ -922,7 +925,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   if(edited===null)return
   const caption=edited.trim()
   if(!caption||caption.length>2000)return fail(new Error('Caption must be 1–2000 characters.'))
-  if(!window.confirm('Send the PNG with this caption to '+s.name+' (+'+number+')?\\n\\n'+caption))return
+  if(!await confirmAction('Send the PNG with this caption to '+s.name+' (+'+number+')?\\n\\n'+caption))return
   setGatewayBusy(inv.id)
   try{
    const {data:{session}}=await supabase.auth.getSession()
@@ -980,7 +983,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  }
  async function confirmSent(inv){
   if(!canEdit||!active)return
-  if(!confirm('Confirm that this RFQ was actually sent to '+supplierName(inv.supplier_id)+'?'))return
+  if(!await confirmAction('Confirm that this RFQ was actually sent to '+supplierName(inv.supplier_id)+'?'))return
   const r=await supabase.rpc('proc_mark_rfq_supplier_sent_v1',{p_rfq_id:active.id,p_supplier_id:inv.supplier_id})
   if(r.error)return fail(r.error)
   flash('Supplier request marked Sent.');await open({...active,status:'sent'});load()
@@ -1027,6 +1030,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   <div className="card pad">{!active?<Empty>Select a supplier price request.</Empty>:<>
    {profile?.role==='admin'&&<details className="section"><summary><strong>WhatsApp Gateway Setup (Administrator)</strong></summary><div className="notice section"><p className="muted tiny">Unregulated third-party WhatsApp Web automation may restrict your account. Use a separate procurement number. Pairing is optional; no messages are sent merely by connecting.</p><div className="toolbar"><span>Session: <strong>{pairState.status}</strong></span><button className="btn small" disabled={pairBusy} onClick={()=>loadPairStatus()}>Refresh Pairing Status</button><button className="btn small" disabled={pairBusy||pairState.status==='WORKING'} onClick={()=>pairAction('start')}>Start Session</button></div>{pairState.status!=='WORKING'&&<div className="formgrid section"><div className="field"><label>Dedicated WhatsApp number</label><input className="input" inputMode="tel" autoComplete="off" value={pairPhone} onChange={e=>setPairPhone(e.target.value)} placeholder="+94771234567"/></div><div className="field"><label>Link with phone number</label><button className="btn" disabled={pairBusy||pairState.status==='NOT_CONFIGURED'||pairState.status==='OFFLINE'} onClick={()=>pairAction('code')}>Request Pairing Code</button></div></div>}{pairState.code&&<p><strong>WhatsApp pairing code: {pairState.code}</strong><span className="muted tiny"> · Enter it using WhatsApp → Linked Devices. Do not share this code.</span></p>}{pairState.qr&&<div className="section"><p className="muted tiny">Alternative: scan this QR using WhatsApp → Linked Devices on a separate device. Refresh if it expires.</p><img src={pairState.qr} alt="WhatsApp linked-device pairing QR" width="240" height="240" style={{maxWidth:'100%',height:'auto'}}/></div>}{pairState.status==='WORKING'&&<p className="muted tiny">WhatsApp session linked. Sending can be enabled by the owner after a private test and migration check.</p>}</div></details>}
 
+   <div className="workflow-task-actions section" aria-label="RFQ next steps"><button className="btn small" onClick={()=>priceEntryRef.current?.scrollIntoView({block:'start'})}>Enter supplier quotes →</button><button className="btn small" onClick={()=>comparisonRef.current?.scrollIntoView({block:'start'})}>Compare prices →</button>{canEdit&&<button className="btn small primary" disabled={busy||loadingQuote||!comparison.length} onClick={buildAwardReview}>Review & create orders →</button>}</div>
    <div className="sectionhead"><div><h3>{active.rfq_no}</h3><p>{invite.filter(x=>x.status==='quoted').length}/{invite.length} supplier responses · {pricedCount}/{items.length} items priced · {unpricedCount} awaiting prices. One valid supplier price per item is enough to create an order.</p></div><div className="toolbar"><button className="btn" type="button" onClick={()=>comparisonRef.current?.scrollIntoView({block:'start'})}>View Price Comparison</button>{canEdit&&<button className="btn" onClick={extendDue}>Extend Due</button>}{canEdit&&awardReviewEnabled&&<button className="btn good" disabled={busy||!comparison.length} onClick={buildAwardReview}>Review Quoted Items ({pricedCount}) →</button>}</div></div>
 
    {invite.some(x=>x.status!=='quoted'&&x.status!=='declined')&&<div className="notice section"><b>{invite.some(x=>['pending','prepared'].includes(x.status))?'Send prepared supplier requests':'Waiting for supplier prices'}</b><div className="stack section">{invite.filter(x=>x.status!=='quoted'&&x.status!=='declined').map(x=><div className="procurement-data-row" key={x.id}><div className="toolbar"><span>{supplierName(x.supplier_id)} · {x.status}</span>{['pending','prepared'].includes(x.status)?<><button className="btn small primary" onClick={()=>setSendMenuId(v=>v===x.id?'':x.id)}>Send Request</button>{canEdit&&<button className="btn small good" onClick={()=>confirmSent(x)}>Confirm Sent</button>}</>:<button className="btn small" onClick={()=>reminder(x)}>WhatsApp Reminder</button>}{canEdit&&<button className="btn small" onClick={()=>markDeclined(x)}>Mark Declined</button>}</div>{['pending','prepared'].includes(x.status)&&sendMenuId===x.id&&<div className="section"><div className="muted tiny">Send a real attached PNG and caption through the private gateway (once configured and linked). Gateway acceptance is not proof of delivery. Check WhatsApp before confirming Sent; never retry unknown attempts blindly. The browser-only manual fallback remains available.</div><div className="toolbar section"><span className="muted tiny">WhatsApp gateway: {gateway.connected?'Connected':gateway.configured?'Not linked / offline':'Not configured'}</span><button className="btn small" onClick={()=>refreshGatewayStatus(active.id)}>Refresh Status</button></div><div className="toolbar section"><button className="btn small primary" disabled={Boolean(gatewayBusy)} onClick={()=>{const previous=gateway.dispatches?.find(d=>d.supplier_id===x.supplier_id);if(!canEdit)return fail(new Error('Your account cannot edit this RFQ. Sign in with an authorized procurement account.'));if(!gateway.connected)return fail(new Error('WhatsApp gateway is disconnected. Tap Refresh Status.'));if(!gateway.sendingEnabled)return fail(new Error('WhatsApp sending is disabled in Railway configuration. Tap Refresh Status after deployment.'));if(previous)return fail(new Error('An attempt already exists ('+previous.status+'). Check WhatsApp and dispatch history before retrying.'));sendAttachedPngViaGateway(x)}}>{gatewayBusy===x.id?'Sending PNG…':'Send Attached PNG + Caption'}</button><button className="btn small" onClick={()=>{const current=window.localStorage.getItem('gh_rfq_whatsapp_caption_template')||'General Hardware — Supplier Price Request\\nRFQ: {rfq_number}\\nDue: {due_date}\\nPlease check the attached RFQ image and reply with your unit rates.';const next=window.prompt('Edit the default caption template. Use {supplier_name}, {rfq_number}, {due_date}. Saved on this device.',current);if(next!==null){if(!next.trim()||next.length>2000)return fail(new Error('Template must be 1–2000 characters.'));window.localStorage.setItem('gh_rfq_whatsapp_caption_template',next);flash('WhatsApp template saved on this device.')}}}>Edit Message Template</button>{gateway.dispatches?.filter(d=>d.supplier_id===x.supplier_id).map(d=><span key={d.id} className="muted tiny">Gateway: {d.status} · {new Date(d.created_at).toLocaleString()} {d.status==='unknown'?'— check WhatsApp before any resend':''}</span>)}</div><div className="muted tiny section">Manual fallback (no gateway): Download the image, open this supplier's chat, and attach it from Downloads.</div><div className="toolbar section"><button className="btn small primary" disabled={browserRfqPreparing===x.id} onClick={()=>prepareBrowserRfq(x)}>{browserRfqPreparing===x.id?'Preparing PNG…':'1 · Download PNG for WhatsApp'}</button><button className="btn small" onClick={()=>sendRequest(x)}>WhatsApp Text Only</button><button className="btn small" onClick={()=>downloadPng(x)}>Download PNG Only</button><button className="btn small" onClick={()=>downloadRequest(x)}>{t('buying.rfq_pdf','RFQ PDF')}</button><button className="btn small" onClick={()=>copyReplyText(x)}>Copy Reply Text</button></div>{browserRfqReady?.invitationId===x.id&&<div className="section"><div className="muted tiny">PNG download started: <strong>{browserRfqReady.filename}</strong>. Option A: open WhatsApp with the RFQ text ready, send the text and then attach the PNG from Downloads. Both messages go to this supplier.</div><div className="toolbar section"><a className="btn small primary" href={browserSupplierWhatsappUrl(x,true)} target="_blank" rel="noopener noreferrer">2 · Open WhatsApp + Text · {supplierName(x.supplier_id)}</a></div><div className="muted tiny section">Option B (one image with a caption): copy the RFQ message, open the same supplier chat without prefilled text, attach the saved PNG, paste the copied message as its caption and send.</div><div className="toolbar section"><button className="btn small" onClick={()=>copyBrowserRfqCaption(x)}>Copy PNG Caption</button><a className="btn small" href={browserSupplierWhatsappUrl(x,false)} target="_blank" rel="noopener noreferrer">Open Supplier Chat for Caption</a></div></div>}</div>}</div>)}</div></div>}
@@ -1090,7 +1094,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    <p className="muted tiny">The original RFQ and purchase orders stay unchanged. Prepare a new RFQ for outstanding requirements, then review its suppliers and quantities before sending.</p>
    <button className="btn primary" disabled={busy||!canEdit} onClick={createFollowUpRfq}>Prepare Follow-up RFQ</button>
   </div>}
-  {awardOpen&&<div className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
+  {awardOpen&&<div ref={awardReviewRef} style={{scrollMarginTop:96}} className="award-review section"><div className="sectionhead"><div><h3>{t('buying.award_order','Step 7 · Review Selected Prices & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
     <div className="section" style={{padding:'10px 12px',border:'1px solid var(--border, #334155)',borderRadius:12}}>
      <strong>Order summary</strong>
      <div className="muted tiny" style={{marginTop:4}}>{awardPlan.length} allocations · {awardSuppliers.length} supplier(s) · {awardUnselected.length} items not selected</div>

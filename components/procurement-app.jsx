@@ -3,7 +3,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import dynamic from 'next/dynamic'
 import {supabase} from '@/lib/supabase'
-import {NAV,Err} from './ui'
+import {NAV,Err,WorkflowNavigation} from './ui'
 import {LoginScreen,ChangePassword} from './auth-screen'
 import {createTranslator,navText} from '@/lib/i18n'
 import {HelpCenter} from './help-ui'
@@ -295,6 +295,7 @@ export default function ProcurementApp(){
    <header className="topbar"><div className="topbar-left"><button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
    <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button></nav>
    <div className="content">
+    <WorkflowNavigation view={view} navigate={go} canNavigate={p.canNavigate} t={t}/>
      {!visibleNav.some(n=>n[0]===view)&&<p role="status" className="muted">Opening your permitted workspace…</p>}
     <section hidden={view!=='dashboard'} key={'dashboard-'+(viewKeys['dashboard']||0)}>{visited.has('dashboard')&&visibleNav.some(n=>n[0]==='dashboard')&&<Dashboard {...p} initialFilter={viewFilters['dashboard']||''}/>}</section>
     <section hidden={view!=='stock'} key={'stock-'+(viewKeys['stock']||0)}>{visited.has('stock')&&visibleNav.some(n=>n[0]==='stock')&&<StockCheck {...p} initialFilter={viewFilters['stock']||''}/>}</section>

@@ -469,3 +469,19 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .sidebar>.nav{display:block;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:12px}
  .sidebar>.sidefoot{position:static;flex-shrink:0;margin-top:12px}
 }
+
+/* Routine confirmations and persistent guidance between procurement screens. */
+.action-dialog{border-color:#8b671d;width:min(480px,100%)}
+.action-dialog .danger-heading small{color:var(--brand2)}
+.action-dialog .danger-icon{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:#27220f;color:var(--brand2);font-size:24px}
+.action-dialog #danger-confirm-description p{font-size:15px;line-height:1.6;white-space:pre-line}
+.action-dialog .danger-details{padding:12px;background:#0b1626;border-radius:10px;line-height:1.5}
+.workflow-navigation{margin-bottom:14px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#0d192a}
+.workflow-page-links,.workflow-task-actions{display:flex;gap:6px;flex-wrap:wrap}
+.workflow-page-links .btn{flex:1 1 auto;min-width:0;font-size:12px;white-space:normal}
+.workflow-navigation p{margin:8px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+.workflow-result{border-color:#29563a;background:#102a1d;scroll-margin-top:90px}
+.workflow-result h3{color:#c2ffd4}.workflow-result p{line-height:1.5}
+@media(max-width:700px){.action-dialog{border-radius:20px 20px 0 0}.workflow-page-links .btn{flex:1 1 29%;padding:6px;font-size:11px}.workflow-result .toolbar .btn{width:100%}}
+
+.workflow-result .sectionhead{display:flex;align-items:flex-start;gap:10px}.workflow-result .sectionhead>div{min-width:0;flex:1}.workflow-result .sectionhead>button{flex:0 0 36px;min-width:36px;padding:6px;font-size:20px}
