@@ -77,7 +77,7 @@ export function Dashboard({activeView='dashboard',features=[],fail,navigate=()=>
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
  const[submission,setSubmission]=useState(null)
  const resultRef=useRef(null)
@@ -424,6 +424,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
    await load()
    if(historyOpen)await loadStockHistory()
+   if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements')
   }catch(e){
    if(path)await supabase.storage.from('gh-procurement').remove([path])
    fail(e)
