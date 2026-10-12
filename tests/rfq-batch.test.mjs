@@ -28,3 +28,14 @@ test('supplier captions fill names and dates, normalize line breaks and reject e
  assert.equal(supplierCaption('Hi {supplier_name}\\n{rfq_number} · {due_date}',{rfq_no:'RFQ-3',due_date:'2026-11-01'},{name:'Supplier three'}),'Hi Supplier three\nRFQ-3 · 2026-11-01')
  assert.throws(()=>supplierCaption(' ',{},{}));assert.throws(()=>supplierCaption('x'.repeat(2001),{},{}))
 })
+
+// PO batches use the order ID as the queue key, not the recipient ID.
+test('two distinct POs for one supplier both send and an uncertain PO stops the rest',async()=>{
+ const jobs=[{supplierId:'po-1',po:{supplier_id:'supplier-a'}},{supplierId:'po-2',po:{supplier_id:'supplier-a'}},{supplierId:'po-3',po:{supplier_id:'supplier-b'}}],calls=[]
+ const results=await runSupplierBatch(jobs,async job=>{calls.push(job.supplierId);if(job.supplierId==='po-2')throw Object.assign(new Error('Response lost'),{sendStatus:'unknown',haltBatch:true});return {status:'accepted'}})
+ assert.deepEqual(calls,['po-1','po-2'])
+ assert.deepEqual(results.map(r=>r.status),['accepted','unknown','not_attempted'])
+ const all=await runSupplierBatch(jobs,async job=>({status:'accepted'}))
+ assert.equal(all.length,3)
+ assert.deepEqual(all.map(r=>r.supplierId),['po-1','po-2','po-3'])
+})
