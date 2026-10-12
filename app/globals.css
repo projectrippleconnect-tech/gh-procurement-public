@@ -525,3 +525,7 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 @media(max-width:700px){.app:has(.entry-focus) .mobile-bottom-nav{display:none}.entry-focus .task-dock{bottom:env(safe-area-inset-bottom)}.app:has(.entry-focus){padding-bottom:80px}}
 
 .quote-bill-price input,.quote-bill-row input[inputmode="decimal"],.supplier-price-entry input[inputmode="decimal"]{font-size:var(--work-input)!important}
+
+.po-primary-action:empty{display:none}.po-primary-action:not(:empty){position:sticky;bottom:12px;z-index:45;background:#0d192a;padding:10px;border:1px solid var(--line);border-radius:10px}.po-primary-action>.btn{flex:1;min-height:44px}.po-bill.work-items-window{max-height:48dvh}.po-bill-head{position:sticky;top:0;background:#0d192a;z-index:1}
+@media(max-width:700px){.po-primary-action:not(:empty){position:fixed;bottom:calc(65px + env(safe-area-inset-bottom));left:8px;right:8px}.app:has(.po-primary-action:not(:empty)){padding-bottom:125px}}
+@media print{.po-bill.work-items-window{max-height:none;overflow:visible}}
