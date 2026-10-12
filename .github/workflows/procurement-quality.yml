@@ -48,6 +48,10 @@ jobs:
         env:
           GH_UI_GUIDE_APPROVAL: '1'
         run: npm run test:ui
+      - name: Verify supplier checklist and bulk PNG/caption sending
+        env:
+          GH_UI_BULK_SEND: '1'
+        run: npm run test:ui
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4

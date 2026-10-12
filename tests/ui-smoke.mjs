@@ -71,7 +71,8 @@ try{
   let grantedPermissions=permissions
   let currentProfile=profile
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false,rfqItemCount=100,requirementApproval='pending_review'
-  const poGatewayRequests=[]
+  const poGatewayRequests=[],rfqGatewayRequests=[],rfqDispatches=[]
+  let bulkReady=true
   const setupRequests=[],resetLinkRequests=[]
   let staffInvites=[],staffProfiles=[profile],deleteFailure=true
   const deleteRequests=[]
@@ -79,6 +80,17 @@ try{
   let stallStartup=false,releaseStartup,stalledReturned=false
   const startupGate=new Promise(resolve=>{releaseStartup=resolve})
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
+  await context.route(root+'/api/integrations/whatsapp/rfq**',async route=>{
+   const req=route.request()
+   if(req.method()==='GET')return route.fulfill({json:{ok:true,configured:true,connected:bulkReady,sendingEnabled:bulkReady,dispatches:rfqDispatches}})
+   const body=req.postDataJSON();rfqGatewayRequests.push(body)
+   assert.equal(body.rfqId,rfq.id);assert.ok(body.caption.includes('RFQ-FIXTURE'));assert.equal(Buffer.from(body.pngBase64,'base64').subarray(0,8).toString('hex'),'89504e470d0a1a0a')
+   const exists=rfqDispatches.some(d=>d.supplier_id===body.supplierId)
+   if(exists)return route.fulfill({status:409,json:{ok:false,error:'Duplicate send blocked'}})
+   rfqDispatches.push({supplier_id:body.supplierId,status:body.supplierId===newSupplier.id?'failed':'accepted'})
+   if(body.supplierId===newSupplier.id)return route.fulfill({status:422,json:{ok:false,error:'Fixture definite rejection'}})
+   return route.fulfill({json:{ok:true,status:'accepted',messageId:'fixture-message'}})
+  })
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('pageerror',e=>errors.push(e.message))
   await context.route('https://*.supabase.co/**',async route=>{
@@ -244,6 +256,51 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_BULK_SEND==='1'){
+   const thirdSupplier={...supplier,id:'00000000-0000-4000-8000-000000000014',name:'Third supplier',phone:'+94770000003',whatsapp:'+94770000003'}
+   directory=[supplier,newSupplier,thirdSupplier]
+   invitations=directory.map((s,i)=>({id:'bulk-invite-'+i,rfq_id:rfq.id,supplier_id:s.id,status:'pending',requested_item_ids:['00000000-0000-4000-8000-000000000008']}))
+   rfqItemCount=1
+   await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   const panel=page.getByRole('region',{name:'Send RFQ to selected suppliers',exact:true})
+   const send=panel.getByRole('button',{name:'Send PNG + Caption to 3 Suppliers',exact:true})
+   await send.waitFor();assert.equal(await panel.locator('input[type="checkbox"]:checked').count(),3)
+   await panel.getByRole('button',{name:'Clear selection',exact:true}).click()
+   assert.equal(await panel.getByRole('button',{name:'Send PNG + Caption to 0 Suppliers',exact:true}).isDisabled(),true)
+   await panel.getByLabel('Send RFQ to '+supplier.name,{exact:true}).check()
+   await panel.getByLabel('Send RFQ to '+thirdSupplier.name,{exact:true}).check()
+   assert.equal(await panel.getByRole('button',{name:'Send PNG + Caption to 2 Suppliers',exact:true}).isEnabled(),true)
+   await panel.getByRole('button',{name:'Select all pending',exact:true}).click()
+   await send.dblclick()
+   await panel.getByText('2 / 3 requests accepted for sending.',{exact:false}).waitFor()
+   assert.equal(rfqGatewayRequests.length,3,'One batch sends one PNG/caption per chosen supplier, despite double clicking')
+   assert.deepEqual(rfqGatewayRequests.map(r=>r.supplierId),directory.map(s=>s.id))
+   for(const [i,request] of rfqGatewayRequests.entries())assert.ok(request.caption.includes(directory[i].name),'Each caption names its own supplier')
+   assert.equal(new Set(rfqGatewayRequests.map(r=>r.pngBase64)).size,3,'Each supplier receives their own RFQ PNG')
+   await panel.getByText('Fixture definite rejection',{exact:true}).waitFor()
+   await panel.getByRole('button',{name:'Select all pending',exact:true}).click()
+   assert.equal(await panel.locator('input[type="checkbox"]:checked').count(),0,'Existing attempts cannot be resent automatically')
+   assert.equal(await panel.getByRole('button',{name:'Send PNG + Caption to 0 Suppliers',exact:true}).isDisabled(),true)
+   await page.screenshot({path:'test-results/bulk-supplier-send-'+width+'.png'})
+   const dimensions=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}))
+   assert.ok(dimensions.scroll<=dimensions.width+1,'Bulk supplier sending has no horizontal overflow')
+   if(width===320){
+    rfqDispatches.length=0;rfqGatewayRequests.length=0
+    await page.reload();await page.locator('.app').waitFor();await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+    await send.waitFor()
+    bulkReady=false;await panel.getByRole('button',{name:'Refresh status',exact:true}).click()
+    await page.waitForFunction(()=>document.querySelector('.rfq-bulk-send-button')?.disabled===true)
+    assert.equal(rfqGatewayRequests.length,0,'Disconnected gateway sends nothing')
+    bulkReady=true;await panel.getByRole('button',{name:'Refresh status',exact:true}).click()
+    await page.waitForFunction(()=>document.querySelector('.rfq-bulk-send-button')?.disabled===false)
+    await panel.getByLabel('Send RFQ to '+newSupplier.name,{exact:true}).uncheck()
+    await panel.getByRole('button',{name:'Send PNG + Caption to 2 Suppliers',exact:true}).click()
+    await panel.getByText('2 / 2 requests accepted for sending.',{exact:false}).waitFor()
+    assert.deepEqual(rfqGatewayRequests.map(r=>r.supplierId),[supplier.id,thirdSupplier.id],'Unchecked suppliers receive neither caption nor image')
+   }
+   console.log('PASS checklist, all/partial selection, one-click PNG/caption batch, supplier-specific images, partial failure and no duplicate retries at '+width+'px')
+   await context.close();continue
+  }
   assert.equal(await page.getByRole('button',{name:'Go back',exact:true}).isDisabled(),true,'Initial screen has no back entry')
   assert.equal(await page.getByRole('button',{name:'Go forward',exact:true}).isDisabled(),true,'Initial screen has no forward entry')
   await navigate('✓ Stock Entry')
@@ -277,6 +334,7 @@ try{
    await builder.getByRole('button',{name:'Create RFQ & Continue',exact:true}).click()
    await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
    assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).inputValue(),'3','Creation opens the exact RFQ at the sending step')
+   await page.locator('.rfq-individual-options > summary').click()
    await page.getByRole('button',{name:'Confirm Sent',exact:true}).click()
    await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='4')
@@ -569,6 +627,7 @@ try{
     assert.equal(invitations[0].requested_item_ids.length,99,'A bathroom-only request saves every matching item')
     assert.ok(!invitations[0].requested_item_ids.includes('00000000-0000-4000-8000-000000000008'),'A bathroom-only request excludes general hardware')
     if(width===320){
+     await page.locator('.rfq-individual-options > summary').click()
      await page.getByRole('button',{name:'Send Request',exact:true}).click()
      const pdfDownload=page.waitForEvent('download')
      await page.getByRole('button',{name:'RFQ PDF',exact:true}).click()
