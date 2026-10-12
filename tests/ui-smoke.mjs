@@ -339,7 +339,8 @@ try{
    await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='4')
    const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
-   await price.waitFor();await price.fill('123.45')
+   await price.waitFor();await price.fill('05');assert.equal(await price.inputValue(),'5');await price.fill('123.45')
+   if(width<760){const row=page.locator('.quote-bill-row').first();assert.ok((await row.boundingBox()).height<160,'Long item stays compact');await row.locator('summary').click();await row.getByRole('button',{name:'+ Add size variation',exact:true}).click();await row.getByPlaceholder('e.g. 1½ inch').fill('2 feet');await row.getByPlaceholder('Price',{exact:true}).fill('40');await row.getByPlaceholder('Reference only').fill('6');await page.screenshot({path:'test-results/compact-quote-variation-'+width+'.png'});await row.getByRole('button',{name:'Remove size',exact:true}).click();await row.locator('summary').click()}
    await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
    await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.value==='5')
    await guide.getByRole('button',{name:'Next procurement step',exact:true}).click()

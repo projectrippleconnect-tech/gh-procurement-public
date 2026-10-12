@@ -9,6 +9,7 @@ import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseO
 import {allRows} from '@/lib/query-pages'
 import {Badge,ListPages,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
+import {PoBulkSend} from './po-bulk-send'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
 export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
@@ -131,15 +132,9 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   {key:'landed_unit_cost',label:'Landed Unit Cost',render:l=>l.landed_unit_cost==null?'—':money(l.landed_unit_cost)},
   {key:'line_total',label:'Line Total',render:l=>money(l.line_total)}
  ])
- return <><div className="split document-split">
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>{t('documents.po_hint','Approval, supplier sharing and delivery tracking. Lists are explicitly paged instead of silently truncated.')}</p></div></div>
-   <div className="filters two"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
-   <div className="stack section">{filtered.map(po=><button className={'btn record-button '+(active?.id===po.id?'active-record':'')} key={po.id} disabled={busy||shareBusy} onClick={()=>open(po)}><div><strong>{po.po_no}</strong><div className="muted tiny">{po.supplier?.name} · {po.po_date}</div></div><div className="right"><Badge>{po.status}</Badge><div>{money(po.total)}</div></div></button>)}</div>
-   <div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} of {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>Next</button></div>
-  </div>
-  <div className="card pad">{!active?<Empty>Select a purchase order.</Empty>:<>
+ const renderOrder=()=> <div className="po-expanded" id={'po-details-'+active.id}>
    <div className="sectionhead"><div><h3>{active.po_no}</h3><p>{active.supplier?.name} · {active.po_date}</p></div><Badge>{active.status}</Badge></div>
-   <div className="document-meta">
+   <details className="section po-order-meta"><summary>Order details · dates, terms & remarks</summary><div className="document-meta">
     {fieldEnabled(fields,'po','supplier')&&<div><span>{fieldLabel(fields,'po','supplier','Supplier')}</span><b>{active.supplier?.name||'—'}</b></div>}
     <div><span>Phone</span><b>{active.supplier?.phone||'—'}</b></div>
     {fieldEnabled(fields,'po','po_date')&&<div><span>{fieldLabel(fields,'po','po_date','PO Date')}</span><b>{active.po_date||'—'}</b></div>}
@@ -147,19 +142,25 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
     {fieldEnabled(fields,'po','terms')&&<div><span>{fieldLabel(fields,'po','terms','Terms')}</span>{canEdit&&active.status==='pending_approval'?<input className="input" value={poMeta.terms} placeholder={active.supplier?.payment_terms||''} onChange={e=>setPoMeta(x=>({...x,terms:e.target.value}))}/>:<b>{active.terms||active.supplier?.payment_terms||'—'}</b>}</div>}
     {fieldEnabled(fields,'po','freight_total')&&<div><span>{fieldLabel(fields,'po','freight_total','Freight')}</span><b>{money(active.freight_total||0)}</b></div>}
     {fieldEnabled(fields,'po','notes')&&<div><span>{fieldLabel(fields,'po','notes','Notes')}</span>{canEdit&&!['closed','cancelled'].includes(active.status)?<input className="input" value={poMeta.notes} onChange={e=>setPoMeta(x=>({...x,notes:e.target.value}))}/>:<b>{active.notes||'—'}</b>}</div>}
-   </div>
-   <DataTable columns={poCols} rows={lines} mobileCards/>
+   </div></details>
+   {!linesReady?<p role="status">Loading PO items…</p>:<div className="po-bill section" style={{'--po-numeric-columns':poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).length}} role="region" aria-label="Purchase order bill">
+    <div className="po-bill-head"><span>Item / size</span>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.label}</span>)}</div>
+    {lines.map(l=><details className="po-bill-line" key={l.id}>
+     <summary><strong title={itemTitle(l.item||{})}>{itemTitle(l.item||{})}</strong>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.key==='qty'?qty(l.qty):Number(l[c.key]||0).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>)}</summary>
+     <div className="po-line-details"><strong>{itemTitle(l.item||{})}</strong><dl>{poCols.map(c=><div key={c.key}><dt>{c.label}</dt><dd>{c.render(l)}</dd></div>)}{l.notes&&<div><dt>Remarks</dt><dd>{l.notes}</dd></div>}</dl></div>
+    </details>)}
+   </div>}
    {lines.some(l=>Number(l.cancelled_qty)>0)&&<div className="notice section">Original PO quantities and values are retained. Cancelled balances are shown separately in the delivery audit.</div>}
-   {canEdit&&canApprove&&['sent','partially_received'].includes(active.status)&&<details className="section"><summary>Outstanding delivery balances</summary><p className="muted tiny">Wait for delivery, cancel an unneeded balance, or release it to buy elsewhere. These actions require a reason and supplier notification.</p>{lines.filter(l=>remainingDelivery(l)>0).map(l=><div className="procurement-data-row" key={l.id}><strong>{itemTitle(l.item||{})}</strong><p>{qty(remainingDelivery(l))} {l.item?.uom} outstanding</p><div className="toolbar"><button className="btn small" disabled={busy} onClick={()=>releaseBalance(l,'buy_elsewhere')}>Buy elsewhere</button><button className="btn small bad" disabled={busy} onClick={()=>releaseBalance(l,'cancel')}>Cancel balance</button></div></div>)}</details>}
+   {canEdit&&canApprove&&['sent','partially_received'].includes(active.status)&&<details className="section"><summary>Outstanding delivery balances</summary><p className="muted tiny">Wait for delivery, cancel an unneeded balance, or release it to buy elsewhere. These actions require a reason and supplier notification.</p>{lines.filter(l=>remainingDelivery(l)>0).map(l=><div className="procurement-data-row" key={l.id}><strong>{itemTitle(l.item||{})}</strong><p>{qty(remainingDelivery(l))} {l.item?.uom} outstanding</p><div className="toolbar"><button className="btn small" disabled={busy||shareBusy} onClick={()=>releaseBalance(l,'buy_elsewhere')}>Buy elsewhere</button><button className="btn small bad" disabled={busy||shareBusy} onClick={()=>releaseBalance(l,'cancel')}>Cancel balance</button></div></div>)}</details>}
    {lines.some(l=>l.balance_actions?.length)&&<details className="section"><summary>Balance action history</summary>{lines.flatMap(l=>(l.balance_actions||[]).map((a,i)=><p key={l.id+'-'+i}>{itemTitle(l.item||{})} · {qty(a.released_qty)} · {a.action} · {a.reason} · {new Date(a.created_at).toLocaleString()}</p>))}</details>}
    {fieldEnabled(fields,'po','total')&&<div className="document-total"><span>{fieldLabel(fields,'po','total','Total LKR')}</span><strong>{money(active.total)}</strong></div>}
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print">
-    {canEdit&&['pending_approval','approved','sent','partially_received'].includes(active.status)&&<button className="btn" disabled={busy} onClick={saveMeta}>Save Details</button>}
-    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy} onClick={()=>action('approve')}>Approve PO</button>}
-    {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy} onClick={()=>action('send')}>Confirm Sent</button>}
+    {canEdit&&['pending_approval','approved','sent','partially_received'].includes(active.status)&&<button className="btn" disabled={busy||shareBusy} onClick={saveMeta}>Save Details</button>}
+    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>Approve PO</button>}
+    {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button>}
    </div>
-   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<button className="btn bad section" disabled={busy} onClick={clearOrder}>Clear this order</button>}
+   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<button className="btn bad section" disabled={busy||shareBusy} onClick={clearOrder}>Clear this order</button>}
    {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary section" onClick={()=>navigate('receiving',active.id)}>Receive this order</button>}
    <details className="section no-print"><summary>Document & Sharing Options</summary><div className="toolbar section">
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>
@@ -170,9 +171,19 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
     <button className="btn" onClick={()=>navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs)).then(()=>flash('PO caption copied.')).catch(fail)}>Copy PO Caption</button>
    </div></details>
    <div className="notice section no-print"><b>Send purchase-order image + caption</b><p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||(gatewayLoading?'Checking connection…':'Not configured')} · Sending {gateway?.sendingEnabled?'enabled':'disabled'}. Gateway acceptance does not prove delivery. Confirm Sent only after checking WhatsApp.</p><div className="toolbar">{canEdit&&<><button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh PO WhatsApp Status</button><button className="btn primary" disabled={Boolean(sendBlock)} title={sendBlock||'Send to the saved supplier'} onClick={sendPoImage}>{shareBusy?'Preparing / sending…':'Send PO PNG + Caption'}</button></>}{gateway?.dispatches?.map(d=><span className="tiny" key={d.id}>Attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</span>)}</div>{sendBlock&&<p role="status" className="muted tiny">{sendBlock}</p>}<p className="muted tiny">Fallback: Share PO Image + Caption, choose WhatsApp and the supplier; or download PNG, open the supplier chat, attach the saved image and paste the copied caption.</p></div>
-  </>}</div>
  </div>
- </>
+ return <div className="card pad po-orders">
+  <div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>Tap a PO row to expand its bill, details and supplier actions.</p></div></div>
+  {canEdit&&<PoBulkSend company={company} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
+  <div className="filters two section"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
+  <div className="po-order-list section">{filtered.map(po=><div className="po-order" key={po.id}>
+   <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
+   {active?.id===po.id&&renderOrder()}
+  </div>)}</div>
+  {!filtered.length&&<Empty>No purchase orders match this page.</Empty>}
+  {active&&!filtered.some(po=>po.id===active.id)&&renderOrder()}
+  <div className="toolbar section"><button className="btn" disabled={busy||shareBusy||page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>Previous</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} of {total}</span><button className="btn" disabled={busy||shareBusy||(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>Next</button></div>
+ </div>
 }
 
 export function Invoices({initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,t=(k,f)=>f||k}){

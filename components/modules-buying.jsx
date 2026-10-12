@@ -4,7 +4,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
-import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
+import {encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,normalizePriceInput,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection,supplierQuoteProgress,nextQuoteSupplier} from '@/lib/rfq-sheet'
 import {RfqBulkSend} from './rfq-bulk-send'
 import {SupplierRequestSelection,RfqComparisonSheet} from './rfq-sheet'
@@ -452,7 +452,9 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
  const unpricedCount=items.length-pricedCount
  const selectedUnpriced=items.filter(i=>i.selected_for_po!==false&&!pricedItemIds.has(i.id))
  const awardSuppliers=[...new Set(awardPlan.map(x=>x.supplier_id))]
- const awardEstimate=awardPlan.reduce((sum,x)=>sum+(Number(x.qty)||0)*(Number(x.landed_unit_cost)||0),0)
+ const awardVariations=[...new Set(awardPlan.map(x=>x.quote_line_id))].flatMap(id=>{const line=savedQuoteLines.find(x=>x.id===id);return decodeSupplierQuoteNotes(line?.notes).variants.map((v,index)=>({...v,quote_line_id:id,variant_index:index,supplier_id:line?.supplier_id,rfq_item_id:line?.rfq_item_id})).filter(v=>Number(v.quantity)>0)})
+ const variationEstimate=awardVariations.reduce((sum,v)=>sum+Number(v.quantity)*Number(v.price),0)
+ const awardEstimate=variationEstimate+awardPlan.reduce((sum,x)=>sum+(Number(x.qty)||0)*(Number(x.landed_unit_cost)||0),0)
  const awardProblems=awardPlan.filter(x=>!Number.isFinite(Number(x.qty))||Number(x.qty)<=0||(!x.recommended&&!String(x.override_reason||'').trim()))
  const awardUnselected=items.filter(i=>i.selected_for_po===false)
 
@@ -520,7 +522,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    allRows(()=>supabase.from('proc_v_quote_comparison').select('*').eq('rfq_id',r.id).order('rfq_item_id').order('landed_unit_cost').order('supplier_id')),
    allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,whatsapp,phone').eq('active',true).order('name').order('id')),
    allRows(()=>supabase.from('proc_supplier_scopes').select('*').order('id')),
-   allRows(()=>supabase.from('proc_quotes').select('supplier_id,lines:proc_quote_lines(rfq_item_id,unit_price)').eq('rfq_id',r.id).order('id'))
+   allRows(()=>supabase.from('proc_quotes').select('supplier_id,lines:proc_quote_lines(id,rfq_item_id,unit_price,notes)').eq('rfq_id',r.id).order('id'))
   ])
   if(request!==opening.current)return
   if(a.error)return fail(a.error);if(b.error)return fail(b.error);if(c.error)return fail(c.error);if(d.error)return fail(d.error);if(e.error)return fail(e.error);if(f.error)return fail(f.error)
@@ -668,7 +670,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   setPrices(current=>{
    const row=current[itemId]||{},variants=row.variants||[]
    if(variants.length>=12){flash('Maximum 12 size alternatives per item.');return current}
-   return {...current,[itemId]:{...row,variants:[...variants,{id:'alt-'+Date.now()+'-'+Math.random().toString(36).slice(2),size:'',price:'',remarks:''}]}}
+   return {...current,[itemId]:{...row,variants:[...variants,{id:'alt-'+Date.now()+'-'+Math.random().toString(36).slice(2),size:'',price:'',quantity:'',remarks:''}]}}
   })
  }
  function editSizeAlternative(itemId,id,change){
@@ -687,7 +689,8 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   return <div className="stack">
    {(value.variants||[]).map(v=><div className="formgrid" key={v.id}>
     <div className="field"><label>Alternative size</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={100} placeholder="e.g. 1½ inch" value={v.size||''} onChange={e=>editSizeAlternative(itemId,v.id,{size:e.target.value})}/></div>
-    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:e.target.value})}/></div>
+    <div className="field"><label>Price (Rs.)</label><input className="input stock-entry" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} inputMode="decimal" placeholder="Price" value={v.price??''} onChange={e=>editSizeAlternative(itemId,v.id,{price:normalizePriceInput(e.target.value)})}/></div>
+    <div className="field"><label>Order quantity</label><input className="input" inputMode="decimal" placeholder="Reference only" value={v.quantity??''} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} onChange={e=>editSizeAlternative(itemId,v.id,{quantity:e.target.value})}/></div>
     <div className="field"><label>Remarks (optional)</label><input className="input" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} maxLength={300} placeholder="Optional" value={v.remarks||''} onChange={e=>editSizeAlternative(itemId,v.id,{remarks:e.target.value})}/></div>
     {canEdit&&<button type="button" className="btn small bad" onClick={()=>removeSizeAlternative(itemId,v.id)}>Remove size</button>}
    </div>)}
@@ -883,10 +886,10 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   if(!awardPlan.length||awardProblems.length)return fail(new Error('Resolve invalid quantities and missing supplier-change reasons before creating orders.'))
   const supplierLines=awardSuppliers.map(id=>{const rows=awardPlan.filter(x=>x.supplier_id===id);return (rows[0]?.supplier_name||'Supplier')+': '+rows.length+' allocation(s)'}).join('\\n')
   const remaining=awardUnselected.length
-  if(!await confirmAction('FINAL PURCHASE ORDER CONFIRMATION\\n\\n'+awardPlan.length+' allocation(s) for '+awardSuppliers.length+' supplier(s).\\n'+supplierLines+'\\nEstimated landed goods value: '+money(awardEstimate)+'\\n\\n'+(remaining?remaining+' unselected item(s) will NOT be ordered. The current RFQ will be marked awarded; create a new RFQ later for outstanding requirements.\\n\\n':'')+'Proceed to create purchase orders?'))return
+  if(!await confirmAction('FINAL PURCHASE ORDER CONFIRMATION\\n\\n'+awardPlan.length+' allocation(s) for '+awardSuppliers.length+' supplier(s).\\n'+supplierLines+'\\nAdditional size lines: '+awardVariations.length+'\\nEstimated landed goods value: '+money(awardEstimate)+'\\n\\n'+(remaining?remaining+' unselected item(s) will NOT be ordered. The current RFQ will be marked awarded; create a new RFQ later for outstanding requirements.\\n\\n':'')+'Proceed to create purchase orders?'))return
   setBusy(true)
   try{
-   const p=await supabase.rpc('proc_finalize_award_plan_v2',{p_rfq_id:active.id,p_allocations:awardPlan.map(x=>({
+   const p=await supabase.rpc('proc_finalize_award_with_variations_v1',{p_rfq_id:active.id,p_variations:awardVariations.map(v=>({quote_line_id:v.quote_line_id,variant_index:v.variant_index})),p_allocations:awardPlan.map(x=>({
     rfq_item_id:x.rfq_item_id,quote_line_id:x.quote_line_id,qty:Number(x.qty),override_reason:x.override_reason||null
    }))})
    if(p.error)throw p.error
@@ -1122,35 +1125,35 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    {invite.find(x=>x.supplier_id===supplier)&&<SupplierRequestSelection key={active.id+'-'+supplier+'-'+JSON.stringify(invite.find(x=>x.supplier_id===supplier)?.requested_item_ids)} items={items} invitation={invite.find(x=>x.supplier_id===supplier)} scopes={supplierScopes} disabled={busy||!canEdit||!['pending','prepared'].includes(invite.find(x=>x.supplier_id===supplier)?.status)} onSave={async ids=>{setBusy(true);try{const r=await supabase.rpc('proc_set_rfq_supplier_items_v1',{p_rfq_id:active.id,p_supplier_id:supplier,p_item_ids:ids});if(r.error)throw r.error;setInvite(v=>v.map(x=>x.supplier_id===supplier?r.data:x));setBrowserRfqReady(null);flash('Supplier request items saved. Exports and messages now use this selection.')}catch(e){fail(e)}finally{setBusy(false)}}}/>}
    {loadingQuote&&<p className="muted tiny" role="status">Loading supplier prices…</p>}
    {quoteLoadError&&<div className="notice" role="alert">Supplier prices could not be loaded. Editing is paused to protect the existing quote. <button type="button" className="btn small" disabled={busy||loadingQuote} onClick={()=>loadExistingQuote(active.id,supplier,false)}>Reload Supplier Prices</button></div>}
-   <p className="muted tiny section">Only enter the supplier's unit price. Alternative sizes and remarks are optional reference details; alternative sizes will not automatically replace the requested item in a purchase order.</p>
+   <p className="muted tiny section">Only enter the supplier's unit price. Sizes with an order quantity are added as separate PO lines after final review. Leave the quantity blank for reference only.</p>
    <div ref={priceEntryRef} tabIndex={-1} style={{scrollMarginTop:96}} className="formgrid section sticky-work-search"><div className="field"><label htmlFor="rfq-price-search">Search supplier price entry</label><input id="rfq-price-search" className="input" placeholder="Search item, size or code" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/></div><div className="field"><label>Show prices</label><select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All RFQ items</option><option value="requested">Requested from this supplier</option><option value="missing">Awaiting this supplier’s price</option><option value="priced">Prices entered</option></select></div></div>
    <p className="muted tiny">Showing {visiblePriceItems.length} of {items.length} items. Search preserves every entered price; Saving stores the entire supplier quote, then opens the next supplier needing prices.</p>
-   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th><th>Remarks</th><th>Optional size variations</th></tr></thead>
+   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th>{show('remarks')&&<th>Remarks</th>}{show('size_variations')&&<th>Optional size variations</th>}</tr></thead>
    <tbody>{visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <tr key={i.id}>
     <td><input type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} onChange={e=>togglePoItem(i,e.target.checked)}/></td>
     <td><strong>{itemTitle(i.requirement?.item||{})}</strong><div className="muted tiny">{i.requirement?.item?.uom||''}</div></td>
     <td>{qty(i.requested_qty)}</td>
-    <td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} data-rfq-price-item={i.id} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/></td>
-    <td><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></td>
-    <td>{sizeAlternativesEditor(i.id,v)}</td>
+    <td><input className="input stock-entry" inputMode="decimal" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} data-rfq-price-item={i.id} placeholder="Price" value={v.price??''} onChange={e=>editPrice(i.id,{price:normalizePriceInput(e.target.value)})}/></td>
+    {show('remarks')&&<td><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></td>}
+    {show('size_variations')&&<td>{sizeAlternativesEditor(i.id,v)}</td>}
    </tr>})}</tbody></table></div>
 
-   <div className="mobile-card-list section">
+   <div className="mobile-card-list quote-bill section">
     <div className="muted tiny" style={{marginBottom:8}}>Quick price entry · tap Details only for remarks or alternative sizes</div>
-    <div className="muted tiny" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid var(--border, #334155)',fontWeight:700}}>
+    <div className="muted tiny" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 90px 32px',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid var(--border, #334155)',fontWeight:700}}>
      <span>Item</span><span>Unit price (Rs.)</span><span style={{textAlign:'center'}} title="Include in purchase order">Order ✓</span>
     </div>
     <p className="muted tiny" style={{margin:'6px 0 8px'}}>Blue tick = include in purchase order. It does not mean a price has been received.</p>
-    {visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <div key={i.id} style={{borderBottom:'1px solid var(--border, #334155)',padding:'8px 0'}}>
-     <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 105px 42px',alignItems:'center',gap:8}}>
-      <div style={{minWidth:0}}><strong style={{fontSize:14,lineHeight:1.3,display:'block',overflowWrap:'anywhere'}}>{itemTitle(i.requirement?.item||{})}</strong><span className="muted tiny">{qty(i.requested_qty)} {i.requirement?.item?.uom||''}</span></div>
-      <input aria-label={'Unit price for '+itemTitle(i.requirement?.item||{})} className="input stock-entry" style={{width:'100%',minWidth:0,padding:'9px 7px'}} inputMode="decimal" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} data-rfq-price-item={i.id} placeholder="Rs." value={v.price??''} onChange={e=>editPrice(i.id,{price:e.target.value})}/>
+    {visiblePriceItems.map(i=>{const v=prices[i.id]||{};return <div key={i.id} className="quote-bill-row" style={{borderBottom:'1px solid var(--border, #334155)',padding:'4px 0'}}>
+     <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 90px 32px',alignItems:'center',gap:8}}>
+      <div className="quote-bill-item" style={{minWidth:0}}><strong style={{fontSize:13,lineHeight:1.2,display:'block',overflowWrap:'anywhere'}}>{itemTitle(i.requirement?.item||{})}</strong><span className="muted tiny">{qty(i.requested_qty)} {i.requirement?.item?.uom||''}</span></div>
+      <input aria-label={'Unit price for '+itemTitle(i.requirement?.item||{})} className="input stock-entry" style={{width:'100%',minWidth:0,padding:'9px 7px'}} inputMode="decimal" disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} data-rfq-price-item={i.id} placeholder="Rs." value={v.price??''} onChange={e=>editPrice(i.id,{price:normalizePriceInput(e.target.value)})}/>
       <label title="Include in order" style={{display:'flex',alignItems:'center',justifyContent:'center'}}><input aria-label={'Order '+itemTitle(i.requirement?.item||{})} type="checkbox" checked={i.selected_for_po!==false} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} onChange={e=>togglePoItem(i,e.target.checked)}/></label>
      </div>
-     <details style={{marginTop:3}}><summary className="muted tiny" style={{cursor:'pointer',padding:'5px 0'}}>Details / remarks / sizes {(v.remarks||(v.variants||[]).length)?'●':''}</summary>
-      <div className="formgrid section"><label className="field">Available quantity<input className="input" inputMode="decimal" aria-label={'Available quantity for '+itemTitle(i.requirement?.item||{})} value={v.available_qty??''} placeholder="Unconfirmed" disabled={!canEdit||busy||loadingQuote} onChange={e=>editPrice(i.id,{available_qty:e.target.value})}/></label><label className="field">Delivery days<input className="input" inputMode="numeric" value={v.lead_days??''} placeholder="Unconfirmed" disabled={!canEdit||busy||loadingQuote} onChange={e=>editPrice(i.id,{lead_days:e.target.value})}/></label></div>
-      <div className="field" style={{marginTop:8}}><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>
-      <div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>
+     <details className="quote-bill-details"><summary className="muted tiny">Details {(v.remarks||(v.variants||[]).length)?'●':''}</summary>
+      <div className="formgrid section">{show('available_qty')&&<label className="field">Available quantity<input className="input" inputMode="decimal" aria-label={'Available quantity for '+itemTitle(i.requirement?.item||{})} value={v.available_qty??''} placeholder="Unconfirmed" disabled={!canEdit||busy||loadingQuote} onChange={e=>editPrice(i.id,{available_qty:e.target.value})}/></label>}{show('lead_days')&&<label className="field">Delivery days<input className="input" inputMode="numeric" value={v.lead_days??''} placeholder="Unconfirmed" disabled={!canEdit||busy||loadingQuote} onChange={e=>editPrice(i.id,{lead_days:e.target.value})}/></label>}</div>
+      {show('remarks')&&<div className="field" style={{marginTop:8}}><label>Remarks (optional)</label><input className="input" maxLength={500} disabled={!canEdit||loadingQuote||quoteLoadError||busy||quoteOcrBusy} placeholder="Optional remarks" value={v.remarks||''} onChange={e=>editPrice(i.id,{remarks:e.target.value})}/></div>}
+      {show('size_variations')&&<div className="section"><span className="muted tiny">Alternative sizes (optional)</span>{sizeAlternativesEditor(i.id,v)}</div>}
      </details>
     </div>})}
    </div>
@@ -1172,6 +1175,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
   {awardOpen&&<div ref={awardReviewRef} tabIndex={-1} style={{scrollMarginTop:96}} className="award-review section"><div className="sectionhead"><div><h3>{t('guide.step6_order','Step 6 · Review & Create Orders')}</h3><p>Check supplier, quantity and unit price for each selected item. Open More only when you need to change an allocation. Creating orders is a separate final action.</p></div><button className="btn small" onClick={()=>setAwardOpen(false)}>{t('common.close','Close')}</button></div>
     <div className="section" style={{padding:'10px 12px',border:'1px solid var(--border, #334155)',borderRadius:12}}>
      <strong>Order summary</strong>
+     {awardVariations.length>0&&<div className="section"><strong>Additional sizes · {awardVariations.length} PO line(s)</strong>{awardVariations.map(v=><div key={v.quote_line_id+':'+v.variant_index} className="procurement-data-row"><span>{itemTitle(items.find(i=>i.id===v.rfq_item_id)?.requirement?.item||{})} · additional size {v.size}</span><strong>{qty(v.quantity)} × {money(v.price)} = {money(Number(v.quantity)*Number(v.price))}</strong><span>{supplierName(v.supplier_id)}{v.remarks?' · '+v.remarks:''}</span></div>)}</div>}
      <div className="muted tiny" style={{marginTop:4}}>{awardPlan.length} allocations · {awardSuppliers.length} supplier(s) · {awardUnselected.length} items not selected</div>
      <div style={{marginTop:6}}><strong>Estimated landed goods: {money(awardEstimate)}</strong></div>
      {awardSuppliers.map(id=>{const rows=awardPlan.filter(x=>x.supplier_id===id);return <div key={id} className="muted tiny" style={{marginTop:4}}>{rows[0]?.supplier_name||'Supplier'} · {rows.length} allocation(s) · {money(rows.reduce((v,x)=>v+(Number(x.qty)||0)*(Number(x.landed_unit_cost)||0),0))}</div>})}
