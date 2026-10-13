@@ -372,6 +372,14 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
   if(r.error)return fail(r.error)
   flash(form.name+' added.');setForm({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''});load()
  }
+ const canDelete=(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')
+ async function deleteSupplier(s){
+  if(!canDelete)return
+  await confirmDanger({title:'Delete supplier',message:'Permanently delete '+s.name+'? Suppliers with linked records cannot be deleted; deactivate them instead.',confirmation:s.supplier_code,confirmLabel:'Confirm delete supplier',onConfirm:async({confirmation})=>{
+   const r=await supabase.rpc('proc_admin_delete_supplier_v1',{p_supplier_id:s.id,p_confirmation:confirmation});if(r.error)throw r.error
+   setCoverageSupplier(null);flash('Supplier deleted.');await load()
+  }})
+ }
  async function toggle(s){if(!canEdit)return;const r=await supabase.from('proc_suppliers').update({active:!s.active}).eq('id',s.id);if(r.error)fail(r.error);else{flash(s.name+(s.active?' deactivated.':' activated.'));load()}}
  const duplicateHints=useMemo(()=>{
   if(!smartEnabled)return[]
@@ -400,7 +408,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const cols=configuredColumns(fields,'suppliers',defaults)
  const scopeLabel=sc=>sc.scope_type==='item'?[sc.item?.description,sc.item?.size].filter(Boolean).join(' · '):`${sc.scope_type.replace('_',' ')}: ${sc.scope_value}`
  return <div className="split">
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><input className="input" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section"><DataTable columns={canEdit?[...cols,{key:'actions',label:'',render:s=><div className="toolbar">{fieldEnabled(fields,'suppliers','coverage')&&<button className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}<button className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button></div>}]:cols} rows={filtered} mobileCards/></div></div>
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><input className="input" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section"><DataTable columns={canEdit?[...cols,{key:'actions',label:'',render:s=><div className="toolbar">{fieldEnabled(fields,'suppliers','coverage')&&<button className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}<button className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button>{canDelete&&<button className="btn small bad" onClick={()=>deleteSupplier(s)}>Delete supplier</button>}</div>}]:cols} rows={filtered} mobileCards/></div></div>
   <div className="stack">
    {canAdd&&<div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.add_title','Add Supplier')}</h3><p>{t('suppliers.add_hint','Supplier code is optional and can be generated automatically.')}</p></div></div><div className="formgrid">
     {[
