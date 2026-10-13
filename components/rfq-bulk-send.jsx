@@ -6,7 +6,7 @@ import {DEFAULT_RFQ_CAPTION,supplierCaption,runSupplierBatch} from '@/lib/rfq-ba
 
 export function RfqBulkSend({rfq,captionTemplate,company,invitations,suppliers,gateway,otherBusy=false,onBusy,onSend,onRefresh}){
  const[selected,setSelected]=useState(new Set()),[template,setTemplate]=useState(DEFAULT_RFQ_CAPTION),[running,setRunning]=useState(false),[results,setResults]=useState({}),[summary,setSummary]=useState('')
- const initialized=useRef(false),sending=useRef(false),mounted=useRef(true)
+ const seenInvitations=useRef(new Set()),sending=useRef(false),mounted=useRef(true)
  useEffect(()=>{mounted.current=true;try{setTemplate(localStorage.getItem('gh_rfq_whatsapp_caption_template')||DEFAULT_RFQ_CAPTION)}catch{}return()=>{mounted.current=false}},[])
  useEffect(()=>{if(captionTemplate)setTemplate(captionTemplate)},[captionTemplate])
  const rows=invitations.map(inv=>{
@@ -18,7 +18,7 @@ export function RfqBulkSend({rfq,captionTemplate,company,invitations,suppliers,g
   return {inv,supplier,number,previous,local,eligible}
  })
  const available=rows.filter(r=>r.eligible),chosen=available.filter(r=>selected.has(r.inv.supplier_id))
- useEffect(()=>{if(!initialized.current&&invitations.length&&suppliers.length){initialized.current=true;setSelected(new Set(invitations.filter(i=>['pending','prepared'].includes(i.status)).map(i=>i.supplier_id)))}},[invitations,suppliers])
+ useEffect(()=>{if(!suppliers.length)return;const newcomers=invitations.filter(i=>!seenInvitations.current.has(i.id)&&['pending','prepared'].includes(i.status));invitations.forEach(i=>seenInvitations.current.add(i.id));if(newcomers.length)setSelected(current=>new Set([...current,...newcomers.map(i=>i.supplier_id)]))},[invitations,suppliers])
  function toggle(id){setSelected(current=>{const next=new Set(current);next.has(id)?next.delete(id):next.add(id);return next})}
  async function sendAll(){
   if(sending.current||otherBusy||!chosen.length)return
