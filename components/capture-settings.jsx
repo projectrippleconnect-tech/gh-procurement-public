@@ -1,6 +1,7 @@
 'use client'
 import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {ProtectedWorkPolicy} from './protected-work-policy'
 
 export function CaptureSettings({flash,fail}){
  const[protectedClient,setProtectedClient]=useState(false)
@@ -13,7 +14,7 @@ export function CaptureSettings({flash,fail}){
   catch(e){fail(e)}finally{setBusy(false)}
  }
  return <details name="gh-admin-section" className="admin-accordion"><summary>Screenshot Protection</summary><div className="card pad"><h3>Screenshot protection</h3><p>Screenshots are blocked by default in the protected Android app, including for Super Admin. Other users cannot turn protection off.</p>
-  <div className="notice"><b>Browser protection needs managed devices</b><p>Ordinary Chrome, Edge and installed web apps cannot reliably prevent operating-system screenshots. For browser use, your staff devices need a managed work profile or device-level capture policy. That setup is separate from this website setting.</p></div>
+  <ProtectedWorkPolicy admin/>
   {error&&<p role="alert">{error}</p>}
   <p role="status">{status?.capture_allowed?'Temporary Super Admin protected-app override is active. It expires automatically after five minutes.':'Protected-app policy: screenshots blocked.'}</p>
   {!protectedClient&&<p>Open the updated protected Android app to use the screenshot override. This browser has no verified capture control.</p>}
