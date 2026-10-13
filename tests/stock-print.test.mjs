@@ -16,8 +16,8 @@ test('custom stock PDF includes all 150 rows without modifying source data',()=>
  const snapshot=JSON.stringify(rows)
  for(const layout of ['columns','stacked'])for(const orientation of ['portrait','landscape']){
   const pdf=buildCustomStockPdf({items:rows,company:{name:'General Hardware'},options:{layout,orientation,tablesPerPage:3,fontSize:7,rowHeight:5}})
-  const text=pdf.output()
-  for(let n=1;n<=150;n++)assert.ok(text.includes('PVC Elbow '+String(n).padStart(3,'0')),String(n))
+  const text=pdf.output();const renderedText=[...text.matchAll(/\(([^()]*)\)\s*Tj/g)].map(m=>m[1]).join(' ')
+  for(let n=1;n<=150;n++)assert.ok(renderedText.includes('PVC Elbow '+String(n).padStart(3,'0')),String(n))
   assert.ok(text.includes('Stocks Checked By'));assert.ok(text.includes('Stocks Verified By'));assert.ok(text.includes('Order Approved By'))
   assert.ok(pdf.getNumberOfPages()>=1)
  }
