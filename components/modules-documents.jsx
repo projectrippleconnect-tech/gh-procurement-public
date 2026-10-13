@@ -84,7 +84,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   const request=++opening.current
   opening.currentPoId=po.id;setLines([]);setLinesReady(false);setGateway(null);refreshPoGateway(po.id)
   setActive(po);setPoMeta({expected_date:po.expected_date||'',terms:po.terms||'',notes:po.notes||''})
-  const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status)),balance_actions:proc_po_balance_actions(action,reason,released_qty,created_at)').eq('po_id',po.id).order('id'))
+  const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom,colour,variation,brand),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status)),balance_actions:proc_po_balance_actions(action,reason,released_qty,created_at)').eq('po_id',po.id).order('id'))
   if(request!==opening.current)return
   if(r.error)fail(r.error);else {setLines(r.data||[]);setLinesReady(true)}
  }
@@ -135,7 +135,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  }
  const poCols=configuredColumns(fields,'po',[
   {key:'item_code',label:'Code',render:l=><span className="mono tiny">{l.item?.item_code}</span>},
-  {key:'description',label:'Item',render:l=><strong>{itemTitle(l.item||{})}</strong>},
+  {key:'description',label:'Item',render:l=><strong>{[itemTitle(l.item||{}),l.item?.colour,l.item?.variation].filter(Boolean).join(' · ')}</strong>},
   {key:'size',label:'Size',render:l=>l.item?.size||'—'},
   {key:'uom',label:'UOM',render:l=>l.item?.uom||'—'},
   {key:'qty',label:'Qty',render:l=><>{qty(l.qty)}{Number(l.cancelled_qty)>0&&<div className="muted tiny">Cancelled {qty(l.cancelled_qty)}</div>}</>},
@@ -145,7 +145,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   {key:'effective_unit_cost',label:'Effective Unit Cost',render:l=>money(Number(l.unit_price||0)*(1-Number(l.discount_percent||0)/100)*(1+Number(l.tax_percent||0)/100))},
   {key:'landed_unit_cost',label:'Landed Unit Cost',render:l=>l.landed_unit_cost==null?'—':money(l.landed_unit_cost)},
   {key:'line_total',label:'Line Total',render:l=>money(l.line_total)}
- ])
+ ]).filter(c=>!active?.quantity_only||!['unit_price','discount_percent','tax_percent','effective_unit_cost','landed_unit_cost','line_total'].includes(c.key))
  const renderOrder=()=> <div className="po-expanded" id={'po-details-'+active.id}>
    <div className="order-progress" role="status"><strong>{['sent','partially_received','received','closed'].includes(active.status)?'PO completion · 100% · preparation and sending complete':active.status==='cancelled'?'Order cancelled':active.status==='approved'?'PO completion · 67% · approved, sending remains':'PO completion · 33% · created, approval remains'}</strong><small>Delivery is tracked separately.</small></div>
    <div className="sectionhead"><div><h3>{active.po_no}</h3><p>{active.supplier?.name} · {active.po_date}</p></div><Badge>{active.status}</Badge></div>
@@ -169,7 +169,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
    {lines.some(l=>Number(l.cancelled_qty)>0)&&<div className="notice section">Original PO quantities and values are retained. Cancelled balances are shown separately in the delivery audit.</div>}
    {canEdit&&canApprove&&['sent','partially_received'].includes(active.status)&&<details className="section"><summary>Outstanding delivery balances</summary><p className="muted tiny">Wait for delivery, cancel an unneeded balance, or release it to buy elsewhere. These actions require a reason and supplier notification.</p>{lines.filter(l=>remainingDelivery(l)>0).map(l=><div className="procurement-data-row" key={l.id}><strong>{itemTitle(l.item||{})}</strong><p>{qty(remainingDelivery(l))} {l.item?.uom} outstanding</p><div className="toolbar"><button className="btn small" disabled={busy||shareBusy} onClick={()=>releaseBalance(l,'buy_elsewhere')}>Buy elsewhere</button><button className="btn small bad" disabled={busy||shareBusy} onClick={()=>releaseBalance(l,'cancel')}>Cancel balance</button></div></div>)}</details>}
    {lines.some(l=>l.balance_actions?.length)&&<details className="section"><summary>Balance action history</summary>{lines.flatMap(l=>(l.balance_actions||[]).map((a,i)=><p key={l.id+'-'+i}>{itemTitle(l.item||{})} · {qty(a.released_qty)} · {a.action} · {a.reason} · {new Date(a.created_at).toLocaleString()}</p>))}</details>}
-   {fieldEnabled(fields,'po','total')&&<div className="document-total"><span>{fieldLabel(fields,'po','total','Total LKR')}</span><strong>{money(active.total)}</strong></div>}
+   {!active.quantity_only&&fieldEnabled(fields,'po','total')&&<div className="document-total"><span>{fieldLabel(fields,'po','total','Total LKR')}</span><strong>{money(active.total)}</strong></div>}
    <SupplierDocumentEditor kind="po" value={documentTemplate} onChange={changeDocumentTemplate} company={company} lines={lines} po={active} disabled={busy||shareBusy}/>
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print po-primary-action">
@@ -194,7 +194,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   {batchKey&&<div className="notice section">Showing the {batchIds.length} PO(s) created for this order. <button className="btn small" onClick={()=>navigate('po','all')}>View all orders</button></div>}
   <div className="filters two section"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><ModernSelect className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></ModernSelect></div>
   <div className="po-order-list section">{filtered.map(po=><div className="po-order" key={po.id}>
-   <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
+   <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{po.quantity_only?'Quantity only':money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
    {active?.id===po.id&&renderOrder()}
   </div>)}</div>
   {!filtered.length&&<Empty>No purchase orders match this page.</Empty>}
@@ -345,7 +345,7 @@ export function Receiving({activeView='receiving',initialFilter='',profile,field
   if(data[1]){if(data[1].error)throw data[1].error;setCases(data[1].data||[]);setCasePage(0)}
  }catch(e){fail(e)}},[fail,rejectionEnabled,can])
  useEffect(()=>{if(activeView==='receiving')loadPos()},[loadPos,activeView])
- useEffect(()=>{let cancelled=false;setLines([]);setVals({});setDraftReady(false);setAttempt(null);setNotes('');if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status))').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);let saved=null;try{saved=JSON.parse(localStorage.getItem('gh_receiving_draft_v1:'+profile.id+':'+poId)||'null')}catch{};setVals(Object.fromEntries(data.map(x=>[x.id,saved?.vals?.[x.id]||{received:'',accepted:'',rejected:'0',reason:''}])));setNotes(saved?.notes||'');if(saved?.receiptKey)receiptKeys.current.set(poId,saved.receiptKey);setAttempt(saved?.attempt||null);draftOwner.current='gh_receiving_draft_v1:'+profile.id+':'+poId;setDraftReady(true)})();return()=>{cancelled=true}},[poId,profile.id,fail])
+ useEffect(()=>{let cancelled=false;setLines([]);setVals({});setDraftReady(false);setAttempt(null);setNotes('');if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom,colour,variation,brand),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status))').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);let saved=null;try{saved=JSON.parse(localStorage.getItem('gh_receiving_draft_v1:'+profile.id+':'+poId)||'null')}catch{};setVals(Object.fromEntries(data.map(x=>[x.id,saved?.vals?.[x.id]||{received:'',accepted:'',rejected:'0',reason:''}])));setNotes(saved?.notes||'');if(saved?.receiptKey)receiptKeys.current.set(poId,saved.receiptKey);setAttempt(saved?.attempt||null);draftOwner.current='gh_receiving_draft_v1:'+profile.id+':'+poId;setDraftReady(true)})();return()=>{cancelled=true}},[poId,profile.id,fail])
 
  const already=l=>(l.grn||[]).filter(g=>!g.receipt||g.receipt.status==='posted').reduce((s,x)=>s+Number(x.accepted_qty||0),0)
  const remaining=remainingDelivery

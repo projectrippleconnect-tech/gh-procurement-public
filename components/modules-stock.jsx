@@ -15,6 +15,8 @@ import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empt
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
 import {StockPrintDialog} from './stock-print-dialog'
+import dynamic from 'next/dynamic'
+const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:()=> <div className="card pad">Loading Company Items…</div>})
 
 export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
@@ -85,6 +87,7 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
 
 export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
+ const[stockTab,setStockTab]=useState('general')
  const[submission,setSubmission]=useState(null)
  const resultRef=useRef(null)
  useEffect(()=>{if(submission)resultRef.current?.scrollIntoView({block:'start'})},[submission])
@@ -497,7 +500,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   {key:'current_stock',label:'Stock',render:i=><input className="input stock-entry" inputMode="decimal" enterKeyHint="next" value={entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>}
  ]
 
+ const stockTabs=<div className="toolbar section" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
+ if(stockTab==='company')return <>{stockTabs}<CompanyLists profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} t={t}/></>
  return <>
+  {stockTabs}
   {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
    <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+Object.values(entry).filter(v=>v!==''&&v!==undefined).length}</button></div></div>

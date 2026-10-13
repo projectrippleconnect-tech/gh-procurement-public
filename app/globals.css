@@ -604,3 +604,16 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .settings-search-results button{width:100%;display:flex;justify-content:space-between;text-align:left;min-height:40px}
 .settings-search-panels details[hidden],.settings-search-panels .admin-grid[hidden]{display:none!important}
 .settings-search-panels .admin-accordion{scroll-margin-top:80px}
+
+/* Compact company worksheets retain row layout on phones. */
+.company-items-grid{overflow:auto;max-height:65vh;overscroll-behavior:contain}
+.company-items-grid .table{font-size:12px;min-width:760px}
+.company-items-grid th{position:sticky;top:0;z-index:2;background:var(--panel2);text-transform:capitalize;white-space:nowrap}
+.company-items-grid td{padding:4px 6px;vertical-align:middle}
+.company-items-grid td:first-child{min-width:190px;position:sticky;left:0;background:var(--panel);z-index:1}
+.company-items-grid .input,.company-items-grid .select{min-height:32px;padding:4px 7px;font-size:13px;border-radius:6px;min-width:70px}
+.company-items-grid td:first-child .input{min-width:190px}
+.company-items-grid small{display:block;color:var(--muted);font-size:11px}
+.company-review-row{background:rgba(255,176,0,.08)}
+.company-document-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #e4e8ed;flex-wrap:wrap;font-size:12px}
+@media(max-width:700px){.company-items-grid td:first-child{position:static}.company-items-grid{scroll-padding-bottom:100px}}

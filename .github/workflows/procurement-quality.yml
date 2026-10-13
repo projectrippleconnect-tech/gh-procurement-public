@@ -67,6 +67,10 @@ jobs:
         env:
           GH_UI_PRINT_TEMPLATES: '1'
         run: npm run test:ui
+      - name: Verify Company Items stock tab, compact rows, sufficient-stock checks and movement PDFs
+        env:
+          GH_UI_COMPANY_ITEMS: '1'
+        run: npm run test:ui
       - name: Verify stock-number display, modern dialogs and accessible menu
         env:
           GH_UI_STOCK_NUMBERS: '1'

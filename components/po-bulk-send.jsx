@@ -43,7 +43,7 @@ export function PoBulkSend({orderIds=[],company,documentTemplate,selection,ready
     if(!check.ok)throw Object.assign(new Error(gateway.error||'Could not verify WhatsApp status.'),{haltBatch:true})
     const block=poSendBlock({po,canEdit:true,ready:true,gateway})
     if(block)throw Object.assign(new Error(block),{sendStatus:gateway.dispatches?.length?'blocked':'failed',haltBatch:!gateway.connected||!gateway.sendingEnabled})
-    const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom)').eq('po_id',po.id).order('id'))
+    const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom,colour,variation,brand)').eq('po_id',po.id).order('id'))
     if(r.error)throw r.error
     const args={po,lines:documentLines(r.data,documentTemplate),company,selection},caption=buildPurchaseOrderCaption(args),png=await createPurchaseOrderPng(args)
     if(png.blob.size>4_500_000)throw new Error('PO image is too large. Use fewer supplier document fields or PDF.')
