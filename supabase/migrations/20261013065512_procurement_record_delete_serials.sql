@@ -73,6 +73,12 @@ begin
     if jsonb_array_length(ids)>0 then plan:=jsonb_set(plan,array[fk.child],ids);end if;
    end if;
   end loop;
+  -- Release awards used only by the orders selected for deletion.
+  if plan ? 'proc_purchase_orders' then
+   select coalesce(jsonb_agg(a.id),'[]'::jsonb) into ids from public.proc_awards a where a.quote_line_id in(select source_quote_line_id from public.proc_po_lines where po_id in(select value::uuid from jsonb_array_elements_text(plan->'proc_purchase_orders'))) and not exists(select 1 from public.proc_po_lines l where l.source_quote_line_id=a.quote_line_id and l.po_id not in(select value::uuid from jsonb_array_elements_text(plan->'proc_purchase_orders')));
+   select coalesce(jsonb_agg(distinct value order by value),'[]'::jsonb) into ids from jsonb_array_elements(coalesce(plan->'proc_awards','[]'::jsonb)||ids);
+   if jsonb_array_length(ids)>0 then plan:=jsonb_set(plan,'{proc_awards}',ids);end if;
+  end if;
   -- Automation jobs use polymorphic entity IDs rather than foreign keys.
   select coalesce(jsonb_agg(id),'[]'::jsonb) into ids from public.proc_automation_jobs where entity_id in(select x.value::uuid from jsonb_each(plan) e cross join lateral jsonb_array_elements_text(e.value) x(value));
   if jsonb_array_length(ids)>0 then plan:=jsonb_set(plan,'{proc_automation_jobs}',ids);end if;
