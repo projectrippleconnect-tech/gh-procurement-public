@@ -54,6 +54,10 @@ jobs:
         env:
           GH_UI_STOCK_NUMBERS: '1'
         run: npm run test:ui
+      - name: Verify searchable pickers and keyboard focus
+        env:
+          GH_UI_PICKERS: '1'
+        run: npm run test:ui
       - name: Verify guided layouts at mobile, tablet and desktop widths
         run: npm run test:ui
       - name: Verify automatic three-stage procurement progression

@@ -1,5 +1,7 @@
 'use client'
 
+import {ModernSelect} from './modern-select'
+
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {Badge,Empty,ListPages,fieldEnabled,fieldLabel} from './ui'
@@ -178,7 +180,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
      <div className="formgrid section">
       <div className="field"><label>Physical Stock Now</label><input className="input" inputMode="decimal" value={urgent.current_stock} onChange={e=>{const value=normalizeQuantityInput(e.target.value);if(value!==null)setUrgent(x=>({...x,current_stock:value,reason:value!==''&&Number(value)===0?'zero_stock':x.reason}))}}/></div>
       <div className="field"><label>Required Qty <span className="muted">(blank = auto replenish)</span></label><input className="input" inputMode="decimal" value={urgent.required_qty} onChange={e=>setUrgent(x=>({...x,required_qty:e.target.value}))}/></div>
-      <div className="field"><label>Why urgent?</label><select className="select" value={urgent.reason} onChange={e=>setUrgent(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option value={k} key={k}>{v}</option>)}</select></div>
+      <div className="field"><label>Why urgent?</label><ModernSelect className="select" value={urgent.reason} onChange={e=>setUrgent(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option value={k} key={k}>{v}</option>)}</ModernSelect></div>
       <div className="field"><label>Photo (optional)</label><input className="input" type="file" accept="image/*" onChange={e=>setUrgentImage(e.target.files?.[0]||null)}/></div>
       <div className="field"><label>Customer reference (optional)</label><input className="input" value={urgent.customer_reference} onChange={e=>setUrgent(x=>({...x,customer_reference:e.target.value}))}/></div>
       <div className="field"><label>Note</label><input className="input" value={urgent.notes} onChange={e=>setUrgent(x=>({...x,notes:e.target.value}))}/></div>
@@ -193,7 +195,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
     <div className="formgrid">
      <div className="field wide"><label>Requested Item / Description</label><input className="input" value={missing.proposed_name} onChange={e=>setMissing(x=>({...x,proposed_name:e.target.value}))} placeholder="What did the customer ask for?"/></div>
      <div className="field"><label>Required Qty</label><input className="input" inputMode="decimal" value={missing.required_qty} onChange={e=>setMissing(x=>({...x,required_qty:e.target.value}))}/></div>
-     <div className="field"><label>Movement</label><select className="select" value={missing.movement} onChange={e=>setMissing(x=>({...x,movement:e.target.value}))}><option>FAST</option><option>NORMAL</option><option>SLOW</option></select></div>
+     <div className="field"><label>Movement</label><ModernSelect className="select" value={missing.movement} onChange={e=>setMissing(x=>({...x,movement:e.target.value}))}><option>FAST</option><option>NORMAL</option><option>SLOW</option></ModernSelect></div>
      <div className="field"><label>Brand</label><input className="input" value={missing.brand} onChange={e=>setMissing(x=>({...x,brand:e.target.value}))}/></div>
      <div className="field"><label>Category</label><input className="input" value={missing.category} onChange={e=>setMissing(x=>({...x,category:e.target.value}))}/></div>
      <div className="field"><label>Main Group</label><input className="input" value={missing.main_group} onChange={e=>setMissing(x=>({...x,main_group:e.target.value}))}/></div>
@@ -201,7 +203,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
      <div className="field"><label>Size</label><input className="input" value={missing.size} onChange={e=>setMissing(x=>({...x,size:e.target.value}))}/></div>
      <div className="field"><label>UOM</label><input className="input" value={missing.uom} onChange={e=>setMissing(x=>({...x,uom:e.target.value}))}/></div>
      <div className="field"><label>Suggested Max Stock (optional)</label><input className="input" inputMode="decimal" value={missing.suggested_max_stock} onChange={e=>setMissing(x=>({...x,suggested_max_stock:e.target.value}))}/></div>
-     <div className="field"><label>Reason</label><select className="select" value={missing.reason} onChange={e=>setMissing(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).filter(([k])=>k!=='zero_stock').map(([k,v])=><option value={k} key={k}>{v}</option>)}</select></div>
+     <div className="field"><label>Reason</label><ModernSelect className="select" value={missing.reason} onChange={e=>setMissing(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).filter(([k])=>k!=='zero_stock').map(([k,v])=><option value={k} key={k}>{v}</option>)}</ModernSelect></div>
      <div className="field"><label>Photo (optional)</label><input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setMissingImage(e.target.files?.[0]||null)}/></div>
      <div className="field"><label>Customer reference</label><input className="input" value={missing.customer_reference} onChange={e=>setMissing(x=>({...x,customer_reference:e.target.value}))}/></div>
      <div className="field wide"><label>Note</label><input className="input" value={missing.notes} onChange={e=>setMissing(x=>({...x,notes:e.target.value}))}/></div>
@@ -223,7 +225,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
 
   <div className="card pad section">
    <div className="sectionhead"><div><h3>Priority Queue</h3><p>Sorted by business urgency: customer-paid and zero-stock items first, then explicit urgent/high priorities and FAST-moving shortages.</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
-   <div className="toolbar section"><select className="select toolbar-select" value={priority} onChange={e=>setPriority(e.target.value)}><option value="all">All priorities</option>{priorities.map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}</select><select className="select toolbar-select" value={reason} onChange={e=>setReason(e.target.value)}><option value="all">All reasons</option>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><span className="muted tiny">{shown.length} active action(s)</span></div>
+   <div className="toolbar section"><ModernSelect className="select toolbar-select" value={priority} onChange={e=>setPriority(e.target.value)}><option value="all">All priorities</option>{priorities.map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={reason} onChange={e=>setReason(e.target.value)}><option value="all">All reasons</option>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</ModernSelect><span className="muted tiny">{shown.length} active action(s)</span></div>
    {loading?<Empty>Loading urgent actions…</Empty>:shown.length===0?<Empty>No urgent actions in this filter.</Empty>:<div className="urgent-action-list">{shown.slice(queuePage*50,(queuePage+1)*50).map(r=><div className={'urgent-action-card priority-'+r.effective_priority} key={r.action_type+'-'+r.action_id}>
     <div className="urgent-card-head"><div><div className="pillrow"><Badge>{r.effective_priority}</Badge><Badge>{r.action_type==='missing_item'?'missing item':r.movement}</Badge>{r.customer_paid&&<Badge>customer paid</Badge>}</div><h3>{itemTitle(r)}</h3><div className="muted tiny">{[r.brand,r.uom,r.category,r.main_group].filter(Boolean).join(' · ')}</div></div><div className="priority-score"><span>Priority score</span><b>{r.priority_score}</b></div></div>
     <div className="urgent-card-grid"><div><span>Reason</span><b>{reasonLabels[r.urgency_reason]||r.urgency_reason||'FAST / Stock'}</b></div><div><span>Required</span><b>{qty(r.required_qty)}</b></div><div><span>Book Stock</span><b>{r.book_stock===null||r.book_stock===undefined?'—':qty(r.book_stock)}</b></div><div><span>Status</span><b>{String(r.status).replaceAll('_',' ')}</b></div>{r.customer_reference&&<div><span>Customer Ref</span><b>{r.customer_reference}</b></div>}</div>

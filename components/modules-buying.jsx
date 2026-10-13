@@ -1,5 +1,7 @@
 'use client'
 
+import {ModernSelect} from './modern-select'
+
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation,useTextPrompt} from './danger-confirmation'
@@ -249,9 +251,9 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   </nav>
     <div className="row wrap" style={{gap:8,alignItems:'center'}}>
    <label className="muted tiny" htmlFor="proc-attention-filter">Focus</label>
-   <select id="proc-attention-filter" className="input" style={{maxWidth:190}} value={controlFilter} onChange={e=>{setPage(0);setControlFilter(e.target.value)}}>
+   <ModernSelect id="proc-attention-filter" className="input" style={{maxWidth:190}} value={controlFilter} onChange={e=>{setPage(0);setControlFilter(e.target.value)}}>
     <option value="all">All requirements</option><option value="urgent">Urgent priority</option><option value="partial">Partially ordered</option>
-   </select>
+   </ModernSelect>
   </div>
   <div className="row wrap" style={{gap:8,alignItems:'center'}}><button type="button" className="btn small" aria-pressed={oldestFirst} onClick={()=>{setPage(0);setOldestFirst(v=>!v)}}>{oldestFirst?'✓ Oldest requirements first':'Sort: newest activity'}</button><span className="muted tiny">Waiting age is measured from the requirement creation date; outstanding quantities remain visible.</span></div> 
   {canAdd&&<details className="card pad procurement-manual-add">
@@ -267,10 +269,10 @@ export function Requirements({activeView='requirements',initialFilter='',profile
     <div className="selected-item-box"><div><strong>{itemTitle(specialItem)}</strong><div className="muted tiny">{[specialItem.item_code,specialItem.uom,specialItem.category,specialItem.movement].filter(Boolean).join(' · ')}</div></div><button className="btn small" onClick={()=>setSpecialItem(null)}>{t('requirements.change','Change')}</button></div>
     <div className="special-stock-context section"><div><span>Current Stock</span><b>{qty(specialItem.book_stock??0)}</b></div><div><span>Reorder</span><b>{qty(specialItem.reorder_level)}</b></div><div><span>Max Stock</span><b>{qty(specialItem.max_stock)}</b></div><div><span>Movement</span><b>{specialItem.movement}</b></div></div>
     <div className="formgrid section">
-     <div className="field"><label>{t('requirements.why_extra','Why are we buying extra?')}</label><select className="select" value={special.reason} onChange={e=>setSpecial(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
+     <div className="field"><label>{t('requirements.why_extra','Why are we buying extra?')}</label><ModernSelect className="select" value={special.reason} onChange={e=>setSpecial(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</ModernSelect></div>
      {['customer_request','customer_paid'].includes(special.reason)&&<div className="field"><label>{t('requirements.customer_qty','Customer requested quantity')}</label><input className="input" inputMode="decimal" value={special.customer_qty} onChange={e=>setSpecial(x=>({...x,customer_qty:e.target.value}))}/></div>}
      <div className="field"><label>{t('requirements.purchase_qty','Purchase quantity')}</label><input className="input" inputMode="decimal" value={special.purchase_qty} onChange={e=>setSpecial(x=>({...x,purchase_qty:e.target.value}))}/></div>
-     <div className="field"><label>{t('requirements.priority','Priority')}</label><select className="select" value={special.priority} onChange={e=>setSpecial(x=>({...x,priority:e.target.value}))}><option value="">Smart / automatic</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></div>
+     <div className="field"><label>{t('requirements.priority','Priority')}</label><ModernSelect className="select" value={special.priority} onChange={e=>setSpecial(x=>({...x,priority:e.target.value}))}><option value="">Smart / automatic</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></ModernSelect></div>
      <div className="field"><label>{t('requirements.reference','Customer / project reference')}</label><input className="input" value={special.customer_reference} onChange={e=>setSpecial(x=>({...x,customer_reference:e.target.value}))}/></div>
      <div className="field"><label>{t('requirements.note','Note')}</label><input className="input" value={special.notes} onChange={e=>setSpecial(x=>({...x,notes:e.target.value}))}/></div>
     </div>
@@ -426,10 +428,10 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
     <div className="pillrow">{scopes.length?scopes.map(sc=><span className="choice-pill selected-choice" key={sc.id}>{scopeLabel(sc)}{canEdit&&<button className="chip-x" onClick={()=>removeScope(sc.id)}>×</button>}</span>):<span className="badge info">General supplier · all items</span>}</div>
     {canEdit&&<div className="section">
      <div className="formgrid">
-      <div className="field"><label>{t('suppliers.coverage_type','Coverage type')}</label><select className="select" value={scopeType} onChange={e=>{setScopeType(e.target.value);setScopeValue('');setItemSearch('')}}><option value="category">Category</option><option value="main_group">Main Group</option><option value="subgroup">Subgroup</option><option value="item">Specific Item</option></select></div>
-      {scopeType==='category'&&<div className="field"><label>Category</label><select className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select category…</option>{categories.map(c=><option key={c}>{c}</option>)}</select></div>}
-      {scopeType==='main_group'&&<div className="field"><label>Main Group</label><select className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select main group…</option>{mainGroups.map(x=><option key={x}>{x}</option>)}</select></div>}
-      {scopeType==='subgroup'&&<div className="field"><label>Subgroup</label><select className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select subgroup…</option>{subgroups.map(x=><option key={x}>{x}</option>)}</select></div>}
+      <div className="field"><label>{t('suppliers.coverage_type','Coverage type')}</label><ModernSelect className="select" value={scopeType} onChange={e=>{setScopeType(e.target.value);setScopeValue('');setItemSearch('')}}><option value="category">Category</option><option value="main_group">Main Group</option><option value="subgroup">Subgroup</option><option value="item">Specific Item</option></ModernSelect></div>
+      {scopeType==='category'&&<div className="field"><label>Category</label><ModernSelect className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select category…</option>{categories.map(c=><option key={c}>{c}</option>)}</ModernSelect></div>}
+      {scopeType==='main_group'&&<div className="field"><label>Main Group</label><ModernSelect className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select main group…</option>{mainGroups.map(x=><option key={x}>{x}</option>)}</ModernSelect></div>}
+      {scopeType==='subgroup'&&<div className="field"><label>Subgroup</label><ModernSelect className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select subgroup…</option>{subgroups.map(x=><option key={x}>{x}</option>)}</ModernSelect></div>}
       {scopeType==='item'&&<div className="field"><label>Search item</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder="Type item, code or size"/></div>}
      </div>
      {scopeType!=='item'&&<button className="btn primary section" onClick={()=>addScope()}>{t('suppliers.add_coverage','Add Coverage Rule')}</button>}
@@ -1173,7 +1175,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    </div>
    <div hidden={guidedStep!==4||awardOpen}>
    <div className="formgrid">
-    <div className="field"><label htmlFor="rfq-quote-supplier">{label('supplier','Supplier')}</label><select id="rfq-quote-supplier" disabled={busy||quoteOcrBusy} className="select" value={supplier} onChange={e=>moveQuoteSupplier(e.target.value)}>{quoteProgress.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.label} ({x.received}/{x.total})</option>)}</select></div>
+    <div className="field"><label htmlFor="rfq-quote-supplier">{label('supplier','Supplier')}</label><ModernSelect id="rfq-quote-supplier" disabled={busy||quoteOcrBusy} className="select" value={supplier} onChange={e=>moveQuoteSupplier(e.target.value)}>{quoteProgress.map(x=><option key={x.supplier_id} value={x.supplier_id}>{supplierName(x.supplier_id)} · {x.label} ({x.received}/{x.total})</option>)}</ModernSelect></div>
 
    </div>
 
@@ -1181,7 +1183,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    {quoteConflict&&<div className="notice section" role="alert">Saved supplier prices changed since your device draft. Current saved prices are shown; your draft is preserved.<div className="toolbar section"><button className="btn small" onClick={()=>{setPrices(quoteConflict.prices||{});setValidUntil(quoteConflict.validUntil||'');setQuoteRef(quoteConflict.quoteRef||'');setFreight(quoteConflict.freight??'0');setMinOrder(quoteConflict.minOrder??'0');setQuoteNotes(quoteConflict.quoteNotes||'');setQuoteConflict(null)}}>Restore my draft for review</button><button className="btn small" onClick={()=>{try{localStorage.removeItem(draftStorageKey(active.id,supplier))}catch{}setQuoteConflict(null)}}>Keep current saved prices</button></div></div>}
    {quoteLoadError&&<div className="notice" role="alert">Supplier prices could not be loaded. Editing is paused to protect the existing quote. <button type="button" className="btn small" disabled={busy||loadingQuote} onClick={()=>loadExistingQuote(active.id,supplier,false)}>Reload Supplier Prices</button></div>}
 
-   <div ref={priceEntryRef} tabIndex={-1} className="quote-searchbar section"><input id="rfq-price-search" aria-label="Search supplier price entry" className="input" placeholder="Search item or size…" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/><details className="quote-filter"><summary aria-label="Price entry filters" title="Price entry filters">Filter</summary><label className="field">Show prices<select aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All RFQ items</option><option value="requested">Requested from this supplier</option><option value="missing">Needs attention · missing price</option><option value="priced">Prices entered</option></select></label></details></div>
+   <div ref={priceEntryRef} tabIndex={-1} className="quote-searchbar section"><input id="rfq-price-search" aria-label="Search supplier price entry" className="input" placeholder="Search item or size…" value={priceSearch} onChange={e=>setPriceSearch(e.target.value)}/><details className="quote-filter"><summary aria-label="Price entry filters" title="Price entry filters">Filter</summary><label className="field">Show prices<ModernSelect aria-label="Price entry filter" className="select" value={priceFilter} onChange={e=>setPriceFilter(e.target.value)}><option value="all">All RFQ items</option><option value="requested">Requested from this supplier</option><option value="missing">Needs attention · missing price</option><option value="priced">Prices entered</option></ModernSelect></label></details></div>
    <p className="muted tiny" role="status">Supplier {Math.max(1,quoteProgress.findIndex(x=>x.supplier_id===supplier)+1)} of {quoteProgress.length} · {supplierName(supplier)} · {items.filter(i=>String(prices[i.id]?.price??'').trim()!=='').length}/{items.length} prices entered · {quoteDraftState}</p>
    <div className="work-items-window">
    <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Order?</th><th>Item / size</th><th>Qty</th><th>Supplier price (Rs.)</th>{show('remarks')&&<th>Remarks</th>}{show('size_variations')&&<th>Optional size variations</th>}</tr></thead>
@@ -1227,7 +1229,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
     <strong>Add supplier to this RFQ</strong>
     <p className="muted tiny">New suppliers must be added to this request before you can enter their prices. Existing quotations stay unchanged.</p>
     <div className="formgrid">
-     <div className="field"><label htmlFor="rfq-add-supplier">New supplier</label><select id="rfq-add-supplier" className="select" value={addSupplierId} disabled={addingSupplier} onChange={e=>{setAddSupplierId(e.target.value);setScopeOverride('')}}><option value="">Choose an active supplier…</option>{suppliers.filter(s=>!invite.some(x=>x.supplier_id===s.id)).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+     <div className="field"><label htmlFor="rfq-add-supplier">New supplier</label><ModernSelect id="rfq-add-supplier" className="select" value={addSupplierId} disabled={addingSupplier} onChange={e=>{setAddSupplierId(e.target.value);setScopeOverride('')}}><option value="">Choose an active supplier…</option>{suppliers.filter(s=>!invite.some(x=>x.supplier_id===s.id)).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</ModernSelect></div>
      <div className="field"><label htmlFor="rfq-scope-override">Coverage override reason (if needed)</label><input id="rfq-scope-override" className="input" value={scopeOverride} disabled={addingSupplier} maxLength={500} onChange={e=>setScopeOverride(e.target.value)} placeholder="Only needed if supplier coverage does not match"/></div>
     </div>
     <div className="toolbar section"><button className="btn primary" disabled={addingSupplier||busy||!addSupplierId} onClick={addSupplierToRfq}>{addingSupplier?'Adding supplier…':'Add to RFQ'}</button><button className="btn small" disabled={addingSupplier} onClick={load}>Refresh Suppliers</button>{can('suppliers.add')&&<button type="button" className="btn small" disabled={creatingSupplier} onClick={()=>setQuickSupplierOpen(v=>!v)}>+ Quick Create Supplier</button>}</div>
@@ -1262,7 +1264,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:8,flexWrap:'wrap'}}><strong style={{fontSize:14,overflowWrap:'anywhere'}}>{itemTitle(item.requirement?.item||{})}</strong><span className="muted tiny">Outstanding {qty(Math.min(Number(item.requested_qty||0),Math.max(Number(item.requirement?.adjusted_qty||0)-Number(item.requirement?.ordered_qty||0),0)))}{speed?' · Urgent':''}</span></div>
      {plans.map(row=><div key={row.id} style={{marginTop:5}}>
       <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 76px',gap:6,alignItems:'center'}}>
-       <select aria-label={'Supplier for '+itemTitle(item.requirement?.item||{})} className="select" style={{minWidth:0,width:'100%',fontSize:13,padding:'9px 6px'}} value={row.quote_line_id} onChange={e=>changeAwardSupplier(row,e.target.value)}>{candidatesFor(item.id).map(x=><option value={x.quote_line_id} key={x.quote_line_id}>{x.supplier_name}</option>)}</select>
+       <ModernSelect aria-label={'Supplier for '+itemTitle(item.requirement?.item||{})} className="select" style={{minWidth:0,width:'100%',fontSize:13,padding:'9px 6px'}} value={row.quote_line_id} onChange={e=>changeAwardSupplier(row,e.target.value)}>{candidatesFor(item.id).map(x=><option value={x.quote_line_id} key={x.quote_line_id}>{x.supplier_name}</option>)}</ModernSelect>
        <input aria-label={'Award quantity for '+itemTitle(item.requirement?.item||{})} className="input stock-entry" style={{minWidth:0,width:'100%',padding:'9px 6px'}} inputMode="decimal" value={row.qty} onChange={e=>updateAward(row.id,{qty:e.target.value})}/>
       </div>
       <div className="muted tiny" style={{marginTop:4,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><strong>{money(row.landed_unit_cost)} / unit</strong><span>{row.recommended?'Recommended':'Changed supplier'}</span><span>{row.lead_days==null?'Delivery not specified':row.lead_days+' day(s) delivery'}</span></div>
