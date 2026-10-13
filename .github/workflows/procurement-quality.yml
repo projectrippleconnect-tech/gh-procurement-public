@@ -42,6 +42,10 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
+      - name: Verify company stock PDFs and editable supplier templates
+        env:
+          GH_UI_PRINT_TEMPLATES: '1'
+        run: npm run test:ui
       - name: Verify stock-number display, modern dialogs and accessible menu
         env:
           GH_UI_STOCK_NUMBERS: '1'

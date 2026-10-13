@@ -7,8 +7,9 @@ import {normalizeWhatsAppNumber} from '@/lib/helpers'
 import {buildPurchaseOrderCaption,createPurchaseOrderPng} from '@/lib/po-share'
 import {runSupplierBatch} from '@/lib/rfq-batch.mjs'
 import {poSendBlock} from '@/lib/procurement-flow'
+import {documentLines} from '@/lib/supplier-template.mjs'
 
-export function PoBulkSend({orderIds=[],company,selection,ready,refreshKey,otherBusy,onBusy,onRefresh}){
+export function PoBulkSend({orderIds=[],company,documentTemplate,selection,ready,refreshKey,otherBusy,onBusy,onRefresh}){
  const [orders,setOrders]=useState([]),[selected,setSelected]=useState(new Set()),[loading,setLoading]=useState(true),[running,setRunning]=useState(false),[results,setResults]=useState({}),[summary,setSummary]=useState('')
  const orderScope=orderIds.join(',')
  const mounted=useRef(true),sending=useRef(false),generation=useRef(0)
@@ -44,7 +45,7 @@ export function PoBulkSend({orderIds=[],company,selection,ready,refreshKey,other
     if(block)throw Object.assign(new Error(block),{sendStatus:gateway.dispatches?.length?'blocked':'failed',haltBatch:!gateway.connected||!gateway.sendingEnabled})
     const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom)').eq('po_id',po.id).order('id'))
     if(r.error)throw r.error
-    const args={po,lines:r.data,company,selection},caption=buildPurchaseOrderCaption(args),png=await createPurchaseOrderPng(args)
+    const args={po,lines:documentLines(r.data,documentTemplate),company,selection},caption=buildPurchaseOrderCaption(args),png=await createPurchaseOrderPng(args)
     if(png.blob.size>4_500_000)throw new Error('PO image is too large. Use fewer supplier document fields or PDF.')
     const pngBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('Could not read PO image.'));reader.readAsDataURL(png.blob)})
     if(!mounted.current)throw Object.assign(new Error('Sending paused; reopen Purchase Orders to continue.'),{haltBatch:true})
