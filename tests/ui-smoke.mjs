@@ -43,7 +43,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search','suppliers.add',
+ const permissions=['admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search','suppliers.add','suppliers.view','suppliers.edit','company_lists.view','company_lists.manage',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','procurement.orders.approve','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -52,7 +52,7 @@ try{
  const requirement={...item,source_count_line_id:'count-line-fixture',id:'00000000-0000-4000-8000-000000000004',requirement_no:'REQ-FIXTURE',
   adjusted_qty:10,remaining_to_order:10,ordered_qty:0,ordered_not_received:0,status:'open',
   approval_status:'pending_review',source_type:'stock_count',priority:'normal',created_at:new Date().toISOString()}
- const supplier={id:'00000000-0000-4000-8000-000000000005',name:'Fixture supplier',phone:'+94779792078',whatsapp:'+94779792078',active:true}
+ const supplier={id:'00000000-0000-4000-8000-000000000005',supplier_code:'S-FIXTURE',name:'Fixture supplier',phone:'+94779792078',whatsapp:'+94779792078',active:true}
  const newSupplier={...supplier,id:'00000000-0000-4000-8000-000000000010',name:'Newly registered supplier'}
  const rfq={id:'00000000-0000-4000-8000-000000000006',rfq_no:'RFQ-FIXTURE',status:'prepared',due_date:'2099-01-01'}
  const po={id:'00000000-0000-4000-8000-000000000007',po_no:'PO-FIXTURE',supplier_id:supplier.id,supplier,status:'sent',total:1000,po_date:'2099-01-01'}
@@ -119,6 +119,10 @@ try{
    }
    if(url.pathname.includes('/auth/'))data=user
    else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
+   else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
+   else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true}]
+   else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
+   else if(name==='proc_import_company_items_v1')data={created:1,existing:0,company_list_linked:1}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
     const body=req.postDataJSON();deleteRequests.push(body)
@@ -274,6 +278,74 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_CATALOG==='1'){
+  // Catalog actions use intercepted APIs; production is never mutated.
+  await navigate('CL Company Lists')
+  await page.getByText('Fixture switch',{exact:true}).filter({visible:true}).first().waitFor()
+  const companyView=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
+  await companyView.getByLabel('Company list category',{exact:true}).selectOption('ELECTRICAL')
+  assert.equal(await companyView.getByText(item.description,{exact:true}).filter({visible:true}).count(),0)
+  await companyView.getByLabel('Company list subcategory',{exact:true}).selectOption('Switches')
+  await companyView.getByText('Fixture switch',{exact:true}).filter({visible:true}).first().waitFor()
+  await companyView.getByRole('button',{name:'Remove company list',exact:true}).click()
+  const companyWarning=page.getByRole('alertdialog',{name:'Remove company list',exact:true})
+  assert.equal(await companyWarning.getByRole('button',{name:'Confirm remove list',exact:true}).isDisabled(),true)
+  await companyWarning.getByRole('button',{name:'Cancel',exact:true}).click()
+  const catalogPdf=new jsPDF();catalogPdf.text('Cycle Lock 2 ft 100.00',10,20)
+  await companyView.getByText('Import Company List with OCR',{exact:true}).click()
+  const importPanel=companyView.locator('details.card').filter({has:page.getByText('Import Company List with OCR',{exact:true})})
+  await importPanel.getByLabel('Company list photo / PDF',{exact:true}).setInputFiles({name:'company-list.pdf',mimeType:'application/pdf',buffer:Buffer.from(catalogPdf.output('arraybuffer'))})
+  await importPanel.getByRole('button',{name:'Select all',exact:true}).waitFor()
+  await importPanel.getByRole('button',{name:'Select all',exact:true}).click()
+  await importPanel.getByLabel('Category',{exact:true}).first().fill('BATHROOM')
+  await importPanel.getByLabel('Subcategory',{exact:true}).first().fill('Locks')
+  await importPanel.getByRole('button',{name:'Apply category to selected',exact:true}).click()
+  await importPanel.getByRole('button',{name:'Create / Match & Link Reviewed Items',exact:true}).click()
+  await requireQuery(url=>url.pathname.endsWith('/proc_import_company_items_v1'),'Company OCR uses reviewed import API')
+  await navigate('♢ Suppliers')
+  const supplierDetails=page.locator('section:not([hidden]) summary').filter({hasText:'More details'}).filter({visible:true}).first()
+  if(await supplierDetails.count())await supplierDetails.click()
+  await page.getByRole('button',{name:'Delete supplier',exact:true}).filter({visible:true}).first().click()
+  const supplierWarning=page.getByRole('alertdialog',{name:'Delete supplier',exact:true})
+  assert.equal(await supplierWarning.getByRole('button',{name:'Confirm delete supplier',exact:true}).isDisabled(),true)
+  await supplierWarning.getByLabel('Warning confirmation',{exact:true}).fill('WRONG')
+  assert.equal(await supplierWarning.getByRole('button',{name:'Confirm delete supplier',exact:true}).isDisabled(),true)
+  await supplierWarning.getByRole('button',{name:'Cancel',exact:true}).click()
+  console.log('PASS company category/subcategory filters, company removal and supplier deletion confirmations at '+width+'px')
+  await navigate('□ Items')
+  await page.getByText('FIXTURE-ITEM',{exact:true}).filter({visible:true}).first().waitFor()
+  await page.getByRole('button',{name:'+ Quick Add Item',exact:true}).filter({visible:true}).first().click()
+  const quick=page.locator('.card').filter({has:page.getByRole('heading',{name:'Quick Add Item',exact:true})}).last()
+  await quick.getByLabel('Item name',{exact:true}).fill('New fixture lock')
+  await quick.getByLabel('Size',{exact:true}).fill('2 ft')
+  await quick.getByRole('button',{name:'Save Item',exact:true}).click()
+  await page.getByRole('heading',{name:'Quick Add Item',exact:true}).waitFor({state:'hidden'})
+  await requireQuery(url=>url.pathname.endsWith('/proc_quick_add_item_v1'),'Quick creation must use the guarded item API')
+  console.log('PASS quick-add item creation and return to Item Master at '+width+'px')
+  await navigate('⇩ Receive Goods')
+  await page.getByLabel('Purchase Order',{exact:true}).selectOption(po.id)
+  await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+  await page.getByText('Scan GRN / delivery note (OCR)',{exact:true}).click()
+  const receiptPdf=new jsPDF();receiptPdf.text(item.description+' 2 inch Qty: 6',10,20)
+  await page.getByLabel('GRN / delivery document',{exact:true}).setInputFiles({name:'delivery.pdf',mimeType:'application/pdf',buffer:Buffer.from(receiptPdf.output('arraybuffer'))})
+  await page.getByRole('button',{name:'Apply Reviewed GRN Rows',exact:true}).waitFor()
+  const ocrPanel=page.locator('details').filter({has:page.getByText('Scan GRN / delivery note (OCR)',{exact:true})})
+  await ocrPanel.getByLabel('Use',{exact:true}).check()
+  await ocrPanel.getByRole('button',{name:'Apply Reviewed GRN Rows',exact:true}).click()
+  await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+  if(width<=700){
+   assert.equal(await page.getByLabel('Received '+item.description+' · 2 inch',{exact:true}).inputValue(),'6')
+   assert.equal(await page.getByLabel('Accepted '+item.description+' · 2 inch',{exact:true}).inputValue(),'')
+  }else{
+   const quantities=page.locator('section:not([hidden]) .desktop-table tbody .stock-entry')
+   assert.equal(await quantities.nth(0).inputValue(),'6');assert.equal(await quantities.nth(1).inputValue(),'')
+  }
+  assert.equal(receipts.length,0,'OCR never posts a GRN automatically')
+  assert.deepEqual(errors,[])
+  await page.screenshot({path:'test-results/'+width+'-catalog-grn-ocr.png'})
+  console.log('PASS reviewed company-list and GRN PDF extraction without automatic stock posting at '+width+'px')
+  await context.close();continue
   }
   if(process.env.GH_UI_FOCUSED==='1'){
    rfqItemCount=6

@@ -10,6 +10,7 @@ import {allRows} from '@/lib/query-pages'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
+import {QuickAddItem} from './quick-add-item'
 
 export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
@@ -508,6 +509,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     <span className="stock-search-icon">⌕</span><span><strong>{t('stock.search_any','Search any item')}</strong><small>{t('stock.search_hint','Name, size, code, brand or group')}</small></span><span>›</span>
    </button>
 
+  <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{setSearchTerm(item.item_code);setSearchOpen(true);await load()}}/>
    <div className="stock-mode-tabs section">
     <button className={'btn '+(viewMode==='guided'?'primary':'')} onClick={()=>setViewMode('guided')}>{t('stock.guided','Guided Count')}</button>
     <button className={'btn '+(viewMode==='browse'?'primary':'')} onClick={()=>setViewMode('browse')}>{t('stock.browse','Fast Entry')}</button>
@@ -676,6 +678,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  return <div className="card pad">
   <datalist id="item-master-categories">{cats.map(c=><option key={c} value={c}/>)}</datalist>
   <div className="sectionhead"><div><h3>{t('items.title','Item Master')}</h3><p>{t('items.subtitle','Edit approved item details, move items between categories or FAST/NORMAL/SLOW, and enable/disable products without deleting their history.')}</p></div><div className="toolbar"><input className="input toolbar-input" placeholder={t('items.search','Search item, size, brand or group')} value={q} onChange={e=>setQ(e.target.value)}/><select className="select toolbar-select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(c=><option key={c}>{c}</option>)}</select><select className="select toolbar-select" value={status} onChange={e=>setStatus(e.target.value)}><option value="active">{t('items.enabled_items','Enabled items')}</option><option value="inactive">{t('items.disabled_items','Disabled items')}</option><option value="all">{t('items.all_items','All items')}</option></select></div></div>
+  <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async()=>{setQ('');setCat('');setPage(0);await load()}}/>
   {canEdit&&<div className="notice"><b>{t('items.quick_edit','Quick edit is on.')}</b> {t('items.quick_edit_hint','Change Description, Size, Category, Movement or Max Stock directly. Reorder level remains formula-controlled by movement.')}</div>}
   {loading?<Empty>{t('items.loading','Loading item master…')}</Empty>:<><div className="section"><DataTable columns={cols} rows={filtered} mobileCards/></div><div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?((page*pageSize)+1):0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}
  </div>

@@ -56,6 +56,10 @@ jobs:
         env:
           GH_UI_SIZE_ORDER: '1'
         run: npm run test:ui
+      - name: Verify quick-add, deletion controls and reviewed catalog / GRN OCR
+        env:
+          GH_UI_CATALOG: '1'
+        run: npm run test:ui
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,3 +86,10 @@ jobs:
         env:
           PGPASSWORD: fixture-only
         run: psql -h 127.0.0.1 -U postgres -d isolated_quotes -v ON_ERROR_STOP=1 -f tests/sql/quote-conflict-isolated.sql
+
+      - name: Verify item creation and supplier deletion in disposable PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_catalog
+          psql -h 127.0.0.1 -U postgres -d isolated_catalog -v ON_ERROR_STOP=1 -f tests/sql/catalog-management-isolated.sql

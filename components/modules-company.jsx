@@ -7,6 +7,8 @@ import {allRows,containsAny} from '@/lib/query-pages'
 import {businessDate,money,qty} from '@/lib/helpers'
 import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
+import {QuickAddItem} from './quick-add-item'
+import {CompanyListOcr} from './company-list-ocr'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -80,18 +82,20 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
+ const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState('')
  const startedAt=useRef(null)
 
  const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length)setCompanyId(r.data[0].id)},[companyId,fail])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
  const loadRows=useCallback(async()=>{if(!companyId){setRows([]);return}setLoading(true);try{
-  const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
+  const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
   if(r.error)throw r.error
   const list=r.data||[];setRows(list)
   const ids=list.map(x=>x.item_id)
   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
   const saved=localStorage.getItem('gh-company-count-'+companyId)
+  setEntry({});startedAt.current=null
   if(saved)try{const p=JSON.parse(saved);setEntry(p.entry||{});startedAt.current=p.startedAt||null}catch{}
  }catch(e){fail(e)}finally{setLoading(false)}},[companyId,fail])
  useEffect(()=>{loadRows()},[loadRows])
@@ -112,13 +116,23 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
   if(!startedAt.current)startedAt.current=new Date().toISOString()
   setEntry(x=>({...x,[id]:v}))
  }
- const shown=useMemo(()=>rows.filter(r=>(r.item?.description+' '+(r.item?.item_code||'')+' '+(r.item?.size||'')).toLowerCase().includes(search.toLowerCase())),[rows,search])
+ const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
+ const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
+ const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup])
  const suggested=r=>{
   const v=entry[r.id];if(v===undefined||v==='')return null
   const n=Number(v),trigger=Number(r.reorder_level??r.target_stock)
   return Number.isFinite(n)&&n<=trigger?Math.max(Number(r.target_stock)-n,0):0
  }
 
+ async function archiveCompanyList(){
+  if(!canManage||!companyId)return
+  const company=companies.find(c=>c.id===companyId);if(!company)return
+  await confirmDanger({title:'Remove company list',message:'Remove '+company.name+' from active Company Lists?',warning:'Existing count history and price lists remain available. This removes the list from stock-entry selection.',confirmation:company.company_code,confirmLabel:'Confirm remove list',onConfirm:async()=>{
+   const r=await supabase.from('proc_companies').update({company_list_enabled:false,updated_at:new Date().toISOString()}).eq('id',companyId);if(r.error)throw r.error
+   setCompanies(v=>v.filter(c=>c.id!==companyId));setCompanyId('');setRows([]);setEntry({});flash('Company list removed from active selection.')
+  }})
+ }
  async function createCompany(){
   if(!newCompany.name.trim())return fail(new Error(t('company_lists.name_required','Company name is required.')))
   const code=newCompany.code.trim()||newCompany.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'')
@@ -130,7 +144,7 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
   const targetQty=Number(target),rr=reorder===''?null:Number(reorder)
   if(!Number.isFinite(targetQty)||targetQty<0)return fail(new Error(t('company_lists.target_error','Enter a valid target stock.')))
   if(rr!==null&&(!Number.isFinite(rr)||rr<0))return fail(new Error(t('company_lists.reorder_error','Enter a valid reorder level.')))
-  const r=await supabase.from('proc_company_list_items').insert({company_id:companyId,item_id:item.id,target_stock:targetQty,reorder_level:rr,created_by:profile.id})
+  const r=await supabase.from('proc_company_list_items').upsert({company_id:companyId,item_id:item.id,target_stock:targetQty,reorder_level:rr,active:true,created_by:profile.id,updated_at:new Date().toISOString()},{onConflict:'company_id,item_id'})
   if(r.error)return fail(r.error);flash(item.description+' added to company list.');setItemSearch('');setItemResults([]);setTarget('');setReorder('');loadRows()
  }
  async function updateCompanyLevel(r,key,value){
@@ -166,20 +180,24 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
  return <>
   <div className="card pad">
    <div className="sectionhead"><div><h3>{t('company_lists.title','Company Lists')}</h3><p>{t('company_lists.hint','Permanent company-specific stock lists. Staff only enter physical stock; shortages are calculated automatically and sent for approval.')}</p></div>{canCount&&<button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div>
-   <div className="filters two"><select className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select><input className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   <div className="filters two"><select className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select><input className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
   </div>
 
+  <div className="filters two section"><label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label></div>
+  {canManage&&companyId&&<button className="btn small bad section" onClick={archiveCompanyList}>Remove company list</button>}
+  {companyId&&<CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>}
   {canManage&&<div className="split section">
    <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>
    <div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{t('company_lists.reorder_optional','Reorder at (optional)')}</label><input className="input" inputMode="decimal" value={reorder} onChange={e=>setReorder(e.target.value)}/></div></div>
+    <QuickAddItem can={can} fail={fail} flash={flash} onCreated={item=>{setItemSearch(item.description);setItemResults([item])}}/>
     {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{i.description}</strong><div className="muted tiny">{[i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
    </div>
   </div>}
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:shown.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
    <div className="muted tiny">{shown.length} item(s) · entered quantities are saved locally until submission.</div>
-   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Item</th><th>Target</th><th>Reorder</th><th>Book Stock</th><th>Current Stock</th><th>Suggested Order</th>{canManage&&<th/>}</tr></thead><tbody>{shown.map(r=><tr key={r.id}><td><strong>{r.item?.description}</strong><div className="muted tiny">{[r.item?.item_code,r.item?.size,r.item?.uom].filter(Boolean).join(' · ')}</div></td><td>{canManage?<input className="input stock-entry" inputMode="decimal" defaultValue={r.target_stock} onBlur={e=>updateCompanyLevel(r,'target_stock',e.target.value)}/>:qty(r.target_stock)}</td><td>{canManage?<input className="input stock-entry" inputMode="decimal" placeholder="Target" defaultValue={r.reorder_level??''} onBlur={e=>updateCompanyLevel(r,'reorder_level',e.target.value)}/>:qty(r.reorder_level??r.target_stock)}</td><td>{qty(balances[r.item_id]??0)}</td><td>{canCount?<input className="input stock-entry" inputMode="decimal" value={entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:qty(balances[r.item_id]??0)}</td><td><b className="warn-text">{suggested(r)===null?'—':qty(suggested(r))}</b></td>{canManage&&<td><button className="btn small" onClick={()=>removeItem(r)}>{t('company_lists.remove','Remove')}</button></td>}</tr>)}</tbody></table></div>
-   <div className="mobile-card-list section">{shown.map(r=><div className="procurement-data-row" key={r.id}><div className="stock-card-title"><strong>{r.item?.description}</strong><Badge>{r.item?.movement}</Badge></div><div className="muted tiny">{[r.item?.item_code,r.item?.size,r.item?.uom].filter(Boolean).join(' · ')}</div><div className="stock-mobile-grid"><div><span>Target</span>{canManage?<input className="input" inputMode="decimal" defaultValue={r.target_stock} onBlur={e=>updateCompanyLevel(r,'target_stock',e.target.value)}/>:<b>{qty(r.target_stock)}</b>}</div><div><span>Reorder</span>{canManage?<input className="input" inputMode="decimal" placeholder="Target" defaultValue={r.reorder_level??''} onBlur={e=>updateCompanyLevel(r,'reorder_level',e.target.value)}/>:<b>{qty(r.reorder_level??r.target_stock)}</b>}</div><div><span>Book</span><b>{qty(balances[r.item_id]??0)}</b></div><div><span>Suggested</span><b className="warn-text">{suggested(r)===null?'—':qty(suggested(r))}</b></div>{canCount&&<div className="wide"><span>Current Stock</span><input className="input" inputMode="decimal" value={entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/></div>}</div>{canManage&&<button className="btn small section" onClick={()=>removeItem(r)}>{t('company_lists.remove','Remove')}</button>}</div>)}</div>
+   <div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>Item</th><th>Target</th><th>Reorder</th><th>Book Stock</th><th>Current Stock</th><th>Suggested Order</th>{canManage&&<th/>}</tr></thead><tbody>{shown.map(r=><tr key={r.id}><td><strong>{r.item?.description}</strong><div className="muted tiny">{[r.item?.item_code,r.item?.size,r.item?.uom,r.item?.category,r.item?.subgroup].filter(Boolean).join(' · ')}</div></td><td>{canManage?<input className="input stock-entry" inputMode="decimal" defaultValue={r.target_stock} onBlur={e=>updateCompanyLevel(r,'target_stock',e.target.value)}/>:qty(r.target_stock)}</td><td>{canManage?<input className="input stock-entry" inputMode="decimal" placeholder="Target" defaultValue={r.reorder_level??''} onBlur={e=>updateCompanyLevel(r,'reorder_level',e.target.value)}/>:qty(r.reorder_level??r.target_stock)}</td><td>{qty(balances[r.item_id]??0)}</td><td>{canCount?<input className="input stock-entry" inputMode="decimal" value={entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:qty(balances[r.item_id]??0)}</td><td><b className="warn-text">{suggested(r)===null?'—':qty(suggested(r))}</b></td>{canManage&&<td><button className="btn small" onClick={()=>removeItem(r)}>{t('company_lists.remove','Remove')}</button></td>}</tr>)}</tbody></table></div>
+   <div className="mobile-card-list section">{shown.map(r=><div className="procurement-data-row" key={r.id}><div className="stock-card-title"><strong>{r.item?.description}</strong><Badge>{r.item?.movement}</Badge></div><div className="muted tiny">{[r.item?.item_code,r.item?.size,r.item?.uom,r.item?.category,r.item?.subgroup].filter(Boolean).join(' · ')}</div><div className="stock-mobile-grid"><div><span>Target</span>{canManage?<input className="input" inputMode="decimal" defaultValue={r.target_stock} onBlur={e=>updateCompanyLevel(r,'target_stock',e.target.value)}/>:<b>{qty(r.target_stock)}</b>}</div><div><span>Reorder</span>{canManage?<input className="input" inputMode="decimal" placeholder="Target" defaultValue={r.reorder_level??''} onBlur={e=>updateCompanyLevel(r,'reorder_level',e.target.value)}/>:<b>{qty(r.reorder_level??r.target_stock)}</b>}</div><div><span>Book</span><b>{qty(balances[r.item_id]??0)}</b></div><div><span>Suggested</span><b className="warn-text">{suggested(r)===null?'—':qty(suggested(r))}</b></div>{canCount&&<div className="wide"><span>Current Stock</span><input className="input" inputMode="decimal" value={entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/></div>}</div>{canManage&&<button className="btn small section" onClick={()=>removeItem(r)}>{t('company_lists.remove','Remove')}</button>}</div>)}</div>
   </>}</div>
  </>
 }
