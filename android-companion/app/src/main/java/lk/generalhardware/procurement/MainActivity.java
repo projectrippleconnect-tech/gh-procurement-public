@@ -49,6 +49,65 @@ public final class MainActivity extends Activity {
     private WebView webView;
     private android.webkit.ValueCallback<Uri[]> pendingFiles;
     private ProgressBar progress;
+    private final android.os.Handler captureHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private long captureEpoch = 0;
+    private boolean capturePaused = true;
+    private final Runnable restoreCaptureProtection = () -> protectCapture();
+
+    private void protectCapture() {
+        captureEpoch++;
+        captureHandler.removeCallbacks(restoreCaptureProtection);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
+    private void checkCapturePolicy(String token) {
+        protectCapture();
+        if (capturePaused || webView == null || !isTrusted(webView.getUrl()) || token == null
+                || token.length() > 8192 || !token.matches("[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")) return;
+        final long epoch = captureEpoch;
+        new Thread(() -> {
+            int seconds = 0;
+            javax.net.ssl.HttpsURLConnection connection = null;
+            try {
+                connection = (javax.net.ssl.HttpsURLConnection) new java.net.URL(
+                    "https://huxhcjmcvlhblvpvrron.supabase.co/rest/v1/rpc/proc_capture_status_v1").openConnection();
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestMethod("POST");
+                connection.setDoOutput(true);
+                connection.setRequestProperty("apikey", "sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42");
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+                connection.setRequestProperty("Content-Type", "application/json");
+                try (java.io.OutputStream out = connection.getOutputStream()) { out.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+                if (connection.getResponseCode() == 200) {
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                    try (java.io.InputStream in = connection.getInputStream()) {
+                        byte[] buffer = new byte[1024];int count;
+                        while ((count = in.read(buffer)) != -1) {
+                            if (bytes.size() + count > 8192) throw new IllegalArgumentException("Policy response too large");
+                            bytes.write(buffer, 0, count);
+                        }
+                    }
+                    org.json.JSONObject policy = new org.json.JSONObject(bytes.toString("UTF-8"));
+                    if (policy.optBoolean("capture_allowed", false) && policy.optBoolean("can_override", false))
+                        seconds = Math.max(0, Math.min(20, policy.optInt("expires_in_seconds", 0)));
+                }
+            } catch (Exception ignored) {
+                // A failed verification always leaves FLAG_SECURE enabled.
+            } finally { if (connection != null) connection.disconnect(); }
+            final int permittedSeconds = seconds;
+            runOnUiThread(() -> {
+                if (epoch != captureEpoch || capturePaused || isFinishing() || webView == null
+                        || !isTrusted(webView.getUrl()) || permittedSeconds <= 0) return;
+                getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+                captureHandler.postDelayed(restoreCaptureProtection, permittedSeconds * 1000L);
+            });
+        }).start();
+    }
+
+    @Override protected void onResume() { super.onResume();capturePaused = false;protectCapture(); }
+    @Override protected void onPause() { capturePaused = true;protectCapture();super.onPause(); }
 
     private static boolean isTrusted(String url) {
         try {
@@ -220,6 +279,11 @@ public final class MainActivity extends Activity {
     }
 
     final class SupplierShareBridge {
+        /** No client-supplied boolean can disable capture protection. The native
+         * layer independently verifies the current JWT with the backend. */
+        @JavascriptInterface public void refreshCapturePolicy(String token) {
+            runOnUiThread(() -> checkCapturePolicy(token));
+        }
         /** Called from the trusted first-party RFQ action, not a background scheduler. */
         @JavascriptInterface public void shareRfqToSupplier(String phone, String text, String imageDataUrl, String supplier) {
             runOnUiThread(() -> {
@@ -297,6 +361,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        protectCapture();
         if (pendingFiles != null) { pendingFiles.onReceiveValue(null); pendingFiles = null; }
         if (webView != null) { webView.removeJavascriptInterface("GHProcurementAndroid"); webView.destroy(); webView = null; }
         super.onDestroy();

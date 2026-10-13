@@ -11,6 +11,7 @@ import {createTranslator,navText} from '@/lib/i18n'
 import {HelpCenter} from './help-ui'
 import {withStartupDeadline} from '@/lib/workspace-startup.mjs'
 import {AccessBoundary} from './access-boundary'
+import {CaptureSession} from './capture-settings'
 
 // Keep purchasing and PDF code out of the initial sign-in download.
 const screenLoading=()=> <p role="status">Loading screen…</p>
@@ -30,7 +31,7 @@ const Reports=dynamic(()=>import('./modules-admin').then(m=>m.Reports),{loading:
 const Admin=dynamic(()=>import('./modules-admin').then(m=>m.Admin),{loading:screenLoading})
 
 export default function ProtectedProcurementApp(){
- return <AccessBoundary><ProcurementApp/></AccessBoundary>
+ return <><CaptureSession/><AccessBoundary><ProcurementApp/></AccessBoundary></>
 }
 
 function ProcurementApp(){

@@ -1,6 +1,8 @@
 'use client'
 import {RecordDeletion} from './delete-record'
 import {AccessSettings} from './access-settings'
+import {SettingsSearch} from './settings-search'
+import {CaptureSettings} from './capture-settings'
 
 import {ModernSelect} from './modern-select'
 
@@ -296,9 +298,10 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  const selectedFields=fields.filter(f=>f.module_key===selectedModule).sort((a,b)=>a.sort_order-b.sort_order)
  const stockEntryFields=fields.filter(f=>f.module_key==='stock_entry').sort((a,b)=>a.sort_order-b.sort_order)
  const stockMobileFeature=features.find(f=>f.feature_key==='stock.mobile_entry')
- return <>
+ return <SettingsSearch>
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<details name="gh-admin-section" className="admin-accordion"><summary>Data Management</summary><DataManagement profile={profile} flash={flash} fail={fail}/></details>}
   {(profile.role_key||profile.role)==='admin'&&<AccessSettings users={users} flash={flash} fail={fail}/>}
+  {(profile.role_key||profile.role)==='admin'&&<CaptureSettings flash={flash} fail={fail}/>}
   {can('admin.roles.manage')&&<details name="gh-admin-section" className="admin-accordion"><summary>Roles & Permissions</summary><RoleManager language={language} t={t} flash={flash} fail={fail} onChanged={load}/></details>} 
   {can('admin.configure_app')&&<InterfaceSettings value={settings.interface_preferences} onSaved={onConfigChanged} flash={flash} fail={fail}/>}
   {can('admin.configure_app')&&<div className="admin-grid">
@@ -353,5 +356,5 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
   {can('admin.audit.view')&&<details name="gh-admin-section" className="admin-accordion"><summary>Audit Trail</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.audit','Audit Trail')}</h3><p>{t('admin.audit_hint','Last 100 server-generated changes.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
    {key:'created_at',label:'Time',render:r=>new Date(r.created_at).toLocaleString()},{key:'table_name',label:'Area'},{key:'action',label:'Action'},{key:'user_id',label:'User ID',render:r=><span className="mono tiny">{r.user_id||'system'}</span>}
   ]} rows={audit} mobileCards/></div></details>}
- </>
+ </SettingsSearch>
 }
