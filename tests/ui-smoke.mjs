@@ -233,6 +233,10 @@ try{
     data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):receivingManyRows?[first,...Array.from({length:8},(_,i)=>({...first,id:'receiving-line-'+i,item:{...item,description:'Receiving fixture '+(i+2)}}))]:[first]
    }
    else if(name==='proc_search_item_master_v2')data=[{...item,item_code:'FIXTURE-ITEM',total_count:1}]
+   else if(name==='proc_v_stock_check_due'&&process.env.GH_UI_STOCK_SHELF==='1'){
+    const rows=[{...item,description:'Concrete Nails',size:'1 inch'}, {...item,id:'00000000-0000-4000-8000-000000000013',item_id:'00000000-0000-4000-8000-000000000013',description:'Concrete Nails',size:'2 inch',movement:'NORMAL',is_due:false}, {...item,id:'00000000-0000-4000-8000-000000000014',item_id:'00000000-0000-4000-8000-000000000014',description:'Concrete Nails',size:'3 inch',movement:'SLOW',category:'BATHROOM'}, {...item,id:'00000000-0000-4000-8000-000000000015',item_id:'00000000-0000-4000-8000-000000000015',description:'Shelf bracket'}]
+    data=rows.filter(i=>(!url.searchParams.has('category')||url.searchParams.get('category')==='eq.'+i.category)&&(!url.searchParams.has('movement')||url.searchParams.get('movement')==='eq.'+i.movement)&&(!url.searchParams.has('is_due')||i.is_due))
+   }
    else if(name==='proc_items'||name==='proc_v_stock_check_due'||name==='proc_search_stock_items_v1')data=[item]
    else if(name==='proc_item_filter_options_v1')data={categories:['GENERAL'],main_groups:[]}
    else if(name==='proc_submit_stock_and_continue_v3'){stockSubmissions.push(req.postDataJSON());data={automation:{status:'review_required',submitted_items:1,requirements:1}}}
@@ -318,6 +322,40 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_STOCK_SHELF==='1'){
+   await navigate('✓ Stock Entry')
+   const search=page.getByLabel('Search stock items',{exact:true})
+   await search.fill('concrete nails')
+   const rows=page.locator(width<768?'.stock-dense-row':'.stock-fast-panel tbody tr').filter({visible:true})
+   await page.waitForFunction(()=>document.querySelector('#stock-list-search')&&document.querySelector('.stock-list-search [role="status"]')?.textContent.startsWith('3 matching'))
+   assert.equal(await rows.count(),3,'All sizes and movement groups stay together')
+   const first=rows.nth(0),second=rows.nth(1)
+   await first.locator('input[type="checkbox"]').check()
+   assert.equal(await first.locator('input[inputmode="decimal"]').isDisabled(),true)
+   await second.locator('input[inputmode="decimal"]').fill('2')
+   await search.fill('shelf bracket')
+   assert.equal(await rows.count(),1)
+   await search.fill('concrete nails')
+   assert.equal(await first.locator('input[type="checkbox"]').isChecked(),true)
+   assert.equal(await second.locator('input[inputmode="decimal"]').inputValue(),'2')
+   await first.locator('input[type="checkbox"]').uncheck()
+   assert.equal(await first.locator('input[inputmode="decimal"]').isEnabled(),true)
+   await first.locator('input[type="checkbox"]').check()
+   const draft=await page.evaluate(id=>JSON.parse(localStorage.getItem('gh-stock-count-draft:'+id)),id)
+   assert.equal(draft.entry[item.id],'sufficient')
+   await page.getByRole('button',{name:/^Submit Stock/}).click()
+   await page.getByRole('button',{name:'Submit stock',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('/proc_submit_stock_and_continue_v3'),'Stock submit request')
+   assert.deepEqual(stockSubmissions[0].p_lines,[{item_id:item.id,sufficient_stock:true},{item_id:'00000000-0000-4000-8000-000000000013',current_stock:2}])
+   await navigate('✓ Stock Entry')
+   await search.fill('concrete nails')
+   await rows.first().waitFor()
+   await page.screenshot({path:'test-results/stock-shelf-'+width+'.png',fullPage:true})
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Stock shelf rows fit screen')
+   assert.deepEqual(errors,[])
+   console.log('PASS shelf search, all movements, sufficient toggle, draft retention and mixed submission at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_SETTINGS_SEARCH==='1'){
    await navigate('⚙ Admin')

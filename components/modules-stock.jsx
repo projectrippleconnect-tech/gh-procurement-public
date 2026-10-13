@@ -6,9 +6,9 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
-import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows} from '@/lib/query-pages'
+import {SUFFICIENT_STOCK,matchesStockSearch,stockSearchTokens,stockSubmissionLine} from '@/lib/stock-entry.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
@@ -102,7 +102,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const paperOcr=feature('stock.paper_ocr')
 
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
- const[items,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
+ const[loadedItems,setItems]=useState([]),[listSearch,setListSearch]=useState('')
+ const searchActive=stockSearchTokens(listSearch).length>0
+ const items=useMemo(()=>loadedItems.filter(i=>matchesStockSearch(i,listSearch)),[loadedItems,listSearch])
+ const[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
  const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
@@ -189,14 +192,16 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const stockLoadRevision=useRef(0)
  const load=useCallback(async()=>{const revision=++stockLoadRevision.current;setLoading(true);try{
   const pageChunk=500
-  const cap=dueOnly?dailyTarget:Infinity
+  const cap=dueOnly&&!searchActive?dailyTarget:Infinity
   let all=[],total=0,offset=0
   while(all.length<cap){
    let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,Math.min(offset+pageChunk-1,cap-1))
-   if(cat)q=q.eq('category',cat)
-   if(movement)q=q.eq('movement',movement)
-   if(mainGroup)q=q.eq('main_group',mainGroup)
-   if(dueOnly)q=q.eq('is_due',true)
+   if(!searchActive){
+    if(cat)q=q.eq('category',cat)
+    if(movement)q=q.eq('movement',movement)
+    if(mainGroup)q=q.eq('main_group',mainGroup)
+    if(dueOnly)q=q.eq('is_due',true)
+   }
    const r=await q;if(r.error)throw r.error
    if(revision!==stockLoadRevision.current)return
    if(offset===0)total=r.count??0
@@ -208,7 +213,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   setDueTotal(total||all.length)
   setItems(all)
   setCursor(0);setBrowsePage(0)
- }catch(e){if(revision===stockLoadRevision.current)fail(e)}finally{if(revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,fail])
+ }catch(e){if(revision===stockLoadRevision.current)fail(e)}finally{if(revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,searchActive,fail])
  useEffect(()=>{load();return()=>{stockLoadRevision.current++}},[load])
 
  useEffect(()=>{
@@ -275,15 +280,25 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   if(raw!==''&&!/^\d*(?:\.\d{0,3})?$/.test(raw))return
   beginCount();setEntry(x=>({...x,[id]:raw}));setSkipped(s=>{if(!s.has(id))return s;const n=new Set(s);n.delete(id);return n})
  }
+ function setSufficient(id,checked){
+  beginCount()
+  setEntry(x=>{const n={...x};if(checked)n[id]=SUFFICIENT_STOCK;else delete n[id];return n})
+  setSkipped(s=>{const n=new Set(s);n.delete(id);return n})
+ }
+ function sufficientCheckbox(i){
+  return <label className="stock-sufficient" title="Visually checked: stock is above the reorder level. No count or order needed."><input type="checkbox" aria-label={itemTitle(i)+' Sufficient stock'} checked={entry[i.item_id]===SUFFICIENT_STOCK} onChange={e=>setSufficient(i.item_id,e.target.checked)}/><span>Sufficient<br/>stock</span></label>
+ }
+ const sufficientCount=items.filter(i=>entry[i.item_id]===SUFFICIENT_STOCK).length
  const suggested=i=>{
   const v=entry[i.item_id]
+  if(v===SUFFICIENT_STOCK)return 0
   if(v===''||v===undefined)return null
   const n=Number(v)
   return Number.isFinite(n)&&n<=Number(i.reorder_level)?Math.max(Number(i.max_stock)-n,0):0
  }
- const completedCount=useMemo(()=>items.filter(i=>entry[i.item_id]!==undefined&&entry[i.item_id]!=='').length,[items,entry])
+ const completedCount=useMemo(()=>items.filter(i=>entry[i.item_id]!==undefined&&entry[i.item_id]!==''&&entry[i.item_id]!==SUFFICIENT_STOCK).length,[items,entry])
  const skippedCurrent=useMemo(()=>items.filter(i=>skipped.has(i.item_id)).length,[items,skipped])
- const remainingCount=Math.max(items.length-completedCount-skippedCurrent,0)
+ const remainingCount=Math.max(items.length-completedCount-sufficientCount-skippedCurrent,0)
  const current=items[Math.min(cursor,Math.max(items.length-1,0))]||null
 
  function nextUnfinished(from=cursor+1){
@@ -313,6 +328,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  async function saveNext(){
   if(!current)return
   const v=entry[current.item_id]
+  if(v===SUFFICIENT_STOCK){nextUnfinished(cursor+1);return}
   if(!isQuantityInput(v))return fail(new Error(t('stock.quantity_continue_error','Enter a valid physical stock quantity before continuing.')))
   if(Number(v)===0&&feature('urgent.zero_stock_prompt',true))await markUrgentNow(current,0,'zero_stock')
   nextUnfinished(cursor+1)
@@ -323,7 +339,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   nextUnfinished(cursor+1)
  }
  function openQuick(i){
-  setQuickItem(i);setQuickValue(entry[i.item_id]??'');setSearchOpen(false)
+  setQuickItem(i);setQuickValue(entry[i.item_id]===SUFFICIENT_STOCK?'':entry[i.item_id]??'');setSearchOpen(false)
   setTimeout(()=>quickInput.current?.focus(),80)
  }
  async function saveQuick(markUrgent=false){
@@ -402,8 +418,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  async function submit(){
   if(busy)return
   const {counted,checked,remaining}=stockCountBatch(entry)
-  if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one current-stock quantity.')))
-  if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
+  if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one quantity or tick Sufficient stock.')))
+  if(counted.some(([,v])=>v!==SUFFICIENT_STOCK&&!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
   const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
   const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
   if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
@@ -416,7 +432,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    }
    await draftWrites.current
    await ensureServerCountStart()
-   const lines=checked.map(([item_id,v])=>({item_id,current_stock:Number(v)}))
+   const lines=checked.map(([item_id,v])=>stockSubmissionLine(item_id,v))
    const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:path})
    if(r.error)throw r.error
    const automation=r.data?.automation||null
@@ -446,16 +462,6 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    try{localStorage.removeItem(draftKey)}catch{}
    flash('Stock draft discarded.')
   }})
- }
-
- async function movementPdf(m){
-  try{
-   const r=await allRows(()=>{let q=supabase.from('proc_items').select('item_code,category,description,size,max_stock,reorder_level,movement').eq('active',true).eq('movement',m).order('description').order('id');if(cat)q=q.eq('category',cat);if(mainGroup)q=q.eq('main_group',mainGroup);return q});if(r.error)throw r.error
-   exportMovementChecklistPdf({items:r.data||[],company,movement:m,category:cat||''})
-  }catch(e){fail(e)}
- }
- function stockPdf(){
-  exportStockSheetPdf({items:items.map(i=>({...i,id:i.item_id,book_stock:i.book_stock??''})),company,footer,fields,stockTaking:true,title:'STOCK TAKING SHEET',subtitle:[cat||'All Categories',movement||'All Movement',mainGroup||''].filter(Boolean).join(' · ')})
  }
 
  function submissionTime(v){
@@ -494,7 +500,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   ...(rowField('main_group')?[{key:'main_group',label:'Main Group'}]:[]),
   ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group'}]:[]),
   ...(rowField('max_stock')?[{key:'max_stock',label:'Max',render:i=>qty(i.max_stock)}]:[]),
-  {key:'current_stock',label:'Stock',render:i=><input className="input stock-entry" inputMode="decimal" enterKeyHint="next" value={entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>}
+  {key:'sufficient_stock',label:'Sufficient stock',render:i=>sufficientCheckbox(i)},
+  {key:'current_stock',label:'Stock',render:i=><input disabled={entry[i.item_id]===SUFFICIENT_STOCK} className="input stock-entry" inputMode="decimal" enterKeyHint="next" value={entry[i.item_id]===SUFFICIENT_STOCK?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>}
  ]
 
  return <>
@@ -506,14 +513,11 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     <div className="stock-history-head"><div><strong>{t('stock.history_title','Stock Submission History')}</strong><span>{t('stock.history_hint','Recount anytime. The latest count updates current stock; older submissions stay unchanged.')}</span></div><button className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button></div>
     {historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div><div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div><div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
      <div className="stock-history-list">{historyRows.map(h=><div className="stock-history-record" key={h.count_id}><button className="stock-history-row" onClick={()=>openHistoryRow(h)}><div><strong>{h.count_no}</strong><span>{submissionTime(h.submitted_at)} · {h.counted_by_name||'Staff'}{h.category?' · '+h.category:''}</span></div><div className="stock-history-numbers"><b>{h.item_count||0} {t('stock.items_label','items')}</b><span>{h.shortage_count||0} {t('stock.need_order','need order')}</span></div><span className="stock-history-chevron">{historyDetail?.count_id===h.count_id?'⌃':'⌄'}</span></button>
-      {historyDetail?.count_id===h.count_id&&<div className="stock-history-detail"><div className="stock-history-detail-head"><span>{t('stock.item','ITEM')}</span><span>{t('stock.submitted_stock','SUBMITTED STOCK')}</span><span>{t('stock.order','ORDER')}</span></div>{historyDetail.lines.map(line=><div className="stock-history-detail-row" key={line.line_id}><div><strong>{[line.description,line.size].filter(Boolean).join(' · ')}</strong><small>{[line.item_code,line.uom].filter(Boolean).join(' · ')}</small></div><b>{qty(line.current_stock)}</b><b className={Number(line.required_qty)>0?'warn-text':''}>{Number(line.required_qty)>0?qty(line.required_qty):'—'}</b></div>)}</div>}
+      {historyDetail?.count_id===h.count_id&&<div className="stock-history-detail"><div className="stock-history-detail-head"><span>{t('stock.item','ITEM')}</span><span>{t('stock.submitted_stock','SUBMITTED STOCK')}</span><span>{t('stock.order','ORDER')}</span></div>{historyDetail.lines.map(line=><div className="stock-history-detail-row" key={line.line_id}><div><strong>{[line.description,line.size].filter(Boolean).join(' · ')}</strong><small>{[line.item_code,line.uom].filter(Boolean).join(' · ')}</small></div><b>{line.current_stock===null?'Sufficient stock':qty(line.current_stock)}</b><b className={Number(line.required_qty)>0?'warn-text':''}>{Number(line.required_qty)>0?qty(line.required_qty):'—'}</b></div>)}</div>}
      </div>)}</div></>:<div className="muted tiny section">{t('stock.history_empty','No submitted stock counts yet.')}</div>}
    </div>}
 
-   <button className="stock-search-launch" onClick={()=>{setSearchOpen(true);setTimeout(()=>document.getElementById('stock-global-search')?.focus(),60)}}>
-    <span className="stock-search-icon">⌕</span><span><strong>{t('stock.search_any','Search any item')}</strong><small>{t('stock.search_hint','Name, size, code, brand or group')}</small></span><span>›</span>
-   </button>
-
+   <div className="stock-list-search section"><label htmlFor="stock-list-search"><strong>Search stock items</strong></label><div className="toolbar"><input id="stock-list-search" type="search" className="input" placeholder="Search concrete nails, shelf brackets, size…" value={listSearch} onChange={e=>{setListSearch(e.target.value);setCursor(0);setBrowsePage(0)}}/>{listSearch&&<button className="btn small" onClick={()=>{setListSearch('');setCursor(0);setBrowsePage(0)}}>Clear</button>}</div><p className="muted tiny" role="status">{searchActive?(loading?'Loading all matching items…':items.length+' matching items · all categories, groups and movements, including items not due'):'Search shows related items together across FAST, NORMAL and SLOW.'}</p><p className="muted tiny">Above the reorder level? Tick Sufficient stock to skip counting. Untick to enter an exact quantity.</p></div>
   <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{setSearchTerm(item.item_code);setSearchOpen(true);await load()}}/>
    <StockPrintDialog profile={profile} company={company} can={can} fail={fail}/>
    <div className="stock-mode-tabs section">
@@ -523,10 +527,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
    {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:items.length+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
 
-   <div className="movement-tabs no-print section"><span className="muted tiny stock-inline-help">{t('stock.movement','Movement')} <InfoButton topic="movement" language={language}/></span>{['FAST','NORMAL','SLOW'].map(m=><button key={m} className={'btn '+(movement===m?'primary':'')} onClick={()=>setMovement(m)}>{m}</button>)}{!isCounter&&<button className={'btn '+(movement===''?'primary':'')} onClick={()=>setMovement('')}>ALL</button>}</div>
+   <div className="movement-tabs no-print section"><span className="muted tiny stock-inline-help">{t('stock.movement','Movement')} <InfoButton topic="movement" language={language}/></span>{['FAST','NORMAL','SLOW'].map(m=><button disabled={searchActive} key={m} className={'btn '+(movement===m?'primary':'')} onClick={()=>setMovement(m)}>{m}</button>)}{!isCounter&&<button className={'btn '+(movement===''?'primary':'')} onClick={()=>setMovement('')}>ALL</button>}</div>
 
    <div className="stock-filter-summary section">
-    <div><span className="muted tiny">{t('stock.current_filter','Current filter')}</span><strong>{[cat||t('stock.all_categories','All categories'),mainGroup||t('stock.all_groups','All groups'),movement||t('stock.all_movement','All movement')].join(' · ')}</strong></div>
+    <div><span className="muted tiny">{t('stock.current_filter','Current filter')}</span><strong>{searchActive?'Search results · all categories, groups and movements':[cat||t('stock.all_categories','All categories'),mainGroup||t('stock.all_groups','All groups'),movement||t('stock.all_movement','All movement')].join(' · ')}</strong></div>
     <button className="btn" onClick={()=>setFiltersOpen(x=>!x)}>{filtersOpen?t('stock.hide_filters','Hide Filters'):t('stock.filters','Filters')}</button>
    </div>
 
@@ -538,17 +542,16 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    {canAttach&&paperOcr&&sheetFile&&<div className="section"><button className="btn" disabled={ocrBusy} onClick={runPaperOcr}>{ocrBusy?t('stock.reading_sheet','Reading sheet…'):t('stock.ocr_completed','OCR Completed Sheet')}</button>{ocrProgress&&<span className="muted tiny"> {ocrProgress.stage} · {Math.round(Number(ocrProgress.progress||0)*100)}%</span>}</div>}
    {ocrRows.length>0&&<div className="card pad section"><div className="sectionhead"><div><h4>{t('stock.paper_review','Paper Count OCR Review')}</h4><p>{t('stock.paper_review_hint','OCR is only a suggestion. Confirm the item and physical quantity before applying.')}</p></div><button className="btn good" onClick={applyOcrCounts}>{t('stock.apply_reviewed','Apply Reviewed Counts')}</button></div><div className="stack">{ocrRows.map(row=><div className="ocr-review-row" key={row.id}><label className={'choice-pill '+(row.selected?'selected-choice':'')}><input type="checkbox" checked={row.selected} onChange={e=>updateOcrRow(row.id,{selected:e.target.checked})}/>{t('stock.use','Use')}</label><div><strong>{row.match?itemTitle(row.match):'No confident match'}</strong><div className="muted tiny">{row.raw}</div></div><ModernSelect className="select" value={row.match?.item_id||''} onChange={e=>{const m=row.alternatives.find(x=>x.item_id===e.target.value)||null;updateOcrRow(row.id,{match:m,selected:!!m})}}><option value="">{t('stock.choose_item','Choose item…')}</option>{row.alternatives.map(m=><option key={m.item_id} value={m.item_id}>{itemTitle(m)} · {m.item_code}</option>)}</ModernSelect><input className="input stock-entry" inputMode="decimal" value={row.qty} onChange={e=>updateOcrRow(row.id,{qty:e.target.value})}/></div>)}</div></div>}
 
-   {canManage&&feature('stock.paper_checklists')&&filtersOpen&&<div className="toolbar section no-print"><button className="btn" onClick={()=>movementPdf('FAST')}>FAST Checklist PDF</button><button className="btn" onClick={()=>movementPdf('NORMAL')}>NORMAL Checklist PDF</button><button className="btn" onClick={()=>movementPdf('SLOW')}>SLOW Checklist PDF</button><button className="btn" onClick={stockPdf}>Stock Taking PDF</button></div>}
   </div>
 
   {viewMode==='guided'&&<div className="card pad section guided-count-shell">{loading?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
-   <div className="guided-progress-head"><div><strong>{completedCount} counted</strong><span>{skippedCurrent} {t('stock.skipped','skipped')} · {remainingCount} {t('stock.remaining','remaining')}</span></div><b>{cursor+1} / {items.length}</b></div>
-   <div className="guided-progress"><i style={{width:(items.length?Math.min(100,(completedCount/items.length)*100):0)+'%'}}/></div>
+   <div className="guided-progress-head"><div><strong>{completedCount} counted · {sufficientCount} sufficient</strong><span>{skippedCurrent} {t('stock.skipped','skipped')} · {remainingCount} {t('stock.remaining','remaining')}</span></div><b>{cursor+1} / {items.length}</b></div>
+   <div className="guided-progress"><i style={{width:(items.length?Math.min(100,((completedCount+sufficientCount)/items.length)*100):0)+'%'}}/></div>
 
    <div className="guided-item">
     <div className="stock-card-title"><div><h2 title={itemTitle(current)}><ItemLabel item={current}/></h2></div><Badge>{current.movement}</Badge></div>
     <div className="guided-meta">{[current.brand,current.uom].filter(Boolean).map(x=><span key={x}>{x}</span>)}{rowField('reorder_level',true)&&<span className="stock-reorder-value">Reorder: {qty(current.reorder_level)}</span>}</div>
-    <div className="guided-entry"><label>{t('stock.physical','Physical Stock')}</label><input ref={guidedInput} className="input" inputMode="decimal" enterKeyHint="next" value={entry[current.item_id]??''} onChange={e=>setCount(current.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveNext()}}} placeholder="Enter quantity"/></div>
+    <div className="guided-entry"><label>{t('stock.physical','Physical Stock')}</label><input disabled={entry[current.item_id]===SUFFICIENT_STOCK} ref={guidedInput} className="input" inputMode="decimal" enterKeyHint="next" value={entry[current.item_id]===SUFFICIENT_STOCK?'':entry[current.item_id]??''} onChange={e=>setCount(current.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveNext()}}} placeholder="Enter quantity"/>{sufficientCheckbox(current)}</div>
     {!isCounter&&<div className="guided-stats"><div><span>{t('stock.max','Maximum Stock')} <InfoButton topic="maximum_stock" language={language}/></span><b>{qty(current.max_stock)}</b></div><div><span>{t('stock.reorder','Reorder Level')} <InfoButton topic="reorder_level" language={language}/></span><b>{qty(current.reorder_level)}</b></div><div><span>{t('stock.suggested','Suggested')}</span><b className="warn-text">{suggested(current)===null?'—':qty(suggested(current))}</b></div></div>}
     {Number(entry[current.item_id])===0&&entry[current.item_id]!==''&&entry[current.item_id]!==undefined&&<div className="urgent-zero-notice"><b>{t('stock.zero_detected','Zero stock detected')}</b><span>{t('stock.zero_push_urgent','This item will be pushed to Urgent Actions when you continue.')}</span></div>}
     <div className="guided-actions"><button className="btn" onClick={previous}>{t('common.previous','Previous')}</button><button className="btn" onClick={skipCurrent}>{t('stock.skip','Skip')}</button><button className="btn primary" onClick={saveNext}>{t('stock.save_next','Save & Next')}</button></div>
@@ -557,7 +560,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
   {viewMode==='browse'&&<div className="card pad section stock-fast-panel">{loading?<Empty>{t('common.loading','Loading…')}</Empty>:browseItems.length===0?<Empty>{t('stock.no_items','No items in this queue.')}</Empty>:<>
    <div className="stock-fast-head">
-    <div><h3>{t('stock.browse','Fast Entry')}</h3><p><b>{completedCount}</b> {t('stock.counted','entered')} · <b>{Math.max(items.length-completedCount,0)}</b> {t('stock.pending','not entered')}</p></div>
+    <div><h3>{t('stock.browse','Fast Entry')}</h3><p><b>{completedCount}</b> {t('stock.counted','entered')} · <b>{sufficientCount}</b> sufficient · <b>{remainingCount}</b> {t('stock.pending','not entered')}</p></div>
     <div className="stock-page-tools">
      <label><span>{t('stock.page_size','Rows per page')}</span><ModernSelect className="select dense-page-select" value={browsePageSize} onChange={e=>{setBrowsePageSize(Number(e.target.value));setBrowsePage(0)}}>{allowedPageSizes.map(n=><option key={n} value={n}>{n}</option>)}</ModernSelect></label>
      <label><span>{t('stock.jump','Jump to page')}</span><ModernSelect className="select dense-page-select" value={browsePage} onChange={e=>setBrowsePage(Number(e.target.value))}>{Array.from({length:browsePages},(_,n)=><option key={n} value={n}>{n+1}</option>)}</ModernSelect></label>
@@ -566,7 +569,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    <div className="stock-pagination dense-pagination"><button className="btn small" disabled={browsePage<=0} onClick={()=>setBrowsePage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><strong>{t('common.page','Page')} {browsePage+1} {t('common.of','of')} {browsePages}</strong><button className="btn small" disabled={browsePage>=browsePages-1} onClick={()=>setBrowsePage(x=>Math.min(browsePages-1,x+1))}>{t('common.next','Next')}</button></div>
    <div className="desktop-table tablewrap"><table className="table"><thead><tr>{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{browseItems.map(i=><tr key={i.item_id} className={entry[i.item_id]!==undefined&&entry[i.item_id]!==''?'selected':''}>{cols.map(c=><td key={c.key}>{c.render?c.render(i):String(i[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
    <div className="mobile-card-list browse-entry-list stock-dense-list">
-    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}</span><span>{t('stock.stock','STOCK')}</span></div>
+    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}</span><span>SUFFICIENT</span><span>{t('stock.stock','STOCK')}</span></div>
     {browseItems.map((i,index)=>{
      const entered=entry[i.item_id]!==undefined&&entry[i.item_id]!==''
      const expanded=expandedBrowseId===i.item_id
@@ -584,7 +587,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
        <span className="stock-dense-title"><ItemLabel item={i}/></span>
        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
       </button>
-      <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={itemTitle(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
+      {sufficientCheckbox(i)}<div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input disabled={entry[i.item_id]===SUFFICIENT_STOCK} id={'browse-stock-'+i.item_id} aria-label={itemTitle(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={entry[i.item_id]===SUFFICIENT_STOCK?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
      </div>
     })}
    </div>
