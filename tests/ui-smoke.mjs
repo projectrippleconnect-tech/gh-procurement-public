@@ -915,6 +915,33 @@ try{
    await page.waitForFunction(()=>!document.querySelector('.login-shell'))
    await requireQuery(u=>u.pathname.endsWith('/'+table)&&(!field||u.searchParams.get(field)===value),card+' must query its matching records')
    if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
+
+   if(card==='Open requirements'){
+    // Regression: compact procurement controls must never overlap on phones
+    // or on the standard tablet/desktop test widths.
+    const geometry=await page.evaluate(()=>{
+     const screen=document.querySelector('section:not([hidden])')
+     const selectors={
+      queue:'.procurement-work-queues',focus:'.procurement-focus-row',
+      focusLabel:'.procurement-focus-row>label',focusSelect:'#proc-attention-filter',
+      sort:'.procurement-sort-row',sortButton:'.procurement-sort-row>.btn',
+      sortHelp:'.procurement-waiting-help'
+     }
+     return Object.fromEntries(Object.entries(selectors).map(([name,selector])=>{
+      const el=screen?.querySelector(selector)
+      if(!el)return [name,null]
+      const r=el.getBoundingClientRect()
+      return [name,{left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}]
+     }))
+    })
+    for(const [name,box] of Object.entries(geometry))assert.ok(box&&box.width>0&&box.height>0,'Procurement '+name+' must have a visible layout at '+width+'px')
+    assert.ok(geometry.queue.bottom<=geometry.focus.top+1,'Work queues must not overlap the Focus filter at '+width+'px')
+    assert.ok(geometry.focus.bottom<=geometry.sort.top+1,'Focus filter must not overlap sorting controls at '+width+'px')
+    const intersects=(a,b)=>a.left<b.right-1&&a.right>b.left+1&&a.top<b.bottom-1&&a.bottom>b.top+1
+    assert.ok(!intersects(geometry.focusLabel,geometry.focusSelect),'Focus label and dropdown must not overlap at '+width+'px')
+    assert.ok(!intersects(geometry.sortButton,geometry.sortHelp),'Sorting button and help must not overlap at '+width+'px')
+    console.log('PASS procurement queue/focus/sort layout spacing at '+width+'px')
+   }
    await navigate('⌂ Home')
   }
   if(width===320){
