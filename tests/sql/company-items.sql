@@ -1,0 +1,86 @@
+-- Prepend the Company Items migration inside BEGIN; run this file and ROLLBACK.
+-- No WhatsApp gateway is contacted, and no production fixture is retained.
+create temporary table company_test_results(check_name text,passed boolean);
+grant select,insert on company_test_results to authenticated;
+do $test$
+declare admin_id uuid;staff_id uuid;result jsonb;company_v uuid;contact_v uuid:=gen_random_uuid();brand_contact_v uuid:=gen_random_uuid();brand_po uuid;list_v uuid;review_v uuid;req_v uuid;first_po uuid;claim jsonb;queue_v uuid;before_ledger bigint;after_ledger bigint;failure text;sheet_v bigint:=abs(hashtextextended(gen_random_uuid()::text,0));
+begin
+ select id into strict admin_id from public.proc_profiles where active and role='admin' limit 1;
+ select id into staff_id from public.proc_profiles where active and role in ('stock_handler','stock_checker') limit 1;
+ if staff_id is null then
+  staff_id:=gen_random_uuid();insert into auth.users(id,email) values(staff_id,staff_id||'@company-fixture.invalid');
+  insert into public.proc_profiles(id,display_name,role,role_key,active) values(staff_id,'Company test stock handler','stock_handler','stock_handler',true) on conflict(id) do update set role='stock_handler',role_key='stock_handler',active=true;
+ end if;
+ insert into private.proc_access_rules(scope_id,time_enabled,location_enabled) values(staff_id,false,false) on conflict(scope_id) do update set time_enabled=false,location_enabled=false;
+ perform set_config('request.jwt.claim.sub',admin_id::text,true);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',admin_id,'role','authenticated')::text,true);
+ execute 'set local role authenticated';
+ result:=public.proc_company_import_sheet('COMPANY FIXTURE '||sheet_v,sheet_v,jsonb_build_array(
+  jsonb_build_object('source_key',sheet_v||':1:2','description','Company fixture stock item','category','COMPANY FIXTURE','subgroup','Original group','brand','Fixture Brand','size','10mm','colour','Blue','variation','Single','uom','PCS','max_stock',20),
+  jsonb_build_object('source_key',sheet_v||':2:2','description','Company fixture blank max','category','COMPANY FIXTURE','uom','PCS','max_stock',null)));
+ company_v:=(result->>'company_id')::uuid;
+ select id into strict list_v from public.proc_company_list_items where company_id=company_v and target_stock=20;
+ select id into strict review_v from public.proc_company_list_items where company_id=company_v and max_stock_review;
+ if (select reorder_level from public.proc_company_list_items where id=list_v)<>10 then raise exception 'Reorder must be 50%%';end if;
+ result:=public.proc_company_import_sheet('COMPANY FIXTURE '||sheet_v,sheet_v,jsonb_build_array(jsonb_build_object('source_key',sheet_v||':1:2','description','Company fixture stock item','category','COMPANY FIXTURE','max_stock',99)));
+ if (result->>'imported')::integer<>0 or (select target_stock from public.proc_company_list_items where id=list_v)<>20 then raise exception 'Repeat import duplicated or overwrote item';end if;
+ insert into company_test_results values('Import is idempotent; blanks stay reviewable; reorder is 50%',true);
+ perform public.proc_company_edit_item(list_v,jsonb_build_object('target_stock',3));
+ if (select reorder_level from public.proc_company_list_items where id=list_v)<>1.5 then raise exception 'Fractional reorder rounded incorrectly';end if;
+ perform public.proc_company_edit_item(list_v,jsonb_build_object('target_stock',20));
+ perform public.proc_company_move_group(company_v,'subgroup','Original group','Promoted category',null,null);
+ if not exists(select 1 from public.proc_company_list_items c join public.proc_items i on i.id=c.item_id where c.id=list_v and i.category='Promoted category' and i.subgroup is null) then raise exception 'Group promotion failed';end if;
+ insert into company_test_results values('Maximum editing and category promotion retain item identities',true);
+ insert into public.proc_suppliers(id,supplier_code,name,phone,whatsapp,supplier_kind) values(contact_v,'COMPANY TEST '||contact_v,'Company fixture contact','+94779792078','+94779792078','company');
+ update public.proc_companies set default_supplier_id=contact_v,order_route='direct',auto_approve=false,auto_send=true where id=company_v;
+ result:=public.proc_submit_company_list_check_v2(company_v,jsonb_build_array(jsonb_build_object('company_list_item_id',list_v,'current_stock',10)));
+ if jsonb_array_length(result->'purchase_orders')<>0 then raise exception 'Manual route auto-approved';end if;
+ select id into strict req_v from public.proc_requirements where company_id=company_v;
+ result:=public.proc_company_approve_direct(company_v,array[req_v]);first_po:=(result->0->>'id')::uuid;
+ if not exists(select 1 from public.proc_purchase_orders where id=first_po and quantity_only and status='approved') then raise exception 'Quantity-only PO not approved';end if;
+ if (select qty from public.proc_po_lines where po_id=first_po)<>10 then raise exception 'Incorrect PO quantity';end if;
+ result:=public.proc_company_approve_direct(company_v,array[req_v]);
+ if jsonb_array_length(result)<>0 then raise exception 'Repeated approval duplicated order';end if;
+ select id into strict queue_v from public.proc_company_dispatch_queue where po_id=first_po;
+ claim:=public.proc_company_claim_send(queue_v);if claim is null then raise exception 'Dispatch claim failed';end if;
+ if public.proc_company_claim_send(queue_v) is not null then raise exception 'Concurrent duplicate send claim accepted';end if;
+ perform public.proc_company_finish_send(queue_v,'accepted','fixture-message',null);
+ if (select status from public.proc_purchase_orders where id=first_po)<>'sent' then raise exception 'Accepted company PO did not progress to receiving';end if;
+ failure:=null;begin perform public.proc_company_finish_send(queue_v,'failed',null,'overwrite');exception when others then failure:=sqlerrm;end;
+ if failure is null then raise exception 'Accepted dispatch overwritten';end if;
+ insert into company_test_results values('Manual approval, quantity-only PO and duplicate dispatch prevention',true);
+ failure:=null;begin perform public.proc_submit_company_list_check_v2(company_v,jsonb_build_array(jsonb_build_object('company_list_item_id',review_v,'current_stock',0)));exception when others then failure:=sqlerrm;end;
+ if failure is null then raise exception 'Blank maximum reached procurement';end if;
+ select count(*) into before_ledger from public.proc_stock_ledger where item_id=(select item_id from public.proc_company_list_items where id=review_v);
+ result:=public.proc_submit_company_list_check_v2(company_v,jsonb_build_array(jsonb_build_object('company_list_item_id',review_v,'sufficient_stock',true)));
+ select count(*) into after_ledger from public.proc_stock_ledger where item_id=(select item_id from public.proc_company_list_items where id=review_v);
+ if before_ledger<>after_ledger then raise exception 'Sufficient-stock visual check wrote a stock balance';end if;
+ insert into company_test_results values('Blank maximum is held; sufficient checkbox does not invent quantities',true);
+ perform public.proc_company_edit_item(review_v,jsonb_build_object('target_stock',10,'brand','Second Brand'));
+ insert into public.proc_suppliers(id,supplier_code,name,phone,whatsapp,supplier_kind) values(brand_contact_v,'COMPANY BRAND TEST '||brand_contact_v,'Company brand fixture contact','+94779792078','+94779792078','company');
+ insert into public.proc_company_contacts(company_id,brand,supplier_id) values(company_v,'Second Brand',brand_contact_v);
+ insert into public.proc_company_attachments(company_id,supplier_id,item_id,kind,name,storage_path,mime_type,send_with_order) values(company_v,brand_contact_v,(select item_id from public.proc_company_list_items where id=review_v),'price_list','Fixture price list.pdf','company-attachments/'||company_v||'/fixture.pdf','application/pdf',true);
+ update public.proc_companies set auto_approve=true where id=company_v;
+ execute 'reset role';
+ perform set_config('request.jwt.claim.sub',staff_id::text,true);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',staff_id,'role','authenticated')::text,true);
+ execute 'set local role authenticated';
+ result:=public.proc_submit_company_list_check_v2(company_v,jsonb_build_array(jsonb_build_object('company_list_item_id',list_v,'current_stock',0),jsonb_build_object('company_list_item_id',review_v,'current_stock',0)));
+ if jsonb_array_length(result->'purchase_orders')<>2 then raise exception 'Staff stock submission did not follow configured admin auto-approval';end if;
+ select (value->>'id')::uuid into brand_po from jsonb_array_elements(result->'purchase_orders') where value->>'supplier_id'=brand_contact_v::text;
+ if brand_po is null then raise exception 'Brand contact override ignored';end if;
+ select id into queue_v from public.proc_company_dispatch_queue where po_id=brand_po;
+ claim:=public.proc_company_claim_send(queue_v);
+ if jsonb_array_length(claim->'attachments')<>1 or not private.proc_company_can_send_attachment('company-attachments/'||company_v||'/fixture.pdf') then raise exception 'Selected brand-facing attachment unavailable during owned dispatch';end if;
+ perform public.proc_company_finish_send(queue_v,'unknown',null,'Fixture interruption');
+ if public.proc_company_claim_send(queue_v) is not null or private.proc_company_can_send_attachment('company-attachments/'||company_v||'/fixture.pdf') then raise exception 'Unknown dispatch retried or attachment access leaked';end if;
+ insert into company_test_results values('Brand supplier split, selected attachments and unknown-outcome retry hold',true);
+ if auth.uid()<>staff_id then raise exception 'Automation actor was not restored';end if;
+ failure:=null;begin perform public.proc_company_approve_direct(company_v,array[req_v]);exception when others then failure:=sqlerrm;end;
+ if failure is null then raise exception 'Stock handler manually approved PO';end if;
+ failure:=null;begin update public.proc_companies set auto_approve=false where id=company_v;exception when others then failure:=sqlerrm;end;
+ if (select auto_approve from public.proc_companies where id=company_v)<>true then raise exception 'Stock handler changed automatic approval settings';end if;
+ insert into company_test_results values('Staff follows admin configuration and cannot elevate approval access',true);
+ execute 'reset role';
+end $test$;
+select * from company_test_results;

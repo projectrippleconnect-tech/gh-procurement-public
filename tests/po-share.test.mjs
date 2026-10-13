@@ -22,3 +22,9 @@ test('empty fields or unavailable lines cannot generate misleading supplier docu
  assert.throws(()=>purchaseOrderShareModel({...args,selection:Object.fromEntries(Object.keys(defaultPoShareFields()).map(k=>[k,false]))}),/at least one/)
  assert.throws(()=>purchaseOrderShareModel({...args,lines:[]}),/loading or unavailable/)
 })
+test('quantity-only company orders never disclose invented zero prices and retain variations',()=>{
+ const po={...args.po,quantity_only:true};const lines=[{...args.lines[0],item:{...args.lines[0].item,colour:'Blue',variation:'Model A'}}]
+ const selection=Object.fromEntries(Object.keys(defaultPoShareFields()).map(k=>[k,true]))
+ const model=purchaseOrderShareModel({...args,po,lines,selection})
+ assert.equal(model.total,null);assert.ok(!model.columns.some(c=>['unit_price','line_total','tax_percent','discount_percent'].includes(c.key)));assert.match(model.rows[0][0],/Blue.*Model A/)
+})

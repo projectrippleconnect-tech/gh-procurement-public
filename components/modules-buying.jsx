@@ -3,6 +3,7 @@
 import {DeleteRecordButton} from './delete-record'
 
 import {ModernSelect} from './modern-select'
+import {companyApi} from './company-controls'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
@@ -33,6 +34,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
  const specialEnabled=features.find(x=>x.feature_key==='requirements.special_requests')?.enabled!==false
  const[rows,setRows]=useState([]),[suppliers,setSuppliers]=useState([]),[selected,setSelected]=useState(new Set()),[chosen,setChosen]=useState(new Set()),[suggestedSuppliers,setSuggestedSuppliers]=useState([]),[due,setDue]=useState(''),[busy,setBusy]=useState(false),[page,setPage]=useState(0),[total,setTotal]=useState(0),[scopeOverrides,setScopeOverrides]=useState({})
  const[activity,setActivity]=useState(null),[requirementSearch,setRequirementSearch]=useState(''),[categoryFilter,setCategoryFilter]=useState('')
+ const[supplierKind,setSupplierKind]=useState('general')
  const pageSize=20
  const[oldestFirst,setOldestFirst]=useState(false)
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
@@ -71,7 +73,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   if(requirementSearch.trim())q=q.or(containsAny(['description','size','item_code','requirement_no'],requirementSearch.trim()))
   const tasks=[q]
   if(canReview){
-   tasks.push(allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name').eq('active',true).order('name').order('id')))
+   tasks.push(allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,supplier_kind').eq('active',true).order('name').order('id')))
    tasks.push(supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']))
    tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted']))
    tasks.push(supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).eq('status','quoted'))
@@ -168,7 +170,21 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   if(!canReview||!ids.length)return fail(new Error(t('requirements.select_one','Select at least one requirement.')))
   const reason=action==='approve'?null:(prompt(action==='hold'?'Reason for holding these items (optional):':'Reason for rejecting these items (optional):')||null)
   setBusy(true)
-  try{const r=await supabase.rpc('proc_review_requirements',{p_requirement_ids:ids,p_action:action,p_selected:action==='approve',p_reason:reason})
+  try{
+   if(action==='approve'){
+    const source=await supabase.from('proc_requirements').select('id,company_id,company:proc_companies(id,order_route,auto_send)').in('id',ids)
+    if(source.error)throw source.error
+    const direct=(source.data||[]).filter(r=>r.company?.order_route==='direct')
+    const companies=[...new Set(direct.map(r=>r.company_id))]
+    for(const companyId of companies){
+     const result=await supabase.rpc('proc_company_approve_direct',{p_company_id:companyId,p_ids:direct.filter(r=>r.company_id===companyId).map(r=>r.id)})
+     if(result.error)throw result.error
+     if(direct.find(r=>r.company_id===companyId)?.company?.auto_send){try{const sent=await companyApi('orders',{companyId});flash(sent.message)}catch(e){fail(e)}}
+    }
+    ids=ids.filter(id=>!direct.some(r=>r.id===id))
+    if(!ids.length){setSelected(new Set());await load();flash('Company quantities approved and purchase orders created.');if(isActiveView('requirements'))navigate('po');return}
+   }
+   const r=await supabase.rpc('proc_review_requirements',{p_requirement_ids:ids,p_action:action,p_selected:action==='approve',p_reason:reason})
   if(r.error)return fail(r.error)
   flash((r.data||ids.length)+' requirement(s) '+(action==='approve'?'approved for supplier pricing':action==='hold'?'placed on hold':'rejected')+'.');setChosen(new Set());if(action==='approve'){setSelected(new Set(ids));setStage('approved');if(isActiveView('requirements'))guideTo(3)}else{setSelected(new Set());load()}
   }catch(e){fail(e)}finally{setBusy(false)}
@@ -306,7 +322,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
    <StockSubmissionDetails requirements={rows.filter(r=>selected.has(r.id))}/>
    <div className="field"><label>{t('requirements.quote_due','Quotation due date')}</label><input className="input" type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
    {suggestedSuppliers.length>0&&<div className="section"><div className="toolbar"><b>{t('requirements.suggested_suppliers','Suggested suppliers')}</b><button className="btn small" onClick={()=>setChosen(new Set(suggestedSuppliers.map(x=>x.supplier_id)))}>{t('requirements.select_suggested','Select Suggested')}</button></div><div className="pillrow">{suggestedSuppliers.map(x=><button type="button" className={'choice-pill '+(chosen.has(x.supplier_id)?'selected-choice':'')} key={x.supplier_id} onClick={()=>setChosen(v=>{const n=new Set(v);n.has(x.supplier_id)?n.delete(x.supplier_id):n.add(x.supplier_id);return n})}><b>{x.supplier_name}</b><span>{x.matched_items}/{x.selected_items}{x.unrestricted?' · general':''}</span></button>)}</div></div>}
-   <div className="pillrow section">{suppliers.map(s=><label className={'choice-pill '+(chosen.has(s.id)?'selected-choice':'')} key={s.id}><input type="checkbox" checked={chosen.has(s.id)} onChange={e=>setChosen(v=>{const n=new Set(v);e.target.checked?n.add(s.id):n.delete(s.id);return n})}/>{s.name}</label>)}</div>
+   <label className="field section">Supplier contacts<ModernSelect className="select" value={supplierKind} onChange={e=>{setSupplierKind(e.target.value);setChosen(new Set())}}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect></label><div className="pillrow section">{suppliers.filter(s=>supplierKind==='all'||(s.supplier_kind||'general')===supplierKind).map(s=><label className={'choice-pill '+(chosen.has(s.id)?'selected-choice':'')} key={s.id}><input type="checkbox" checked={chosen.has(s.id)} onChange={e=>setChosen(v=>{const n=new Set(v);e.target.checked?n.add(s.id):n.delete(s.id);return n})}/>{s.name}</label>)}</div>
    {[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).length>0&&<div className="notice section"><b>{t('requirements.coverage_override','Supplier coverage override')}</b><p className="muted tiny">{t('requirements.coverage_override_hint','These suppliers do not match the configured coverage for the selected items. State why they should still receive the price request.')}</p><div className="stack">{[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).map(id=><div className="field" key={id}><label>{suppliers.find(s=>s.id===id)?.name||id}</label><input className="input" value={scopeOverrides[id]||''} onChange={e=>setScopeOverrides(v=>({...v,[id]:e.target.value}))} placeholder={t('requirements.override_reason','Required override reason')}/></div>)}</div></div>}
   </div>}
  </>
@@ -318,6 +334,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const canEdit=can('suppliers.edit')
  const smartEnabled=features.find(x=>x.feature_key==='suppliers.smart_suggestions')?.enabled!==false
  const[rows,setRows]=useState([]),[q,setQ]=useState(''),[form,setForm]=useState({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''}),[coverageSupplier,setCoverageSupplier]=useState(null),[scopes,setScopes]=useState([]),[categories,setCategories]=useState([]),[mainGroups,setMainGroups]=useState([]),[subgroups,setSubgroups]=useState([]),[scopeType,setScopeType]=useState('category'),[scopeValue,setScopeValue]=useState(''),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([])
+ const[directoryKind,setDirectoryKind]=useState('general')
  const[performance,setPerformance]=useState({})
  const load=useCallback(async()=>{
   const [r,p,d]=await Promise.all([supabase.from('proc_suppliers').select('*').order('name'),supabase.from('proc_v_supplier_performance_v2').select('*'),supabase.from('proc_v_supplier_delivery_evidence_v1').select('*')])
@@ -398,7 +415,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  },[rows,form.name,form.phone,form.email,smartEnabled])
  const paymentSuggestions=useMemo(()=>[...new Set(rows.map(r=>r.payment_terms).filter(Boolean))].sort(),[rows])
 
- const filtered=useMemo(()=>rows.filter(r=>(r.name+' '+r.supplier_code+' '+(r.phone||'')+' '+(r.contact_person||'')).toLowerCase().includes(q.toLowerCase())),[rows,q])
+ const filtered=useMemo(()=>rows.filter(r=>directoryKind==='all'||(r.supplier_kind||'general')===directoryKind).filter(r=>(r.name+' '+r.supplier_code+' '+(r.phone||'')+' '+(r.contact_person||'')).toLowerCase().includes(q.toLowerCase())),[rows,q,directoryKind])
  const defaults=[
   {key:'supplier_code',label:'Code',render:s=><span className="mono">{s.supplier_code}</span>},
   {key:'name',label:'Supplier',render:s=><><strong>{s.name}</strong>{s.email&&<div className="muted tiny">{s.email}</div>}</>},
@@ -414,7 +431,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const cols=configuredColumns(fields,'suppliers',defaults)
  const scopeLabel=sc=>sc.scope_type==='item'?[sc.item?.description,sc.item?.size].filter(Boolean).join(' · '):`${sc.scope_type.replace('_',' ')}: ${sc.scope_value}`
  return <div className="split">
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><input className="input" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section"><DataTable columns={canEdit?[...cols,{key:'actions',label:'',render:s=><div className="toolbar">{fieldEnabled(fields,'suppliers','coverage')&&<button className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}<button className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button>{canDelete&&<DeleteRecordButton profile={profile} table="proc_suppliers" record={s} label="supplier" fail={fail} onDeleted={async()=>{setCoverageSupplier(null);flash('Supplier and reviewed linked records deleted.');await load()}}/>}</div>}]:cols} rows={filtered} mobileCards/></div></div>
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><ModernSelect aria-label="Supplier directory type" className="select section" value={directoryKind} onChange={e=>setDirectoryKind(e.target.value)}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect><input className="input section" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section"><DataTable columns={canEdit?[...cols,{key:'actions',label:'',render:s=><div className="toolbar">{fieldEnabled(fields,'suppliers','coverage')&&<button className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}<button className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button>{canDelete&&<DeleteRecordButton profile={profile} table="proc_suppliers" record={s} label="supplier" fail={fail} onDeleted={async()=>{setCoverageSupplier(null);flash('Supplier and reviewed linked records deleted.');await load()}}/>}</div>}]:cols} rows={filtered} mobileCards/></div></div>
   <div className="stack">
    {canAdd&&<div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.add_title','Add Supplier')}</h3><p>{t('suppliers.add_hint','Supplier code is optional and can be generated automatically.')}</p></div></div><div className="formgrid">
     {[
