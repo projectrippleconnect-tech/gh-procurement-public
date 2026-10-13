@@ -336,7 +336,7 @@ try{
    await picker.waitFor()
    await picker.getByRole('textbox').fill('no-such-order')
    await picker.getByText('No matching options.',{exact:true}).waitFor()
-   await picker.getByRole('textbox').fill('DELETE '+po.po_no)
+   await picker.getByRole('textbox').fill(po.po_no)
    assert.equal(await picker.locator('.picker-option').count(),1)
    assert.equal(await picker.evaluate(n=>n.scrollWidth<=n.clientWidth+1),true)
    await page.screenshot({path:'test-results/'+width+'-modern-picker.png'})
