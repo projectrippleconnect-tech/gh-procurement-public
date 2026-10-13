@@ -3,6 +3,7 @@
 import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {Err} from './ui'
+import {ProtectedWorkPolicy} from './protected-work-policy'
 
 function passwordIssue(value){
  if(value.length<12)return 'Use a password with at least 12 characters.'
@@ -132,6 +133,7 @@ export function LoginScreen({initialError=''}) {
       <button className="link-button" onClick={()=>{setMode('login');setError('');setNotice('')}}>Back to sign in</button>
     </>}
     <div className="muted tiny">Public registration is disabled. Only approved GH accounts can access this app.</div>
+    <ProtectedWorkPolicy/>
    </div>
  </div></div>
 }

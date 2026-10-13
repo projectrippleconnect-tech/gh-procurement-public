@@ -75,3 +75,39 @@ Apply `20261013065345_procurement_capture_controls.sql` and deploy the updated
 web client only after a Deploy command. Build/install the updated Android APK
 separately. All sessions start with capture overrides disabled. Automatic
 production deployment remains disabled.
+
+## Protected work-session clause (web app)
+
+The sign-in screen and Screenshot Protection settings now display the requested
+work-session policy: non-Super-Admin users must use an authorized protected
+work-browser session and must not capture the interface. Personal phones are
+permitted; a dedicated phone or GH APK is not a prerequisite. Super Admin capture
+exceptions must be authorized in the browser-management policy.
+
+**This release adds a policy notice, not technical enforcement.** No Intune/Entra
+management connection is currently configured by this release. The notice explicitly
+states that ordinary browser screenshots remain possible. It does not reject logins,
+claim a session is verified, or let a frontend control bypass capture restrictions.
+
+Before enforcing the requirement:
+
+1. Configure a work-browser protection policy that blocks screen capture on each
+   supported platform. For Android, Intune Company Portal and a work account are
+   required for app-protection policies. Test Microsoft Edge on the actual phones.
+2. Register/integrate GH Procurement with Entra and configure Conditional Access
+   requiring the protection policy. Confirm support for the chosen platform and
+   custom web application before rollout; policies vary by platform.
+3. Enforce the verified session requirement in GH's backend/data access. Its
+   existing direct Supabase login and APIs must not remain an alternate bypass.
+   A user agent, browser flag, local storage value or password alone is insufficient.
+4. Provision/test a Super Admin recovery path and separately managed exceptions,
+   then test staff, Super Admin, personal-browser, direct-API, revoked-session and
+   screenshot behavior. Keep the website in the pending state until those checks pass.
+
+References:
+- https://learn.microsoft.com/en-us/intune/app-management/protection/ref-settings-android
+- https://learn.microsoft.com/en-us/deployedge/microsoft-edge-enabling-dlp-features
+- https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-grant
+
+Deploy only after the owner's Deploy command. Publishing this clause does not
+activate a browser-management service or require device enrollment by itself.
