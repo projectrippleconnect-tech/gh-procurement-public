@@ -557,3 +557,30 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 @media(max-width:700px){.modal-backdrop{padding:12px;align-items:end;padding-bottom:max(12px,env(safe-area-inset-bottom))}.modal.card{width:100%;max-height:88dvh;border-radius:22px;padding:18px}.danger-actions{display:grid;grid-template-columns:1fr 1fr}.mobile-drawer{max-height:88dvh;border-radius:24px 24px 0 0}}
 @media(prefers-reduced-motion:reduce){.btn,.mobile-drawer-grid button,.mobile-bottom-nav button,.journey-stages span{transition:none}.modal-backdrop,.modal.card,.mobile-drawer-backdrop,.mobile-drawer,.button-spinner{animation:none}}
 .company-review-sheet{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:12px;max-height:65vh}.company-review-sheet table{min-width:1050px}.company-review-sheet .input,.company-review-sheet .select{min-width:95px;border-radius:7px;min-height:38px;padding:7px}.company-review-sheet td:nth-child(3) .input{min-width:230px}.company-review-sheet th{position:sticky;top:0;z-index:2}.company-review-sheet td:first-child{position:sticky;left:0;background:#101e31;z-index:1}.company-review-sheet td{vertical-align:top}.company-bill-raw{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;font-size:12px}.company-bill-source{max-width:220px;white-space:normal;overflow-wrap:anywhere}
+
+/* Procurement controls: keep the mobile focus, sort and help elements
+   in separate layout boxes instead of allowing inline text collisions. */
+.row.wrap{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.procurement-work-queues{margin-bottom:12px}
+.procurement-work-queues>summary{min-height:40px;cursor:pointer;line-height:1.4;overflow-wrap:anywhere}
+.procurement-work-queues>section{min-width:0}
+.procurement-focus-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0;margin-top:12px}
+.procurement-focus-row>label{flex:0 0 auto}
+.procurement-focus-row>select{width:auto;min-width:0;max-width:100%;flex:0 1 240px}
+.procurement-sort-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-width:0;margin-top:10px}
+.procurement-sort-row>.btn{max-width:100%;min-width:0;white-space:normal;text-align:left}
+.procurement-waiting-help{min-width:0;flex:1 1 180px}
+.procurement-waiting-help>summary{cursor:pointer;color:var(--muted);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.procurement-waiting-help>p{margin:6px 0 0;line-height:1.45;overflow-wrap:anywhere}
+@media(max-width:700px){
+ .procurement-work-queues>summary{font-size:15px;min-height:42px}
+ .procurement-focus-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;margin-top:14px}
+ .procurement-focus-row>select{width:100%;max-width:100%;min-width:0}
+ .procurement-sort-row{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+ .procurement-sort-row>.btn{justify-self:start}
+ .procurement-waiting-help{width:100%}
+ .procurement-review-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
+ .procurement-review-heading>div{min-width:0}
+ .procurement-review-heading>.btn{justify-self:end;min-width:0;min-height:36px;padding:7px 10px}
+ .procurement-review-heading p{font-size:12px;line-height:1.45}
+}
