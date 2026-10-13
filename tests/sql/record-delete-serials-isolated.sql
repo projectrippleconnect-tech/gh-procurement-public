@@ -1,6 +1,6 @@
 -- Disposable PostgreSQL fixture: never run against business data.
 create schema private;create schema auth;
-create role anon;create role authenticated;
+do $$begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon;end if;if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated;end if;end$$;
 grant usage on schema private,auth,public to authenticated;
 create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create table proc_profiles(id uuid primary key,active boolean,role_key text);
@@ -40,7 +40,7 @@ insert into proc_purchase_orders(po_no) values('OLD-PO');
 
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',false);
-do $$declare denied boolean:=false;begin begin perform public.proc_admin_record_preview_v1('proc_rfqs',(select id from proc_rfqs limit 1));exception when insufficient_privilege then denied:=true;end;assert denied;end$$;
+do $$declare denied boolean:=false;begin begin perform public.proc_admin_record_preview_v1('proc_rfqs','00000000-0000-4000-8000-000000000003');exception when insufficient_privilege then denied:=true;end;assert denied;end$$;
 reset role;
 select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
 do $$declare r uuid;rq uuid;q uuid;ri uuid;ql uuid;po uuid;pl uuid;g uuid;inv uuid;preview jsonb;denied boolean;n text;sid uuid;cid uuid;begin

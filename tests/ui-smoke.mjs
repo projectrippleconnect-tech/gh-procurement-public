@@ -150,7 +150,8 @@ try{
    }
    else if(name==='proc_admin_access_policy_v1')data=accessPolicy
    else if(name==='proc_admin_save_access_policy_v1'){accessSaves.push(req.postDataJSON());data=null}
-   else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
+   else if(name==='proc_admin_record_preview_v1'){const b=req.postDataJSON();data={label:b.p_table==='proc_rfqs'?rfq.rfq_no:b.p_table==='proc_suppliers'?supplier.supplier_code:po.po_no,counts:{[b.p_table]:1},token:'fixture-record-token'}}
+   else if(['proc_admin_delete_record_v1','proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
@@ -311,6 +312,22 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_RECORD_DELETE==='1'){
+   await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.getByRole('button',{name:'Delete RFQ',exact:true}).click()
+   const warning=page.getByRole('alertdialog',{name:'Delete RFQ',exact:true}),submit=warning.getByRole('button',{name:'Delete permanently',exact:true})
+   await warning.waitFor();assert.equal(await submit.isDisabled(),true)
+   await warning.getByLabel('Warning confirmation',{exact:true}).fill('WRONG')
+   await warning.getByLabel('Warning reason',{exact:true}).fill('Fixture cleanup')
+   assert.equal(await submit.isDisabled(),true);assert.equal(destructiveRequests.length,0)
+   await warning.getByLabel('Warning confirmation',{exact:true}).fill('DELETE '+rfq.rfq_no)
+   assert.equal(await submit.isEnabled(),true)
+   await submit.click();await warning.getByText('Fixture operation blocked',{exact:true}).waitFor()
+   assert.equal(destructiveRequests.length,1);assert.equal(destructiveRequests[0].body.p_token,'fixture-record-token')
+   await warning.getByRole('button',{name:'Cancel',exact:true}).click()
+   assert.deepEqual(errors,[]);console.log('PASS RFQ deletion preview, typed confirmation, reason and error handling at '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_PICKERS==='1'){
    await navigate('⇩ Receive Goods')
    const trigger=page.getByLabel('Purchase Order',{exact:true})
@@ -319,7 +336,7 @@ try{
    await picker.waitFor()
    await picker.getByRole('textbox').fill('no-such-order')
    await picker.getByText('No matching options.',{exact:true}).waitFor()
-   await picker.getByRole('textbox').fill(po.po_no)
+   await picker.getByRole('textbox').fill('DELETE '+po.po_no)
    assert.equal(await picker.locator('.picker-option').count(),1)
    assert.equal(await picker.evaluate(n=>n.scrollWidth<=n.clientWidth+1),true)
    await page.screenshot({path:'test-results/'+width+'-modern-picker.png'})
@@ -493,9 +510,9 @@ try{
   if(await supplierDetails.count())await supplierDetails.click()
   await page.getByRole('button',{name:'Delete supplier',exact:true}).filter({visible:true}).first().click()
   const supplierWarning=page.getByRole('alertdialog',{name:'Delete supplier',exact:true})
-  assert.equal(await supplierWarning.getByRole('button',{name:'Confirm delete supplier',exact:true}).isDisabled(),true)
+  assert.equal(await supplierWarning.getByRole('button',{name:'Delete permanently',exact:true}).isDisabled(),true)
   await supplierWarning.getByLabel('Warning confirmation',{exact:true}).fill('WRONG')
-  assert.equal(await supplierWarning.getByRole('button',{name:'Confirm delete supplier',exact:true}).isDisabled(),true)
+  assert.equal(await supplierWarning.getByRole('button',{name:'Delete permanently',exact:true}).isDisabled(),true)
   await supplierWarning.getByRole('button',{name:'Cancel',exact:true}).click()
   console.log('PASS company category/subcategory filters, company removal and supplier deletion confirmations at '+width+'px')
   await navigate('□ Items')
@@ -900,7 +917,7 @@ try{
   console.log('PASS recovery setup, protected deletion, cancellation, failure/retry and user-list removal at '+width+'px')
   await adminPanels.filter({hasText:/^Data Management$/}).click()
   assert.equal(await page.locator('details.admin-accordion[open]').count(),1,'Opening Data Management closes Users')
-  await page.getByRole('heading',{name:'Data Management · Admin only',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Data Management · Super Admin only',exact:true}).waitFor()
   await page.getByRole('button',{name:'Preview affected records',exact:true}).click()
   await page.getByLabel('Reset confirmation',{exact:true}).waitFor()
   const resetButton=page.getByRole('button',{name:'Reset system to zero',exact:true})
@@ -1337,19 +1354,19 @@ try{
    if(heading==='Orders'){
     poFixtureStatus='approved';poLargeExport=width===320
     await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
-    await page.getByRole('button',{name:'Clear this order',exact:true}).click()
-    const orderWarning=page.getByRole('alertdialog',{name:'Clear purchase order',exact:true})
-    const confirmOrder=orderWarning.getByRole('button',{name:'Confirm clear order',exact:true})
-    await orderWarning.getByLabel('Warning confirmation',{exact:true}).fill(po.po_no)
+    await page.getByRole('button',{name:'Delete purchase order',exact:true}).click()
+    const orderWarning=page.getByRole('alertdialog',{name:'Delete purchase order',exact:true})
+    const confirmOrder=orderWarning.getByRole('button',{name:'Delete permanently',exact:true})
+    await orderWarning.getByLabel('Warning confirmation',{exact:true}).fill('DELETE '+po.po_no)
     assert.equal(await confirmOrder.isDisabled(),true,'Clearing an order also requires a reason')
     await orderWarning.getByRole('button',{name:'Cancel',exact:true}).click()
-    assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_clear_po_v1').length,0)
-    await page.getByRole('button',{name:'Clear this order',exact:true}).click()
-    await orderWarning.getByLabel('Warning confirmation',{exact:true}).fill(po.po_no)
+    assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_delete_record_v1').length,0)
+    await page.getByRole('button',{name:'Delete purchase order',exact:true}).click()
+    await orderWarning.getByLabel('Warning confirmation',{exact:true}).fill('DELETE '+po.po_no)
     await orderWarning.getByLabel('Warning reason',{exact:true}).fill('Fixture order cleanup')
     await confirmOrder.click()
     await orderWarning.getByText('Fixture operation blocked',{exact:true}).waitFor()
-    assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_clear_po_v1').length,1)
+    assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_delete_record_v1').length,1)
     await orderWarning.getByRole('button',{name:'Cancel',exact:true}).click()
     await page.locator('summary').filter({hasText:'Document & Sharing Options'}).click()
     await page.getByRole('button',{name:'Download PO PNG',exact:true}).waitFor({state:'visible'})
