@@ -99,6 +99,10 @@ try{
   const draftSaves=[]
   let grantedPermissions=permissions
   let currentProfile=profile
+  let accessReason='allowed',accessExpirySeconds=null
+  const accessSaves=[]
+  const accessPolicy={time_enabled:true,location_enabled:true,days:[0,1,2,3,4,5],start_time:'07:30',end_time:'18:30',latitude:7.0552571,longitude:80.5345549,radius_m:100,location_name:'General Hardware, No. 14 Kandy Road, Nawalapitiya'}
+  const accessReply=()=>({allowed:accessReason==='allowed',reason:accessReason,exempt:currentProfile.role_key==='admin',policy:accessPolicy,server_now:new Date().toISOString(),valid_until:accessExpirySeconds===null?null:new Date(Date.now()+accessExpirySeconds*1000).toISOString()})
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false,rfqItemCount=100,requirementApproval='pending_review'
   const poGatewayRequests=[],rfqGatewayRequests=[],rfqDispatches=[]
   let bulkReady=true
@@ -139,6 +143,13 @@ try{
     return
    }
    if(url.pathname.includes('/auth/'))data=user
+   else if(name==='proc_access_status_v1')data=accessReply()
+   else if(name==='proc_verify_location_v1'){
+    const input=req.postDataJSON();assert.equal(input.p_latitude,7.0552571);assert.equal(input.p_longitude,80.5345549)
+    accessReason='allowed';data=accessReply()
+   }
+   else if(name==='proc_admin_access_policy_v1')data=accessPolicy
+   else if(name==='proc_admin_save_access_policy_v1'){accessSaves.push(req.postDataJSON());data=null}
    else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true}]
@@ -322,6 +333,43 @@ try{
    await page.locator('.picker-backdrop').click({position:{x:2,y:2}})
    await picker.waitFor({state:'hidden'})
    console.log('PASS compact picker search, empty state, selection, Escape, focus and outside dismissal at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_ACCESS==='1'){
+   // Super Admin can open the workspace and configure defaults without GPS.
+   await navigate('⚙ Admin')
+   const controls=page.locator('details').filter({has:page.locator('summary').filter({hasText:'Time & Location Restrictions'})})
+   await controls.locator('summary').click()
+   const radius=controls.locator('input[type=number]').last()
+   await radius.fill('150');await controls.getByRole('button',{name:'Save access restrictions',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('proc_admin_save_access_policy_v1'),'Access rules can be saved')
+   assert.equal(Number(accessSaves[0].p_policy.radius_m),150);assert.equal(accessSaves[0].p_user_id,null)
+   await page.screenshot({path:`test-results/access-settings-${width}.png`,fullPage:true})
+   currentProfile={...profile,role:'viewer',role_key:'custom_test'}
+   accessReason='outside_hours';queries.length=0;await page.reload()
+   await page.getByText('Access is closed at this time.',{exact:false}).waitFor()
+   assert.equal(await page.locator('.app').count(),0)
+   assert.equal(queries.filter(u=>u.pathname.includes('/rest/v1/')&&!u.pathname.endsWith('proc_access_status_v1')).length,0,'Locked users never load workspace data')
+   await page.screenshot({path:`test-results/access-hours-${width}.png`,fullPage:true})
+   accessReason='location_required';await page.reload()
+   await page.getByText('Verify your location to open the workspace.',{exact:true}).waitFor()
+   await context.clearPermissions()
+   await page.getByRole('button',{name:'Verify location / Retry',exact:true}).click()
+   await page.getByText('Location permission is required.',{exact:false}).waitFor()
+   assert.equal(await page.locator('.app').count(),0)
+   await context.grantPermissions(['geolocation'],{origin:root})
+   await context.setGeolocation({latitude:7.0552571,longitude:80.5345549,accuracy:5})
+   await page.getByRole('button',{name:'Verify location / Retry',exact:true}).click()
+   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   accessReason='outside_location';await page.reload()
+   await page.getByText('You must be at the approved location to use this system.',{exact:true}).waitFor()
+   assert.equal(await page.locator('.app').count(),0)
+   accessReason='allowed';accessExpirySeconds=2;await page.reload()
+   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.getByText('Verify your location to open the workspace.',{exact:true}).waitFor({timeout:6000})
+   assert.equal(await page.locator('.app').count(),0,'Server lease expiry locks an open workspace')
+   assert.deepEqual(errors,[])
+   console.log('PASS Super Admin, location permission, geofence, working-hours lock and active-session expiry at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){

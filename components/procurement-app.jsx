@@ -10,6 +10,7 @@ import {LoginScreen,ChangePassword} from './auth-screen'
 import {createTranslator,navText} from '@/lib/i18n'
 import {HelpCenter} from './help-ui'
 import {withStartupDeadline} from '@/lib/workspace-startup.mjs'
+import {AccessBoundary} from './access-boundary'
 
 // Keep purchasing and PDF code out of the initial sign-in download.
 const screenLoading=()=> <p role="status">Loading screen…</p>
@@ -28,7 +29,11 @@ const Receiving=dynamic(()=>import('./modules-documents').then(m=>m.Receiving),{
 const Reports=dynamic(()=>import('./modules-admin').then(m=>m.Reports),{loading:screenLoading})
 const Admin=dynamic(()=>import('./modules-admin').then(m=>m.Admin),{loading:screenLoading})
 
-export default function ProcurementApp(){
+export default function ProtectedProcurementApp(){
+ return <AccessBoundary><ProcurementApp/></AccessBoundary>
+}
+
+function ProcurementApp(){
  const[session,setSession]=useState(null),[profile,setProfile]=useState(null),[view,setView]=useState('dashboard')
  const[viewFilters,setViewFilters]=useState({}),[viewKeys,setViewKeys]=useState({})
  const[visited,setVisited]=useState(()=>new Set(['dashboard']))

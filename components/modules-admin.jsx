@@ -1,4 +1,5 @@
 'use client'
+import {AccessSettings} from './access-settings'
 
 import {ModernSelect} from './modern-select'
 
@@ -296,6 +297,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  const stockMobileFeature=features.find(f=>f.feature_key==='stock.mobile_entry')
  return <>
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<details name="gh-admin-section" className="admin-accordion"><summary>Data Management</summary><DataManagement flash={flash} fail={fail}/></details>}
+  {(profile.role_key||profile.role)==='admin'&&<AccessSettings users={users} flash={flash} fail={fail}/>}
   {can('admin.roles.manage')&&<details name="gh-admin-section" className="admin-accordion"><summary>Roles & Permissions</summary><RoleManager language={language} t={t} flash={flash} fail={fail} onChanged={load}/></details>} 
   {can('admin.configure_app')&&<InterfaceSettings value={settings.interface_preferences} onSaved={onConfigChanged} flash={flash} fail={fail}/>}
   {can('admin.configure_app')&&<div className="admin-grid">
