@@ -1,4 +1,8 @@
 -- Reuse existing RLS for creation, and serialize identical quick-add requests.
+-- Legacy insertion policy allows only base roles; include explicitly authorized item handlers.
+create policy proc_items_quick_add_insert on public.proc_items
+for insert to authenticated with check(private.proc_has_permission('items.edit'));
+
 create or replace function public.proc_quick_add_item_v1(p_item jsonb)
 returns jsonb language plpgsql security invoker set search_path='' as $$
 declare i public.proc_items; description_v text; category_v text; size_v text; brand_v text; uom_v text; movement_v text; max_v numeric; identity_v text;
