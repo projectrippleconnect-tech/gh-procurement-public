@@ -6,6 +6,7 @@ import {Badge,Empty,ListPages,fieldEnabled,fieldLabel} from './ui'
 import {allRows} from '@/lib/query-pages'
 import {qty,itemTitle} from '@/lib/helpers'
 import {InfoButton} from './help-ui'
+import {normalizeQuantityInput,isQuantityInput} from '@/lib/quantity-input.mjs'
 
 const reasonLabels={
  zero_stock:'Zero Stock',
@@ -73,7 +74,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
   const required=urgent.required_qty===''?null:Number(urgent.required_qty)
   const current=urgent.current_stock===''?null:Number(urgent.current_stock)
   if(required!==null&&(!Number.isFinite(required)||required<=0))return fail(new Error(t('validation.required_positive','Required quantity must be greater than zero.')))
-  if(current!==null&&(!Number.isFinite(current)||current<0))return fail(new Error(t('validation.current_nonnegative','Current stock cannot be negative.')))
+  if(current!==null&&!isQuantityInput(urgent.current_stock))return fail(new Error(t('validation.current_nonnegative','Current stock cannot be negative.')))
   setBusy(true);let path=null
   try{
    path=await uploadUrgentImage(urgentImage,'existing-'+selectedItem.item_id)
@@ -175,7 +176,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
     {!selectedItem?<><div className="field"><label>Search Item Master</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder="Item name, code, brand or size"/></div>{itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.item_id} onClick={()=>{setSelectedItem(i);setUrgent(x=>({...x,current_stock:i.book_stock??'',reason:Number(i.book_stock??1)===0?'zero_stock':i.movement==='FAST'?'fast_mover':'manual_urgent'}));setItemResults([])}}><div><strong>{itemTitle(i)}</strong><div className="muted tiny">{[i.item_code,i.brand,i.uom].filter(Boolean).join(' · ')}</div></div><div className="right"><Badge>{i.movement}</Badge><span className="muted tiny">Book {i.book_stock??'—'}</span></div></button>)}</div>}</>:<>
      <div className="selected-item-box"><div><strong>{itemTitle(selectedItem)}</strong><div className="muted tiny">{[selectedItem.item_code,selectedItem.brand,selectedItem.uom].filter(Boolean).join(' · ')}</div></div><button className="btn small" onClick={()=>setSelectedItem(null)}>Change</button></div>
      <div className="formgrid section">
-      <div className="field"><label>Physical Stock Now</label><input className="input" inputMode="decimal" value={urgent.current_stock} onChange={e=>setUrgent(x=>({...x,current_stock:e.target.value,reason:Number(e.target.value)===0?'zero_stock':x.reason}))}/></div>
+      <div className="field"><label>Physical Stock Now</label><input className="input" inputMode="decimal" value={urgent.current_stock} onChange={e=>{const value=normalizeQuantityInput(e.target.value);if(value!==null)setUrgent(x=>({...x,current_stock:value,reason:value!==''&&Number(value)===0?'zero_stock':x.reason}))}}/></div>
       <div className="field"><label>Required Qty <span className="muted">(blank = auto replenish)</span></label><input className="input" inputMode="decimal" value={urgent.required_qty} onChange={e=>setUrgent(x=>({...x,required_qty:e.target.value}))}/></div>
       <div className="field"><label>Why urgent?</label><select className="select" value={urgent.reason} onChange={e=>setUrgent(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option value={k} key={k}>{v}</option>)}</select></div>
       <div className="field"><label>Photo (optional)</label><input className="input" type="file" accept="image/*" onChange={e=>setUrgentImage(e.target.files?.[0]||null)}/></div>

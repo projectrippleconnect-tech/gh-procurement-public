@@ -281,7 +281,7 @@ try{
   }
   if(process.env.GH_UI_STOCK_NUMBERS==='1'){
    await navigate('✓ Stock Entry')
-   const stock=page.locator('.browse-stock-input').filter({visible:true}).first()
+   const stock=page.locator(width<=700?'.browse-stock-input':'section:not([hidden]) .desktop-table input.stock-entry').filter({visible:true}).first()
    await stock.waitFor()
    for(const [input,expected] of [['001','1'],['00101','101'],['000','0'],['00.125','0.125']]){
     await stock.fill(input);assert.equal(await stock.inputValue(),expected)
