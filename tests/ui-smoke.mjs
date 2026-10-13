@@ -61,7 +61,7 @@ try{
   let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  const errors=[],queries=[],receipts=[],stockSubmissions=[],policyViolations=[]
+  const errors=[],queries=[],receipts=[],stockSubmissions=[],policyViolations=[],companyImports=[]
   await page.exposeFunction('ghRecordCspViolation',data=>policyViolations.push(data))
   await context.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.ghRecordCspViolation({directive:e.effectiveDirective,blocked:e.blockedURI})))
   async function requireQuery(predicate,message){
@@ -122,7 +122,7 @@ try{
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
-   else if(name==='proc_import_company_items_v1')data={created:1,existing:0,company_list_linked:1}
+   else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
     const body=req.postDataJSON();deleteRequests.push(body)
@@ -375,8 +375,26 @@ try{
   await importPanel.getByLabel('Category',{exact:true}).first().fill('BATHROOM')
   await importPanel.getByLabel('Subcategory',{exact:true}).first().fill('Locks')
   await importPanel.getByRole('button',{name:'Apply category to selected',exact:true}).click()
-  await importPanel.getByRole('button',{name:'Create / Match & Link Reviewed Items',exact:true}).click()
+  await importPanel.getByLabel('Item name row 1',{exact:true}).fill('Corrected cycle lock')
+  await importPanel.getByLabel('Target stock row 1',{exact:true}).fill('0010')
+  await importPanel.getByRole('button',{name:'Add blank row',exact:true}).click()
+  await importPanel.getByLabel('Item name row 2',{exact:true}).fill('Manual water pump')
+  await importPanel.getByLabel('Size row 2',{exact:true}).fill('1 HP')
+  await importPanel.getByText('Paste rows from Excel',{exact:true}).click()
+  await importPanel.getByLabel('Spreadsheet rows',{exact:true}).fill('Item name\tSize\tUOM\tCategory\tSubcategory\tTarget stock\nPasted PVC elbow\t20 mm\tPCS\tGENERAL\tPVC fittings\t12')
+  await importPanel.getByRole('button',{name:'Add pasted rows to review',exact:true}).click()
+  await importPanel.getByRole('button',{name:'Add Reviewed Items to Company List',exact:true}).click()
   await requireQuery(url=>url.pathname.endsWith('/proc_import_company_items_v1'),'Company OCR uses reviewed import API')
+  assert.equal(companyImports.length,1)
+  assert.equal(companyImports[0].p_company_id,'company-fixture')
+  assert.equal(companyImports[0].p_add_to_company_list,true)
+  assert.deepEqual(companyImports[0].p_rows.map(r=>r.description),['Corrected cycle lock','Manual water pump','Pasted PVC elbow'])
+  assert.equal(companyImports[0].p_rows[0].max_stock,10)
+  assert.equal(companyImports[0].p_rows[0].category,'BATHROOM')
+  assert.equal(companyImports[0].p_rows[2].subgroup,'PVC fittings')
+  await importPanel.getByText('3 rows · 0 selected to add',{exact:true}).waitFor()
+  assert.equal(await importPanel.getByRole('button',{name:'Add Reviewed Items to Company List',exact:true}).isDisabled(),true)
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Company review sheet stays inside mobile viewport')
   await navigate('♢ Suppliers')
   const supplierDetails=page.locator('section:not([hidden]) summary').filter({hasText:'More details'}).filter({visible:true}).first()
   if(await supplierDetails.count())await supplierDetails.click()
