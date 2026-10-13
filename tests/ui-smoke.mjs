@@ -279,6 +279,49 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_STOCK_NUMBERS==='1'){
+   await navigate('✓ Stock Entry')
+   const stock=page.locator(width<=700?'.browse-stock-input':'section:not([hidden]) .desktop-table input.stock-entry').filter({visible:true}).first()
+   await stock.waitFor()
+   for(const [input,expected] of [['001','1'],['00101','101'],['000','0'],['00.125','0.125']]){
+    await stock.fill(input);assert.equal(await stock.inputValue(),expected)
+   }
+   await stock.fill('00101')
+   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('gh-stock-count-draft:00000000-0000-4000-8000-000000000002')||'{}').entry?.['00000000-0000-4000-8000-000000000003']==='101')
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await navigate('✓ Stock Entry');await stock.waitFor();assert.equal(await stock.inputValue(),'101')
+   await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
+   const submitDialog=page.getByRole('dialog',{name:'Submit stock count',exact:true})
+   await submitDialog.waitFor();await submitDialog.getByRole('button',{name:'Cancel',exact:true}).click()
+   assert.equal(await stock.inputValue(),'101','Cancelling the modern dialog preserves the count draft')
+   await navigate('□ Items')
+   await page.getByText('FIXTURE-ITEM',{exact:true}).filter({visible:true}).first().waitFor()
+   const details=page.locator('section:not([hidden]) summary').filter({hasText:'More details'}).filter({visible:true}).first()
+   if(await details.count())await details.click()
+   await page.getByRole('button',{name:'Delete item',exact:true}).filter({visible:true}).first().click()
+   const deletion=page.getByRole('alertdialog',{name:'Delete item',exact:true})
+   assert.equal(await deletion.getByRole('button',{name:'Confirm delete item',exact:true}).isDisabled(),true)
+   await deletion.getByLabel('Warning confirmation',{exact:true}).fill('FIXTURE-ITEM')
+   assert.equal(await deletion.getByRole('button',{name:'Confirm delete item',exact:true}).isEnabled(),true)
+   await page.screenshot({path:'test-results/'+width+'-modern-item-delete.png'})
+   await deletion.getByRole('button',{name:'Cancel',exact:true}).click()
+   assert.equal(destructiveRequests.length,0,'Cancelling deletion never calls a destructive API')
+   if(width<=700){
+    await page.getByRole('button',{name:'Open menu',exact:true}).click()
+    const menu=page.getByRole('dialog',{name:'GH Procurement',exact:true});await menu.waitFor()
+    assert.equal(await menu.evaluate(node=>node.contains(document.activeElement)),true)
+    await page.screenshot({path:'test-results/'+width+'-modern-menu.png'})
+    await page.keyboard.press('Escape');await menu.waitFor({state:'hidden'})
+    assert.equal(await page.getByRole('button',{name:'Open menu',exact:true}).evaluate(node=>node===document.activeElement),true)
+    await page.emulateMedia({reducedMotion:'reduce'})
+    await page.getByRole('button',{name:'Open menu',exact:true}).click();await menu.waitFor()
+    assert.equal(await menu.evaluate(node=>getComputedStyle(node).animationName),'none')
+    await page.keyboard.press('Escape')
+   }
+   assert.deepEqual(errors,[])
+   console.log('PASS normalized stock input, restored drafts, protected item deletion, modern dialogs/menu and reduced motion at '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_CATALOG==='1'){
   // Catalog actions use intercepted APIs; production is never mutated.
   await navigate('CL Company Lists')

@@ -8,6 +8,7 @@ import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows} from '@/lib/query-pages'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
+import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
@@ -134,7 +135,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    }
    }catch(e){fail(new Error('Account draft could not be loaded. Restored the draft saved on this device. '+(e.message||'')))}
   }
-  setEntry(chosen.entry||{});setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
+  setEntry(normalizeQuantityDraft(chosen.entry||{}));setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
   if(chosen.filters){
    if(chosen.filters.cat!==undefined)setCat(chosen.filters.cat)
    if(chosen.filters.movement!==undefined)setMovement(chosen.filters.movement)
@@ -266,7 +267,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   ensureServerCountStart().catch(error=>console.warn('Stock count session start failed',error))
  }
  function setCount(id,v){
-  const raw=String(v??'')
+  const raw=normalizeQuantityInput(v)
+  if(raw===null)return
   if(raw!==''&&!/^\d*(?:\.\d{0,3})?$/.test(raw))return
   beginCount();setEntry(x=>({...x,[id]:raw}));setSkipped(s=>{if(!s.has(id))return s;const n=new Set(s);n.delete(id);return n})
  }
@@ -308,7 +310,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  async function saveNext(){
   if(!current)return
   const v=entry[current.item_id]
-  if(v===undefined||v===''||!Number.isFinite(Number(v))||Number(v)<0)return fail(new Error(t('stock.quantity_continue_error','Enter a valid physical stock quantity before continuing.')))
+  if(!isQuantityInput(v))return fail(new Error(t('stock.quantity_continue_error','Enter a valid physical stock quantity before continuing.')))
   if(Number(v)===0&&feature('urgent.zero_stock_prompt',true))await markUrgentNow(current,0,'zero_stock')
   nextUnfinished(cursor+1)
  }
@@ -323,7 +325,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  }
  async function saveQuick(markUrgent=false){
   if(!quickItem)return
-  if(quickValue===''||!Number.isFinite(Number(quickValue))||Number(quickValue)<0)return fail(new Error(t('stock.quantity_error','Enter a valid physical stock quantity.')))
+  if(!isQuantityInput(quickValue))return fail(new Error(t('stock.quantity_error','Enter a valid physical stock quantity.')))
   setCount(quickItem.item_id,quickValue)
   const idx=items.findIndex(x=>x.item_id===quickItem.item_id)
   if(idx>=0)setCursor(idx)
@@ -385,9 +387,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    else flash(reviewed.length+' OCR row(s) detected. Review the matches and quantities before applying them.')
   }catch(e){fail(e)}finally{setOcrBusy(false);setOcrProgress(null)}
  }
- function updateOcrRow(id,patch){setOcrRows(v=>v.map(x=>x.id===id?{...x,...patch}:x))}
+ function updateOcrRow(id,patch){if('qty' in patch){const value=normalizeQuantityInput(patch.qty);if(value===null)return;patch={...patch,qty:value}}setOcrRows(v=>v.map(x=>x.id===id?{...x,...patch}:x))}
  function applyOcrCounts(){
-  const accepted=ocrRows.filter(x=>x.selected&&x.match&&x.qty!==''&&Number.isFinite(Number(x.qty))&&Number(x.qty)>=0)
+  const accepted=ocrRows.filter(x=>x.selected&&x.match&&isQuantityInput(x.qty))
   if(!accepted.length)return fail(new Error(t('validation.stock_ocr_select','Select at least one reviewed OCR row.')))
   beginCount()
   setEntry(v=>{const n={...v};accepted.forEach(x=>{n[x.match.item_id]=String(Number(x.qty))});return n})
@@ -398,7 +400,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   if(busy)return
   const {counted,checked,remaining}=stockCountBatch(entry)
   if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one current-stock quantity.')))
-  if(counted.some(([,v])=>!Number.isFinite(Number(v))||Number(v)<0))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
+  if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
   const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
   const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
   if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
@@ -606,7 +608,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     <div className="modal-head"><div><h3>{itemTitle(quickItem)}</h3></div><button className="btn small" onClick={()=>setQuickItem(null)}>✕</button></div>
     <div className="guided-meta">{[quickItem.brand,quickItem.uom,quickItem.category].filter(Boolean).map(x=><span key={x}>{x}</span>)}</div>
     {!isCounter&&<div className="guided-stats section"><div><span>{t('stock.max','Maximum Stock')} <InfoButton topic="maximum_stock" language={language}/></span><b>{qty(quickItem.max_stock)}</b></div><div><span>{t('stock.reorder','Reorder Level')} <InfoButton topic="reorder_level" language={language}/></span><b>{qty(quickItem.reorder_level)}</b></div></div>}
-    <div className="guided-entry section"><label>{t('stock.physical','Physical Stock')}</label><input ref={quickInput} className="input" inputMode="decimal" enterKeyHint="done" value={quickValue} onChange={e=>setQuickValue(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveQuick(Number(quickValue)===0)}}} placeholder="Enter quantity"/></div>
+    <div className="guided-entry section"><label>{t('stock.physical','Physical Stock')}</label><input ref={quickInput} className="input" inputMode="decimal" enterKeyHint="done" value={quickValue} onChange={e=>{const value=normalizeQuantityInput(e.target.value);if(value!==null)setQuickValue(value)}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveQuick(Number(quickValue)===0)}}} placeholder="Enter quantity"/></div>
     {Number(quickValue)===0&&quickValue!==''&&<div className="urgent-zero-notice section"><b>{t('stock.zero','Zero stock')}</b><span>{t('stock.zero_hint','Zero is valid and can be marked urgent.')}</span></div>}
     <div className="toolbar section">{Number(quickValue)===0&&quickValue!==''?<><button className="btn primary" disabled={urgentBusy} onClick={()=>saveQuick(true)}>{urgentBusy?t('stock.marking','Marking…'):t('stock.save_mark_urgent','Save + Mark Urgent')}</button><button className="btn" onClick={()=>saveQuick(false)}>{t('stock.save_only','Save Only')}</button></>:<><button className="btn primary" onClick={()=>saveQuick(false)}>{t('stock.save_stock','Save Stock')}</button><button className="btn warn" disabled={urgentBusy} onClick={async()=>{if(await markUrgentNow(quickItem,quickValue===''?null:Number(quickValue)))setQuickItem(null)}}>{t('stock.mark_urgent','Mark Urgent')}</button></>}<button className="btn" onClick={()=>setQuickItem(null)}>{t('common.cancel','Cancel')}</button></div>
    </div>

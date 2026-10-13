@@ -41,6 +41,27 @@ export default function ProcurementApp(){
  const[permissions,setPermissions]=useState(new Set()),[permissionsLoaded,setPermissionsLoaded]=useState(false),[language,setLanguage]=useState(()=>typeof window!=='undefined'?(localStorage.getItem('gh-procurement-language')||'en'):'en')
  const[mobileMenu,setMobileMenu]=useState(false),[securityOpen,setSecurityOpen]=useState(false),[helpOpen,setHelpOpen]=useState(false)
  const[screenHistory,setScreenHistory]=useState({entries:[{view:'dashboard',filter:''}],index:0})
+ const workContent=useRef(null)
+ useEffect(()=>{
+  if(boot||!workContent.current)return
+  const screen=workContent.current.querySelector('section:not([hidden])')
+  if(!screen||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return
+  const motion=screen.animate?.([{opacity:0.45},{opacity:1}],{duration:180,easing:'ease-out'})
+  return()=>motion?.cancel()
+ },[view,guide.step,boot])
+ useEffect(()=>{
+  if(!mobileMenu)return
+  const previous=document.activeElement,overflow=document.body.style.overflow
+  const drawer=document.querySelector('.mobile-drawer')
+  const buttons=()=>[...drawer.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled)')]
+  buttons()[0]?.focus();document.body.style.overflow='hidden'
+  const keydown=e=>{
+   if(e.key==='Escape'){e.preventDefault();setMobileMenu(false)}
+   if(e.key==='Tab'){const targets=buttons(),first=targets[0],last=targets.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}
+  }
+  document.addEventListener('keydown',keydown)
+  return()=>{document.body.style.overflow=overflow;document.removeEventListener('keydown',keydown);if(previous?.isConnected)previous.focus()}
+ },[mobileMenu])
  const historyRef=useRef(screenHistory)
  const scrollPositions=useRef({})
  useEffect(()=>{const id=requestAnimationFrame(()=>window.scrollTo(0,scrollPositions.current[view]||0));return()=>cancelAnimationFrame(id)},[view])
@@ -311,7 +332,7 @@ export default function ProcurementApp(){
   <main className="main">
    <header className="topbar"><div className="topbar-left"><button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
    <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button></nav>
-   <div className="content">
+   <div className="content" ref={workContent}>
     <WorkflowNavigation view={view} step={guide.step} onStep={guideTo} canStep={canStep} navigate={go} canNavigate={p.canNavigate} t={t}/>
      {!visibleNav.some(n=>n[0]===view)&&<p role="status" className="muted">Opening your permitted workspace…</p>}
     <section hidden={view!=='dashboard'} key={'dashboard-'+(viewKeys['dashboard']||0)}>{visited.has('dashboard')&&visibleNav.some(n=>n[0]==='dashboard')&&<Dashboard {...p} initialFilter={viewFilters['dashboard']||''}/>}</section>
@@ -336,7 +357,7 @@ export default function ProcurementApp(){
    <button className={mobileMenu?'active':''} onClick={()=>setMobileMenu(true)}><span>☰</span>{t('app.more','More')}</button>
   </nav>
 
-  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong>GH Procurement</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><div className="drawer-section-title">WORK</div><div className="mobile-drawer-grid">{primaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div>{secondaryNav.length>0&&<><div className="drawer-section-title">MORE / ADMIN</div><div className="mobile-drawer-grid secondary">{secondaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></>}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
+  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">GH Procurement</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><div className="drawer-section-title">WORK</div><div className="mobile-drawer-grid">{primaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div>{secondaryNav.length>0&&<><div className="drawer-section-title">MORE / ADMIN</div><div className="mobile-drawer-grid secondary">{secondaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></>}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
 
   <div className="app-toast-stack" aria-live="polite">
    {notice&&<div className="app-toast success-toast"><b>✓</b><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice('')}>×</button></div>}
