@@ -42,6 +42,10 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
+      - name: Verify searchable pickers and keyboard focus
+        env:
+          GH_UI_PICKERS: '1'
+        run: npm run test:ui
       - name: Verify quick-add, deletion controls and editable company bill sheets and reviewed GRN OCR
         env:
           GH_UI_CATALOG: '1'
@@ -53,10 +57,6 @@ jobs:
       - name: Verify stock-number display, modern dialogs and accessible menu
         env:
           GH_UI_STOCK_NUMBERS: '1'
-        run: npm run test:ui
-      - name: Verify searchable pickers and keyboard focus
-        env:
-          GH_UI_PICKERS: '1'
         run: npm run test:ui
       - name: Verify guided layouts at mobile, tablet and desktop widths
         run: npm run test:ui
