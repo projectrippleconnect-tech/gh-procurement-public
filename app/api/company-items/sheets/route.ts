@@ -6,7 +6,7 @@ export const dynamic='force-dynamic'
 export async function POST(request:Request){
  try{
   const {db}=await companyAccess(request,true),body=await companyBody(request),token=await sheetsToken()
-  const book=await sheetsRequest(token,'?fields=sheets.properties')
+  const book=await sheetsRequest(token,'?fields=sheets(properties,developerMetadata)')
   if(body.action==='import'){
    let imported=0;const errors:string[]=[]
    for(const sheet of book.sheets||[]){
@@ -19,7 +19,8 @@ export async function POST(request:Request){
      if(values.values?.[0]?.[0]==='Source ID')rows=normalizedRows(values.values,sheetId,title)
      else rows=parseCompanySheet({title,sheetId,values:values.values||[]})
      validateCompanyImport(rows)
-     const r=await db.rpc('proc_company_import_sheet',{p_title:title.replace(/ · App$/,''),p_sheet_id:sheetId,p_rows:rows});if(r.error)throw r.error;imported+=r.data.imported
+     let importTitle=title.replace(/ · App$/,'');const owner=sheet.developerMetadata?.find((m:{metadataKey:string})=>m.metadataKey==='gh_company_id')?.metadataValue;if(owner){const found=await db.from('proc_companies').select('name').eq('id',owner).maybeSingle();if(found.error)throw found.error;if(found.data)importTitle=found.data.name}
+     const r=await db.rpc('proc_company_import_sheet',{p_title:importTitle,p_sheet_id:sheetId,p_rows:rows});if(r.error)throw r.error;imported+=r.data.imported
     }catch(e){errors.push(title+': '+(e instanceof Error?e.message:'Import failed'))}
    }
    return companyReply({ok:errors.length===0,message:imported+' new company items imported.'+(errors.length?' Review: '+errors.join('; '):''),errors},errors.length?207:200)
@@ -28,12 +29,18 @@ export async function POST(request:Request){
   const {data:company,error}=await db.from('proc_companies').select('*').eq('id',body.companyId).single();if(error)throw error
   const {data:items,error:itemsError}=await db.from('proc_company_list_items').select('*,item:proc_items(*)').eq('company_id',company.id).eq('active',true).order('sort_order');if(itemsError)throw itemsError
   // App-managed export is separate from handwritten matrices, preserving source cell identities.
-  const title=(company.sheet_id!==null?company.name+' · App':company.name).slice(0,100),existing=book.sheets?.find((s:{properties:{title:string}})=>s.properties.title===title)
+  const title=(company.sheet_id!==null?company.name+' · App':company.name).slice(0,100)
+  const existing=book.sheets?.find((s:{properties:{title:string;sheetId:number}})=>company.export_sheet_id!==null?s.properties.sheetId===company.export_sheet_id:s.properties.title===title)
   let sheetId=existing?.properties.sheetId
-  if(sheetId===undefined){const added=await sheetsRequest(token,':batchUpdate',{requests:[{addSheet:{properties:{title}}}]});sheetId=added.replies[0].addSheet.properties.sheetId}
+  if(existing&&!existing.developerMetadata?.some((m:{metadataKey:string;metadataValue:string})=>m.metadataKey==='gh_company_id'&&m.metadataValue===company.id))throw new Error('This tab is maintained outside the app. Import it first or choose a different company name; it has not been overwritten.')
+  if(sheetId===undefined){
+   const added=await sheetsRequest(token,':batchUpdate',{requests:[{addSheet:{properties:{title}}}]});sheetId=added.replies[0].addSheet.properties.sheetId
+   await sheetsRequest(token,':batchUpdate',{requests:[{createDeveloperMetadata:{developerMetadata:{metadataKey:'gh_company_id',metadataValue:company.id,visibility:'DOCUMENT',location:{sheetId}}}}]})
+  }
   const rows=[['Source ID','Description','Category','Main group','Subcategory','Brand','Size','Colour','Variation','UOM','Movement','Maximum stock','Reorder level','Remarks'],...(items||[]).map(r=>[r.source_key||'app:'+r.id,r.item.description,r.item.category,r.item.main_group||'',r.item.subgroup||'',r.item.brand||'',r.item.size||'',r.item.colour||'',r.item.variation||'',r.item.uom,r.item.movement,r.max_stock_review?'':r.target_stock,r.max_stock_review?'':r.reorder_level??r.target_stock*.5,r.item.remarks||''])]
   const cellRows=rows.map(row=>({values:row.map(v=>({userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:String(v)}}))}))
-  await sheetsRequest(token,':batchUpdate',{requests:[{updateSheetProperties:{properties:{sheetId,gridProperties:{rowCount:Math.max(rows.length,1000),columnCount:14,frozenRowCount:1}},fields:'gridProperties'}},{updateCells:{range:{sheetId},rows:cellRows,fields:'userEnteredValue'}}]})
+  await sheetsRequest(token,':batchUpdate',{requests:[{updateSheetProperties:{properties:{sheetId,title,gridProperties:{rowCount:Math.max(rows.length,1000),columnCount:14,frozenRowCount:1}},fields:'title,gridProperties'}},{updateCells:{range:{sheetId},rows:cellRows,fields:'userEnteredValue'}}]})
+  const saved=await db.from('proc_companies').update({export_sheet_id:sheetId}).eq('id',company.id);if(saved.error)throw saved.error
   return companyReply({ok:true,message:'Company tab published to Google Sheets.'})
  }catch(e){return companyReply({ok:false,error:e instanceof Error?e.message:'Company sheet sync failed.'},400)}
 }

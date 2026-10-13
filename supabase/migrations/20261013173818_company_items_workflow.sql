@@ -14,7 +14,7 @@ revoke all on function private.proc_company_reorder_guard() from public,anon,aut
 create trigger proc_company_reorder_guard before insert or update on public.proc_company_list_items for each row execute function private.proc_company_reorder_guard();
 update public.proc_company_list_items set reorder_level=target_stock*.5 where not max_stock_review;
 create unique index proc_company_source_idx on public.proc_company_list_items(company_id,source_key) where source_key is not null;
-alter table public.proc_companies add column if not exists sheet_id bigint,
+alter table public.proc_companies add column if not exists sheet_id bigint, add column if not exists export_sheet_id bigint,
  add column if not exists order_route text not null default 'quotation' check(order_route in ('quotation','direct')),
  add column if not exists auto_approve boolean not null default false,
  add column if not exists auto_send boolean not null default false,
@@ -285,7 +285,7 @@ begin
  if not private.proc_has_permission('company_lists.manage') and not(c.auto_approve and private.proc_has_permission('stock.count.enter')) then raise exception 'Admin-approved sending required';end if;
  select * into s from public.proc_suppliers where id=po.supplier_id and active and supplier_kind='company';
  if s.id is null then raise exception 'Company supplier unavailable';end if;
- select jsonb_agg(jsonb_build_object('description',i.description,'size',i.size,'colour',i.colour,'variation',i.variation,'uom',i.uom,'qty',l.qty,'remarks',i.remarks) order by i.description,l.id) into lines from public.proc_po_lines l join public.proc_items i on i.id=l.item_id where l.po_id=po.id;
+ select jsonb_agg(jsonb_build_object('description',i.description,'brand',i.brand,'size',i.size,'colour',i.colour,'variation',i.variation,'uom',i.uom,'qty',l.qty,'remarks',i.remarks) order by i.description,l.id) into lines from public.proc_po_lines l join public.proc_items i on i.id=l.item_id where l.po_id=po.id;
  select coalesce(jsonb_agg(jsonb_build_object('name',name,'storage_path',storage_path,'mime_type',mime_type,'remarks',remarks,'discount_percent',discount_percent,'discount_amount',discount_amount)),'[]') into attachments from public.proc_company_attachments where company_id=c.id and send_with_order and kind in ('price_list','order') and (po_id is null or po_id=po.id) and (supplier_id is null or supplier_id=s.id) and (item_id is null or exists(select 1 from public.proc_po_lines where po_id=po.id and proc_po_lines.item_id=proc_company_attachments.item_id));
  update public.proc_company_dispatch_queue set status='sending',claimed_by=auth.uid(),last_error=null,updated_at=now() where id=q.id;
  return jsonb_build_object('id',q.id,'po_id',po.id,'po_no',po.po_no,'phone',coalesce(s.whatsapp,s.phone),'supplier',s.name,'company',c.name,'lines',lines,'attachments',attachments);
