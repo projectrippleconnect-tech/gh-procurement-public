@@ -101,6 +101,8 @@ try{
   let currentProfile=profile
   let accessReason='allowed',accessExpirySeconds=null
   const accessSaves=[]
+  let captureAllowed=false
+  const captureChanges=[]
   const accessPolicy={time_enabled:true,location_enabled:true,days:[0,1,2,3,4,5],start_time:'07:30',end_time:'18:30',latitude:7.0552571,longitude:80.5345549,radius_m:100,location_name:'General Hardware, No. 14 Kandy Road, Nawalapitiya'}
   const accessReply=()=>({allowed:accessReason==='allowed',reason:accessReason,exempt:currentProfile.role_key==='admin',policy:accessPolicy,server_now:new Date().toISOString(),valid_until:accessExpirySeconds===null?null:new Date(Date.now()+accessExpirySeconds*1000).toISOString()})
   let poFixtureStatus='sent',poLargeExport=false,receivingManyRows=false,rfqItemCount=100,requirementApproval='pending_review'
@@ -150,6 +152,11 @@ try{
    }
    else if(name==='proc_admin_access_policy_v1')data=accessPolicy
    else if(name==='proc_admin_save_access_policy_v1'){accessSaves.push(req.postDataJSON());data=null}
+   else if(name==='proc_capture_status_v1')data={can_override:currentProfile.role_key==='admin',capture_allowed:captureAllowed,expires_in_seconds:captureAllowed?20:0}
+   else if(name==='proc_set_capture_override_v1'){
+    if(currentProfile.role_key!=='admin')return route.fulfill({status:403,json:{message:'Only Super Admin can allow screenshots'}})
+    captureChanges.push(req.postDataJSON());captureAllowed=req.postDataJSON().p_enabled;data={can_override:true,capture_allowed:captureAllowed,expires_in_seconds:captureAllowed?20:0}
+   }
    else if(['proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true}]
@@ -310,6 +317,41 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_SETTINGS_SEARCH==='1'){
+   await navigate('⚙ Admin')
+   const search=page.getByLabel('Search settings',{exact:true})
+   await search.fill('screenshot')
+   await page.getByText('2 matching sections',{exact:true}).waitFor()
+   assert.equal(await page.locator('details.admin-accordion:not([hidden])').count(),2)
+   await page.locator('.settings-search-results').getByRole('button',{name:'Screenshot Protection',exact:false}).click()
+   const capture=page.locator('details.admin-accordion[open]').filter({hasText:'Screenshot Protection'})
+   await capture.getByText('This browser has no verified capture control.',{exact:false}).waitFor()
+   assert.equal(await capture.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).isDisabled(),true,'Browser UI must not claim native screenshot control')
+   await page.screenshot({path:`test-results/settings-search-${width}.png`,fullPage:true})
+   await search.fill('not-a-real-setting-zzzz')
+   await page.getByText('No matching settings. Try another word.',{exact:true}).waitFor()
+   assert.equal(await page.locator('details.admin-accordion:not([hidden])').count(),0)
+   await page.getByRole('button',{name:'Clear search',exact:true}).click()
+   assert.ok(await page.locator('details.admin-accordion:not([hidden])').count()>5)
+   await search.fill('radius');await search.press('Enter')
+   await page.locator('details.admin-accordion[open]').filter({hasText:'Time & Location Restrictions'}).waitFor()
+   // Emulate the protected native bridge only for testing the server-driven UI.
+   await context.addInitScript(()=>{window.GHProcurementAndroid={refreshCapturePolicy:()=>{}}})
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⚙ Admin')
+   await page.getByLabel('Search settings',{exact:true}).fill('screenshot')
+   await page.locator('.settings-search-results').getByRole('button',{name:'Screenshot Protection',exact:false}).click()
+   await page.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).click()
+   await page.getByRole('button',{name:'Block screenshots now',exact:true}).waitFor()
+   await page.getByRole('button',{name:'Block screenshots now',exact:true}).click()
+   await page.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).waitFor()
+   assert.deepEqual(captureChanges.map(c=>c.p_enabled),[true,false])
+   currentProfile={...profile,role:'viewer',role_key:'custom_test'};await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⚙ Admin')
+   await page.getByLabel('Search settings',{exact:true}).fill('screenshot')
+   assert.equal(await page.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).count(),0,'Staff never receive the capture override')
+   assert.deepEqual(errors,[])
+   console.log('PASS settings filtering, jump, no-results, browser disclaimer and Super Admin-only capture controls at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_PICKERS==='1'){
    await navigate('⇩ Receive Goods')
