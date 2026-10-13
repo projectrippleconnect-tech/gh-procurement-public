@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
+import {useDangerConfirmation,useActionConfirmation,useTextPrompt} from './danger-confirmation'
 import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
 import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
@@ -11,9 +11,15 @@ import {ItemLabel,Badge,ListPages,DataTable,configuredColumns,fieldEnabled,field
 import {InfoButton} from './help-ui'
 import {PoBulkSend} from './po-bulk-send'
 import {ReceiptOcr} from './receipt-ocr'
+import {SupplierDocumentEditor} from './supplier-document-editor'
+import {defaultSupplierTemplate,documentCompany,documentLines} from '@/lib/supplier-template.mjs'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
 export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+ const textPrompt=useTextPrompt()
+ const[documentTemplate,setDocumentTemplate]=useState(()=>defaultSupplierTemplate('po'))
+ useEffect(()=>{try{const v=JSON.parse(localStorage.getItem('gh-po-document:'+profile.id)||'null');if(v)setDocumentTemplate({...defaultSupplierTemplate('po'),...v})}catch{}},[profile.id])
+ function changeDocumentTemplate(v){setDocumentTemplate(v);try{localStorage.setItem('gh-po-document:'+profile.id,JSON.stringify(v))}catch{}}
  const confirmAction=useActionConfirmation()
  const confirmDanger=useDangerConfirmation()
  const canEdit=can('procurement.orders.edit')
@@ -23,7 +29,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  const settingsKey='gh_po_supplier_fields_v1:'+String(profile?.id||'anonymous')
  useEffect(()=>{try{setShareFields(resolvePoShareFields(JSON.parse(localStorage.getItem(settingsKey)||'null')))}catch{setShareFields(defaultPoShareFields())}setShareReady(true)},[settingsKey])
  function changeShareField(key,value){const next={...shareFields,[key]:value};setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{flash('Fields updated for this session; this browser could not save the preference.')}}
- const shareArgs={po:active,lines,company,selection:shareFields}
+ const shareArgs={po:active,lines:documentLines(lines,documentTemplate),company:documentCompany(company,documentTemplate),selection:shareFields}
  async function refreshPoGateway(poId=active?.id){
   setGateway(null);setGatewayLoading(true)
   if(!poId||!canEdit){setGatewayLoading(false);return}
@@ -40,7 +46,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   if(active.status!=='approved')return fail(new Error('Approve this purchase order before sending.'))
   if(!gateway?.connected||!gateway?.sendingEnabled)return fail(new Error('WhatsApp gateway must be linked and sending enabled. Use the PNG sharing fallback.'))
   if(gateway.dispatches?.length)return fail(new Error('A send attempt already exists. Check WhatsApp and its audit status before any resend.'))
-  const edited=window.prompt('Caption for '+active.supplier?.name,buildPurchaseOrderCaption(shareArgs));if(edited===null)return
+  const edited=await textPrompt('Caption for '+active.supplier?.name,buildPurchaseOrderCaption(shareArgs));if(edited===null)return
   const caption=edited.trim();if(!caption||caption.length>2000)return fail(new Error('Caption must contain 1–2000 characters.'))
   if(!await confirmAction('Send this purchase-order image and caption to '+active.supplier?.name+' ('+(active.supplier?.whatsapp||active.supplier?.phone)+')?'))return
   setShareBusy(true)
@@ -160,6 +166,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
    {canEdit&&canApprove&&['sent','partially_received'].includes(active.status)&&<details className="section"><summary>Outstanding delivery balances</summary><p className="muted tiny">Wait for delivery, cancel an unneeded balance, or release it to buy elsewhere. These actions require a reason and supplier notification.</p>{lines.filter(l=>remainingDelivery(l)>0).map(l=><div className="procurement-data-row" key={l.id}><strong>{itemTitle(l.item||{})}</strong><p>{qty(remainingDelivery(l))} {l.item?.uom} outstanding</p><div className="toolbar"><button className="btn small" disabled={busy||shareBusy} onClick={()=>releaseBalance(l,'buy_elsewhere')}>Buy elsewhere</button><button className="btn small bad" disabled={busy||shareBusy} onClick={()=>releaseBalance(l,'cancel')}>Cancel balance</button></div></div>)}</details>}
    {lines.some(l=>l.balance_actions?.length)&&<details className="section"><summary>Balance action history</summary>{lines.flatMap(l=>(l.balance_actions||[]).map((a,i)=><p key={l.id+'-'+i}>{itemTitle(l.item||{})} · {qty(a.released_qty)} · {a.action} · {a.reason} · {new Date(a.created_at).toLocaleString()}</p>))}</details>}
    {fieldEnabled(fields,'po','total')&&<div className="document-total"><span>{fieldLabel(fields,'po','total','Total LKR')}</span><strong>{money(active.total)}</strong></div>}
+   <SupplierDocumentEditor kind="po" value={documentTemplate} onChange={changeDocumentTemplate} company={company} lines={lines} po={active} disabled={busy||shareBusy}/>
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print po-primary-action">
     {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>Approve PO</button>}
@@ -179,7 +186,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  </div>
  return <div className="card pad po-orders">
   <div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>Tap a PO row to expand its bill, details and supplier actions.</p></div></div>
-  {canEdit&&batchKey&&<PoBulkSend orderIds={batchIds} company={company} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
+  {canEdit&&batchKey&&<PoBulkSend orderIds={batchIds} company={documentCompany(company,documentTemplate)} documentTemplate={documentTemplate} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
   {batchKey&&<div className="notice section">Showing the {batchIds.length} PO(s) created for this order. <button className="btn small" onClick={()=>navigate('po','all')}>View all orders</button></div>}
   <div className="filters two section"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><select className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
   <div className="po-order-list section">{filtered.map(po=><div className="po-order" key={po.id}>

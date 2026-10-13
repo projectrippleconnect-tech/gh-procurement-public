@@ -10,6 +10,7 @@ import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
 import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
+import {StockPrintDialog} from './stock-print-dialog'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -78,7 +79,7 @@ function ImageCropper({file,onReady,t=(k,f)=>f||k}){
  </div>
 }
 
-export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
+export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
  const confirmAction=useActionConfirmation()
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
@@ -187,6 +188,7 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
   </div>
 
   <div className="filters two section"><label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label></div>
+  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,id:r.item_id,max_stock:r.target_stock,reorder_level:r.reorder_level??r.target_stock}))} can={can} fail={fail}/>}
   {canManage&&companyId&&<button className="btn small bad section" onClick={archiveCompanyList}>Remove company list</button>}
   {companyId&&<CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>}
   {canManage&&<div className="split section">

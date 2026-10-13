@@ -4,10 +4,11 @@ import {useEffect,useRef,useState} from 'react'
 import {normalizeWhatsAppNumber} from '@/lib/helpers'
 import {DEFAULT_RFQ_CAPTION,supplierCaption,runSupplierBatch} from '@/lib/rfq-batch.mjs'
 
-export function RfqBulkSend({rfq,invitations,suppliers,gateway,otherBusy=false,onBusy,onSend,onRefresh}){
+export function RfqBulkSend({rfq,captionTemplate,company,invitations,suppliers,gateway,otherBusy=false,onBusy,onSend,onRefresh}){
  const[selected,setSelected]=useState(new Set()),[template,setTemplate]=useState(DEFAULT_RFQ_CAPTION),[running,setRunning]=useState(false),[results,setResults]=useState({}),[summary,setSummary]=useState('')
  const initialized=useRef(false),sending=useRef(false),mounted=useRef(true)
  useEffect(()=>{mounted.current=true;try{setTemplate(localStorage.getItem('gh_rfq_whatsapp_caption_template')||DEFAULT_RFQ_CAPTION)}catch{}return()=>{mounted.current=false}},[])
+ useEffect(()=>{if(captionTemplate)setTemplate(captionTemplate)},[captionTemplate])
  const rows=invitations.map(inv=>{
   const supplier=suppliers.find(s=>s.id===inv.supplier_id)
   const previous=gateway.dispatches?.find(d=>d.supplier_id===inv.supplier_id)
@@ -23,7 +24,7 @@ export function RfqBulkSend({rfq,invitations,suppliers,gateway,otherBusy=false,o
   if(sending.current||otherBusy||!chosen.length)return
   if(!gateway.connected||!gateway.sendingEnabled){setSummary('Connect WhatsApp and enable sending before starting.');return}
   let jobs
-  try{jobs=chosen.map(r=>({supplierId:r.inv.supplier_id,inv:r.inv,caption:supplierCaption(template,rfq,r.supplier)}))}
+  try{jobs=chosen.map(r=>({supplierId:r.inv.supplier_id,inv:r.inv,caption:supplierCaption(template,rfq,r.supplier,company)}))}
   catch(error){setSummary(error.message);return}
   sending.current=true;setRunning(true);onBusy(true);setSummary('Sending '+jobs.length+' supplier request(s)…')
   setResults(current=>({...current,...Object.fromEntries(jobs.map(j=>[j.supplierId,{status:'waiting',message:'Waiting to send.'}]))}))
@@ -45,7 +46,7 @@ export function RfqBulkSend({rfq,invitations,suppliers,gateway,otherBusy=false,o
    const result=r.local,status=result?.status||r.previous?.status
    return <div className="rfq-recipient-row" key={r.inv.supplier_id}><label><input type="checkbox" aria-label={'Send RFQ to '+(r.supplier?.name||'Supplier')} checked={Boolean(r.eligible&&selected.has(r.inv.supplier_id))} disabled={!r.eligible||running||otherBusy} onChange={()=>toggle(r.inv.supplier_id)}/><span className="rfq-recipient-number">{index+1}</span><span><strong>{r.supplier?.name||'Supplier unavailable'}</strong><small>{r.number?'+'+r.number:'Add a valid WhatsApp number'}</small></span></label><span className={'rfq-send-result '+(status==='accepted'?'good-text':'')}>{labels[status]||status||(!r.eligible?'Unavailable':'Ready')}</span>{result?.message&&<small className="rfq-recipient-message">{result.message}</small>}</div>
   })}</div>
-  <details className="section"><summary>Caption for all selected suppliers</summary><label className="field section">Message template<textarea className="input" aria-label="Bulk RFQ caption template" rows={5} maxLength={2000} disabled={running||otherBusy} value={template} onChange={e=>setTemplate(e.target.value)}/><small>Use {'{supplier_name}'}, {'{rfq_number}'} and {'{due_date}'} for each supplier.</small></label>{chosen[0]&&<pre className="rfq-caption-preview">{(()=>{try{return supplierCaption(template,rfq,chosen[0].supplier)}catch(error){return error.message}})()}</pre>}</details>
+  <details className="section"><summary>Caption for all selected suppliers</summary><label className="field section">Message template<textarea className="input" aria-label="Bulk RFQ caption template" rows={5} maxLength={2000} disabled={running||otherBusy} value={template} onChange={e=>setTemplate(e.target.value)}/><small>Use {'{supplier_name}'}, {'{rfq_number}'} and {'{due_date}'} for each supplier.</small></label>{chosen[0]&&<pre className="rfq-caption-preview">{(()=>{try{return supplierCaption(template,rfq,chosen[0].supplier,company)}catch(error){return error.message}})()}</pre>}</details>
   <button className="btn primary rfq-bulk-send-button" disabled={running||otherBusy||!chosen.length||!gateway.connected||!gateway.sendingEnabled||!template.trim()} onClick={sendAll}>{running?'Sending selected requests…':'Send PNG + Caption to '+chosen.length+' Supplier'+(chosen.length===1?'':'s')}</button>
   {summary&&<p className="rfq-batch-summary" role="status" aria-live="polite">{summary}</p>}
  </section>

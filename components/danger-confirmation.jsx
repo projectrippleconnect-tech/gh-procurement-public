@@ -15,12 +15,18 @@ export function useActionConfirmation(){
  return useCallback((message,options={})=>confirm({tone:'action',title:'Review and continue',message:String(message).replaceAll('\\n','\n'),confirmLabel:'Continue',...options}),[confirm])
 }
 
+export function useTextPrompt(){
+ const confirm=useDangerConfirmation()
+ return useCallback(async(label,initialValue='')=>{let result=null;const accepted=await confirm({tone:'action',title:label,message:'Review and edit the message before continuing.',textInput:{label:'Message',initialValue,maxLength:2000},confirmLabel:'Use message',onConfirm:({textValue})=>{if(!textValue.trim()||textValue.length>2000)throw new Error('Enter 1–2000 characters.');result=textValue}});return accepted?result:null},[confirm])
+}
+
 export function DangerConfirmationProvider({children}){
  const[request,setRequest]=useState(null),[confirmation,setConfirmation]=useState(''),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const[textValue,setTextValue]=useState('')
  const pending=useRef(null),busyRef=useRef(false),dialog=useRef(null),cancelButton=useRef(null),mounted=useRef(true)
  const confirm=useCallback(options=>{
   if(pending.current)return Promise.resolve(false)
-  setConfirmation('');setReason('');setError('');setRequest(options)
+  setConfirmation('');setReason('');setTextValue(options.textInput?.initialValue||'');setError('');setRequest(options)
   return new Promise(resolve=>{pending.current={resolve,options}})
  },[])
  const close=useCallback(result=>{
@@ -53,7 +59,7 @@ export function DangerConfirmationProvider({children}){
   if(current.options.confirmation&&confirmation!==current.options.confirmation)return
   if(current.options.requireReason&&reason.trim().length<5)return
   busyRef.current=true;setBusy(true);setError('')
-  try{await current.options.onConfirm?.({confirmation,reason:reason.trim()});close(true)}
+  try{await current.options.onConfirm?.({confirmation,reason:reason.trim(),textValue});close(true)}
   catch(e){if(mounted.current)setError(e?.message||'The operation could not be completed. Try again.')}
   finally{busyRef.current=false;if(mounted.current)setBusy(false)}
  }
@@ -63,6 +69,7 @@ export function DangerConfirmationProvider({children}){
   {request.details&&<div className="danger-details">{request.details}</div>}
   {request.confirmation&&<label className="field section">Type <b>{request.confirmation}</b> to confirm<input className="input" aria-label="Warning confirmation" autoComplete="off" disabled={busy} value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label>}
   {request.requireReason&&<label className="field section">Reason<input className="input" aria-label="Warning reason" disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/><small>At least five characters.</small></label>}
+  {request.textInput&&<label className="field section">{request.textInput.label}<textarea aria-label="Message editor" className="input" rows={6} maxLength={request.textInput.maxLength} disabled={busy} value={textValue} onChange={e=>setTextValue(e.target.value)}/></label>}
   <Err v={error}/><div className="danger-actions section"><button ref={cancelButton} className="btn" disabled={busy} onClick={()=>close(false)}>{request.cancelLabel||'Cancel'}</button><button className={request.tone==='action'?'btn primary':'btn bad'} disabled={busy||(request.confirmation&&confirmation!==request.confirmation)||(request.requireReason&&reason.trim().length<5)} onClick={execute}>{busy&&<span className="button-spinner" aria-hidden="true"/>}{busy?'Working…':request.confirmLabel||'Confirm'}</button></div>
  </div></div>}</ConfirmationContext.Provider>
 }
