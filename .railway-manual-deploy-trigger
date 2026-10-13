@@ -22,3 +22,5 @@ Manual production release authorized 2026-10-12: deploy merged PR #45 at b3f0b38
 
 
 Manual GH Procurement production deployment authorized 2026-10-13: merged PR #52 at 2d2170d00b8c0350e08fd250b9f8105eb00ea455. Fix mobile overlap between Work queues, Focus selector, sort control and waiting-age explanation; make Procurement Review heading compact. All three PR workflows passed (Quality Gate, Web Validation, Android companion build). Deploy the current main release to Railway production. Keep watchPatterns limited to this manual trigger; no unrelated pushes should auto-deploy. No existing business records or database schema changes.
+
+Manual GH Procurement production deployment explicitly authorized 2026-10-13: deploy merged PR #53 (acd672d8b5e98c99c78365af7da6dbc92270ea8a), adding visible multi-supplier selection to existing RFQs, including newly pending WhatsApp invitations without changing previous quotations. All PR quality, web and companion checks passed. Keep Railway manual-only watch pattern, preserve existing data and supplier send confirmations.
