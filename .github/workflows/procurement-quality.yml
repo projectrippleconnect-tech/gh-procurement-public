@@ -71,6 +71,10 @@ jobs:
         env:
           GH_UI_STOCK_NUMBERS: '1'
         run: npm run test:ui
+      - name: Verify shelf search and sufficient stock without production access
+        env:
+          GH_UI_STOCK_SHELF: '1'
+        run: npm run test:ui
       - name: Verify guided layouts at mobile, tablet and desktop widths
         run: npm run test:ui
       - name: Verify automatic three-stage procurement progression
