@@ -1,5 +1,7 @@
 'use client'
 
+import {ModernSelect} from './modern-select'
+
 import {PROCUREMENT_STEPS} from '@/lib/workflow-guide.mjs'
 import {STAGES,stageForTask} from '@/lib/procurement-journey.mjs'
 
@@ -32,7 +34,7 @@ export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavig
   <div className="guide-title"><div><small>{receiving?'DELIVERY · AFTER ORDERING':'STAGE '+stage+' OF 3'}</small><strong>{receiving?'Receive delivery':STAGES[stage-1]}</strong></div>{previous&&!receiving&&<button className="btn small" aria-label="Previous procurement step" onClick={()=>onStep(previous.id)}>← Back</button>}</div>
   {!receiving&&<div className="journey-stages">{STAGES.map((title,index)=><span key={title} aria-current={stage===index+1?'step':undefined} className={stage===index+1?'current':stage>index+1?'prior':''}>{index+1}. {title}</span>)}</div>}
   <p>{receiving?'Choose the PO and enter quantities received. Delivery progress is separate.':view==='po'?'Review the supplier orders, approve when required, then send and confirm.':current.hint}</p>
-  <details className="journey-shortcuts"><summary>Other tasks</summary><select className="select" aria-label="Go to procurement section" value={step} onChange={e=>onStep(Number(e.target.value))}>{available.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</select>{canNavigate('po')&&<button className="btn small" onClick={()=>navigate('po')}>Open purchase orders →</button>}{canNavigate('receiving')&&<button className="btn small" onClick={()=>navigate('receiving')}>Receive delivery →</button>}</details>
+  <details className="journey-shortcuts"><summary>Other tasks</summary><ModernSelect className="select" aria-label="Go to procurement section" value={step} onChange={e=>onStep(Number(e.target.value))}>{available.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</ModernSelect>{canNavigate('po')&&<button className="btn small" onClick={()=>navigate('po')}>Open purchase orders →</button>}{canNavigate('receiving')&&<button className="btn small" onClick={()=>navigate('receiving')}>Receive delivery →</button>}</details>
  </nav>
 }
 
