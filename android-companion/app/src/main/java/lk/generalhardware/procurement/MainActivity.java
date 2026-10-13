@@ -43,6 +43,9 @@ public final class MainActivity extends Activity {
     private static final String SITE = "https://gh-procurement-production.up.railway.app";
     private static final int MAX_BASE64 = 8 * 1024 * 1024;
     private static final int FILE_REQUEST = 110;
+    private static final int LOCATION_REQUEST = 111;
+    private android.webkit.GeolocationPermissions.Callback pendingLocation;
+    private String pendingLocationOrigin;
     private WebView webView;
     private android.webkit.ValueCallback<Uri[]> pendingFiles;
     private ProgressBar progress;
@@ -58,6 +61,8 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        // Protect every app window, including login and the recent-app preview.
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
         FrameLayout root = new FrameLayout(this);
         webView = new WebView(this);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -93,6 +98,20 @@ public final class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
         webView.addJavascriptInterface(new SupplierShareBridge(), "GHProcurementAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override public void onGeolocationPermissionsShowPrompt(String origin,
+                    android.webkit.GeolocationPermissions.Callback callback) {
+                if (!isTrusted(origin)) { callback.invoke(origin, false, false); return; }
+                if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    callback.invoke(origin, true, false);
+                } else {
+                    if (pendingLocation != null) pendingLocation.invoke(pendingLocationOrigin, false, false);
+                    pendingLocation = callback;
+                    pendingLocationOrigin = origin;
+                    requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION,
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_REQUEST);
+                }
+            }
             @Override public void onProgressChanged(WebView view, int value) {
                 progress.setProgress(value);
                 progress.setVisibility(value == 100 ? android.view.View.GONE : android.view.View.VISIBLE);
@@ -126,6 +145,17 @@ public final class MainActivity extends Activity {
             }
         });
         webView.loadUrl(SITE);
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == LOCATION_REQUEST && pendingLocation != null) {
+            boolean allowed = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            pendingLocation.invoke(pendingLocationOrigin, allowed && isTrusted(webView.getUrl()), false);
+            pendingLocation = null;
+            pendingLocationOrigin = null;
+        }
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
