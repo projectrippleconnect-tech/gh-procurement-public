@@ -1,5 +1,7 @@
 'use client'
 
+import {DeleteRecordButton} from './delete-record'
+
 import {ModernSelect} from './modern-select'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
@@ -174,7 +176,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
     {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>Approve PO</button>}
     {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button>}
    </div>
-   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<button className="btn bad section" disabled={busy||shareBusy} onClick={clearOrder}>Clear this order</button>}
+   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<DeleteRecordButton profile={profile} table="proc_purchase_orders" record={active} label="purchase order" fail={fail} disabled={busy||shareBusy} onDeleted={async()=>{opening.current++;setActive(null);setLines([]);flash('Purchase order and reviewed linked records deleted.');await load()}}/>}
    {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary section" onClick={()=>navigate('receiving',active.id)}>Receive this order</button>}
    <details className="section no-print"><summary>Document & Sharing Options</summary><div className="toolbar section">
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>

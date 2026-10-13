@@ -42,6 +42,11 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
+      - name: Verify deletion confirmations
+        env:
+          GH_UI_RECORD_DELETE: '1'
+          GH_UI_WIDTHS: '320,390,1366'
+        run: npm run test:ui
       - name: Verify searchable pickers and keyboard focus
         env:
           GH_UI_PICKERS: '1'
@@ -109,6 +114,12 @@ jobs:
         run: |
           createdb -h 127.0.0.1 -U postgres isolated_catalog
           psql -h 127.0.0.1 -U postgres -d isolated_catalog -v ON_ERROR_STOP=1 -f tests/sql/catalog-management-isolated.sql
+      - name: Verify record deletion and serials in disposable PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_record_delete
+          psql -h 127.0.0.1 -U postgres -d isolated_record_delete -v ON_ERROR_STOP=1 -f tests/sql/record-delete-serials-isolated.sql
       - name: Verify time and location access controls in disposable PostgreSQL
         env:
           PGPASSWORD: fixture-only
