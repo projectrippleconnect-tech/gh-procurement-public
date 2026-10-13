@@ -529,3 +529,30 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .po-primary-action:empty{display:none}.po-primary-action:not(:empty){position:sticky;bottom:12px;z-index:45;background:#0d192a;padding:10px;border:1px solid var(--line);border-radius:10px}.po-primary-action>.btn{flex:1;min-height:44px}.po-bill.work-items-window{max-height:48dvh}.po-bill-head{position:sticky;top:0;background:#0d192a;z-index:1}
 @media(max-width:700px){.po-primary-action:not(:empty){position:fixed;bottom:calc(65px + env(safe-area-inset-bottom));left:8px;right:8px}.app:has(.po-primary-action:not(:empty)){padding-bottom:125px}}
 @media print{.po-bill.work-items-window{max-height:none;overflow:visible}}
+
+/* Short feedback animations preserve layout and never remount task drafts. */
+.btn,.mobile-drawer-grid button,.mobile-bottom-nav button{transition:background-color .16s,border-color .16s,box-shadow .16s,scale .12s}
+.btn:active:not(:disabled),.mobile-drawer-grid button:active{scale:.98}
+.btn:focus-visible,.mobile-drawer-grid button:focus-visible{outline:2px solid var(--brand2);outline-offset:3px}
+.journey-stages span{position:relative;border:1px solid var(--line);border-radius:10px;background:#0b1727;transition:border-color .18s,background-color .18s,color .18s}
+.journey-stages .current{background:linear-gradient(140deg,#3b2e14,#201e1a);border-color:#be8b32;box-shadow:0 0 0 1px #be8b321a}
+.journey-stages .prior{border-color:#46627b;background:#142333;color:#c5d8e7}
+.modal-backdrop{background:#030915b3;backdrop-filter:blur(10px);animation:overlay-appear .14s ease-out}
+.modal.card{border:1px solid #58718c66;border-radius:22px;box-shadow:0 24px 80px #0009;max-height:min(90dvh,900px);animation:dialog-appear .18s ease-out}
+.danger-heading{padding-bottom:12px;border-bottom:1px solid #66809a2b}
+.danger-heading small{letter-spacing:.06em}.danger-heading h3{line-height:1.3}
+.danger-details{padding:12px 14px;border:1px solid #7998b333;border-radius:12px;background:#071420;color:#d6e6ef}
+.danger-actions{gap:10px;padding-top:12px;border-top:1px solid #66809a2b}.danger-actions .btn{min-height:46px;white-space:normal}
+.button-spinner{display:inline-block;width:14px;height:14px;margin-right:8px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:middle;animation:button-spin .7s linear infinite}
+.mobile-drawer-backdrop{background:#030915b3;backdrop-filter:blur(8px);animation:overlay-appear .14s ease-out}
+.mobile-drawer{border:1px solid #637d9766;background:linear-gradient(180deg,#18283a,#091726);box-shadow:0 -18px 70px #0008;animation:drawer-appear .2s ease-out}
+.mobile-drawer:before{content:'';display:block;width:38px;height:4px;border-radius:4px;background:#8194a3;margin:0 auto 14px}
+.mobile-drawer-grid button{border-radius:14px;background:#112135;border:1px solid #57728d33}.mobile-drawer-grid button.active{border-color:#d2a24f;background:#332b1d}
+.mobile-drawer-head strong{font-size:19px}.drawer-section-title{letter-spacing:.1em;font-size:10px}
+.journey-shortcuts[open]{box-shadow:0 16px 40px #0008!important;border-radius:14px!important;padding:12px!important}
+@keyframes overlay-appear{from{opacity:0}to{opacity:1}}
+@keyframes dialog-appear{from{opacity:.5;translate:0 8px}to{opacity:1;translate:0 0}}
+@keyframes drawer-appear{from{opacity:.5;translate:0 18px}to{opacity:1;translate:0 0}}
+@keyframes button-spin{to{rotate:360deg}}
+@media(max-width:700px){.modal-backdrop{padding:12px;align-items:end;padding-bottom:max(12px,env(safe-area-inset-bottom))}.modal.card{width:100%;max-height:88dvh;border-radius:22px;padding:18px}.danger-actions{display:grid;grid-template-columns:1fr 1fr}.mobile-drawer{max-height:88dvh;border-radius:24px 24px 0 0}}
+@media(prefers-reduced-motion:reduce){.btn,.mobile-drawer-grid button,.mobile-bottom-nav button,.journey-stages span{transition:none}.modal-backdrop,.modal.card,.mobile-drawer-backdrop,.mobile-drawer,.button-spinner{animation:none}}

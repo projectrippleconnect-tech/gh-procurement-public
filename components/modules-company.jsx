@@ -2,7 +2,8 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {useDangerConfirmation} from './danger-confirmation'
+import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
+import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {businessDate,money,qty} from '@/lib/helpers'
 import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
@@ -79,6 +80,7 @@ function ImageCropper({file,onReady,t=(k,f)=>f||k}){
 
 export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
+ const confirmAction=useActionConfirmation()
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
@@ -96,7 +98,7 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
   const saved=localStorage.getItem('gh-company-count-'+companyId)
   setEntry({});startedAt.current=null
-  if(saved)try{const p=JSON.parse(saved);setEntry(p.entry||{});startedAt.current=p.startedAt||null}catch{}
+  if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));startedAt.current=p.startedAt||null}catch{}
  }catch(e){fail(e)}finally{setLoading(false)}},[companyId,fail])
  useEffect(()=>{loadRows()},[loadRows])
 
@@ -113,8 +115,9 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
  },[itemSearch,canManage,fail])
 
  function setCount(id,v){
+  const value=normalizeQuantityInput(v);if(value===null)return
   if(!startedAt.current)startedAt.current=new Date().toISOString()
-  setEntry(x=>({...x,[id]:v}))
+  setEntry(x=>({...x,[id]:value}))
  }
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
@@ -165,8 +168,8 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
   if(!canCount)return
   const counted=rows.filter(r=>entry[r.id]!==undefined&&entry[r.id]!=='')
   if(!counted.length)return fail(new Error(t('company_lists.enter_one','Enter at least one stock quantity.')))
-  if(counted.some(r=>!Number.isFinite(Number(entry[r.id]))||Number(entry[r.id])<0))return fail(new Error(t('company_lists.stock_error','Stock quantities must be zero or positive.')))
-  if(!confirm(t('confirm.company_submit_prefix','Submit')+' '+counted.length+' '+t('confirm.company_submit_suffix','company-list count(s)? Shortages will go to Admin review, not directly to suppliers.')))return
+  if(counted.some(r=>!isQuantityInput(entry[r.id])))return fail(new Error(t('company_lists.stock_error','Stock quantities must be zero or positive.')))
+  if(!await confirmAction(t('confirm.company_submit_prefix','Submit')+' '+counted.length+' '+t('confirm.company_submit_suffix','company-list count(s)? Shortages will go to Admin review, not directly to suppliers.')))return
   setBusy(true)
   try{
    const p=counted.map(r=>({company_list_item_id:r.id,current_stock:Number(entry[r.id])}))
@@ -203,6 +206,7 @@ export function CompanyLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f
 }
 
 export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
+ const confirmAction=useActionConfirmation()
  const isAdmin=can('admin.configure_app')
  const canUpload=can('price_lists.manage')
  const canImportItems=can('items.edit')
@@ -369,7 +373,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
   if(!payload.length)return fail(new Error(t('validation.import_select','Select at least one extracted item.')))
   if(payload.some(x=>!x.description))return fail(new Error(t('validation.import_name','Every selected row needs an Item Name.')))
   if(payload.some(x=>!x.category))return fail(new Error(t('validation.import_category','Every selected row needs a Category.')))
-  if(!confirm(t('confirm.import_prefix','Create/check')+' '+payload.length+' '+t('confirm.import_suffix','selected Item Master record(s)? Existing matches will be skipped automatically.')))return
+  if(!await confirmAction(t('confirm.import_prefix','Create/check')+' '+payload.length+' '+t('confirm.import_suffix','selected Item Master record(s)? Existing matches will be skipped automatically.')))return
   setBusy(true)
   try{
    const r=await supabase.rpc('proc_import_company_items_v1',{
@@ -514,7 +518,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  async function populateCompanyList(){
   if(!isAdmin||!active||active.list_type!=='mrp')return
   if(active.status!=='approved')return fail(new Error(t('validation.approve_mrp','Approve the MRP price list before populating the permanent Company List.')))
-  if(!confirm(t('confirm.populate_company','Populate the Company List from all reviewed non-ignored rows in this approved price list?')))return
+  if(!await confirmAction(t('confirm.populate_company','Populate the Company List from all reviewed non-ignored rows in this approved price list?')))return
   setBusy(true)
   const r=await supabase.rpc('proc_populate_company_list_from_price_list',{p_price_list_id:active.id})
   setBusy(false)
@@ -524,7 +528,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  }
  async function approve(){
   if(!isAdmin||!active)return
-  if(!confirm(t('confirm.approve_price_prefix','Approve this price list and make it the current')+' '+active.list_type.toUpperCase()+' '+t('confirm.approve_price_suffix','list?')))return
+  if(!await confirmAction(t('confirm.approve_price_prefix','Approve this price list and make it the current')+' '+active.list_type.toUpperCase()+' '+t('confirm.approve_price_suffix','list?')))return
   const r=await supabase.rpc('proc_approve_company_price_list',{p_price_list_id:active.id})
   if(r.error)return fail(r.error)
   flash('Price list approved and set as current.')

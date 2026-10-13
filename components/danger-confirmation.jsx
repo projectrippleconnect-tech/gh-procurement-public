@@ -36,7 +36,7 @@ export function DangerConfirmationProvider({children}){
   const keydown=e=>{
    if(e.key==='Escape'){e.preventDefault();if(!busyRef.current)close(false)}
    if(e.key==='Tab'){
-    const buttons=[...dialog.current.querySelectorAll('button:not(:disabled),input:not(:disabled),textarea:not(:disabled)')]
+    const buttons=[...dialog.current.querySelectorAll('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]')]
     if(!buttons.length){e.preventDefault();return}
     const first=buttons[0],last=buttons.at(-1)
     if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
@@ -63,6 +63,6 @@ export function DangerConfirmationProvider({children}){
   {request.details&&<div className="danger-details">{request.details}</div>}
   {request.confirmation&&<label className="field section">Type <b>{request.confirmation}</b> to confirm<input className="input" aria-label="Warning confirmation" autoComplete="off" disabled={busy} value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label>}
   {request.requireReason&&<label className="field section">Reason<input className="input" aria-label="Warning reason" disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/><small>At least five characters.</small></label>}
-  <Err v={error}/><div className="danger-actions section"><button ref={cancelButton} className="btn" disabled={busy} onClick={()=>close(false)}>{request.cancelLabel||'Cancel'}</button><button className={request.tone==='action'?'btn primary':'btn bad'} disabled={busy||(request.confirmation&&confirmation!==request.confirmation)||(request.requireReason&&reason.trim().length<5)} onClick={execute}>{busy?'Working…':request.confirmLabel||'Confirm'}</button></div>
+  <Err v={error}/><div className="danger-actions section"><button ref={cancelButton} className="btn" disabled={busy} onClick={()=>close(false)}>{request.cancelLabel||'Cancel'}</button><button className={request.tone==='action'?'btn primary':'btn bad'} disabled={busy||(request.confirmation&&confirmation!==request.confirmation)||(request.requireReason&&reason.trim().length<5)} onClick={execute}>{busy&&<span className="button-spinner" aria-hidden="true"/>}{busy?'Working…':request.confirmLabel||'Confirm'}</button></div>
  </div></div>}</ConfirmationContext.Provider>
 }
