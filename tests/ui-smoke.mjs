@@ -465,8 +465,9 @@ try{
   }
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
    await navigate('✓ Stock Entry')
+   const stockHeader=page.locator('section:not([hidden]) .stock-work-header')
+   await stockHeader.getByRole('button',{name:/Submit Stock/}).waitFor()
    assert.equal(await page.locator('section:not([hidden]) .stock-simple-flow').count(),0,'Redundant Enter stock → Submit Stock → Review progress strip is absent')
-   assert.equal(await page.locator('section:not([hidden]) .stock-work-header').getByRole('button',{name:/Submit Stock/}).count(),1,'Stock submission remains available')
    await page.locator('.stock-work-header').getByRole('button',{name:'Filters',exact:true}).click()
    assert.equal(await page.locator('.stock-filter-panel input[type="file"]').count(),0,'Paper sheet upload is not shown in Stock Entry')
    for(const label of ['FAST Checklist PDF','NORMAL Checklist PDF','SLOW Checklist PDF','Stock Taking PDF']){
