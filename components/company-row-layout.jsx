@@ -43,7 +43,7 @@ export function CompanyRowLayoutControls({value,onSaved,flash,fail}){
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  const preview={item:{description:'GI NUT',size:'1/2',uom:'KG',colour:'ZINC',brand:'SAMPLE'},target_stock:10,reorder_level:5,max_stock_review:false}
- const sliders=[['nameFont','Item & size font',11,22],['metaFont','Additional information font',9,19],['rowPadding','Row padding',2,14],['fieldGap','Horizontal field spacing',2,20],['lineGap','Spacing between first and second row',0,12]]
+ const sliders=[['nameFont','Item & size font',11,22],['metaFont','Additional information font',9,19],['rowPadding','Row padding',2,14],['fieldGap','Horizontal field spacing',2,20],['lineGap','Spacing between first and second row',0,12],['sectionFont','Section heading font',10,20],['sectionPadding','Section heading padding',3,16],['sectionIndent','Nested section indentation',4,22]]
  return <details className="company-row-layout-settings section" data-global-company-settings="true">
   <summary>Company Lists · Global display customization</summary>
   <div className="company-layout-settings-body">
