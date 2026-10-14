@@ -253,7 +253,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
-       {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
+       <label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>
        {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/></label>)}
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
