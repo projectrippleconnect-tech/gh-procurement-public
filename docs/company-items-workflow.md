@@ -7,7 +7,7 @@ Company Items is a tab in Stock Entry and remains available through Company List
 - Company maximum stock is separate from the Item Master target. Reorder is always exactly 50% of company maximum; fractional thresholds are retained.
 - A blank source maximum becomes `max_stock_review`, never an assumed zero. An administrator enters its maximum before it can create a shortage.
 - Sufficient Stock is a visual check: no invented quantity, balance update or stock-ledger transaction.
-- Size, colour, variation, brand, category, subgroup, movement and remarks are editable. Group moves retain item IDs and transaction references.
+- Size, colour, variation, brand, category, subgroup and remarks are editable. Movement is not displayed or configured in the Company Items stock-entry interface; underlying item movement remains unchanged for compatibility with the shared Item Master. Group moves retain item IDs and transaction references.
 - Company stock tables fit the viewport without horizontal scrolling. Item names and enabled optional fields wrap within the description column; current quantity and sufficient-stock inputs remain visible. The calculated Order column is omitted from stock entry; procurement still computes shortages on submission. Admin editing and removal expand within each item row. Optional fields are configured per company.
 - The existing stock PDF dialog supports company categories, subcategories, individual selections and FAST/NORMAL/SLOW filters. Footer fields remain Stocks Checked By, Stocks Verified By, Order Approved By and Date.
 
