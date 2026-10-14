@@ -20,6 +20,7 @@ async function pickerOptionCount(locator,value){
 }
 async function pickerHasOption(locator,value){assert.equal(await pickerOptionCount(locator,value),1)}
 async function chooseOption(locator,value){
+ if(await locator.evaluate(node=>node.tagName==='SELECT')){await locator.selectOption(value);return}
  await locator.click()
  const page=locator.page(),dialog=page.locator('.picker-panel')
  await dialog.waitFor()
@@ -449,7 +450,15 @@ try{
    await view.getByLabel('Company item description',{exact:true}).first().waitFor()
    assert.equal(await grid.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Expanded editing fits without horizontal scrolling')
    await grid.locator('details.company-item-edit summary').first().click()
+   assert.equal(await view.locator('.company-stock-filters').getAttribute('open'),null)
+   assert.equal(await view.locator('.company-stock-tools').getAttribute('open'),null)
+   await view.locator('.company-stock-filters>summary').click()
+   await chooseOption(view.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
+   assert.equal(await grid.locator('tbody tr').count(),1)
+   await view.getByRole('button',{name:'Clear filters',exact:true}).click()
+   assert.equal(await grid.locator('tbody tr').count(),2)
    assert.equal(await view.getByLabel('Company movement',{exact:true}).count(),0,'Company lists have no movement filter')
+   await view.locator('.company-stock-tools>summary').click()
    await view.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true})
    assert.equal(await print.getByLabel('Print movement',{exact:true}).count(),0,'Company PDFs include all movements')
@@ -472,6 +481,7 @@ try{
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){
    await navigate('CL Company Lists')
    await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+   await page.locator('.company-stock-tools>summary').filter({visible:true}).first().click()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
    assert.equal(await print.getByLabel('Maximum tables per page',{exact:true}).getAttribute('data-value'),'3')
@@ -548,10 +558,12 @@ try{
   await navigate('CL Company Lists')
   await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
   const companyView=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
+  await companyView.locator('.company-stock-filters>summary').click()
   await chooseOption(companyView.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
   assert.equal(await companyView.locator('input[aria-label="Company item description"]').filter({hasNotText:'__unused__'}).evaluateAll((nodes,name)=>nodes.filter(n=>n.value===name).length,item.description),0)
   await chooseOption(companyView.getByLabel('Company list subcategory',{exact:true}),'Switches')
   await companyView.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+  await companyView.locator('.company-stock-tools>summary').click()
   await companyView.getByRole('button',{name:'Remove company list',exact:true}).click()
   const companyWarning=page.getByRole('alertdialog',{name:'Remove company list',exact:true})
   assert.equal(await companyWarning.getByRole('button',{name:'Confirm remove list',exact:true}).isDisabled(),true)

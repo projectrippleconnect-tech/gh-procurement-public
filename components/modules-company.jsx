@@ -187,16 +187,15 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  }
 
  return <>
-  <div className="card pad">
-   <div className="sectionhead"><div><h3>{t('company_lists.title','Company Lists')}</h3><p>{t('company_items.hint','Enter stock or mark Sufficient. The configured company approval route applies.')}</p></div>{canCount&&<button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div>
-   <div className="filters two"><ModernSelect className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+  <div className="company-stock-header">
+   <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div>
+   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
+    <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
+    <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
+    <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
+   </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('')}}>Clear filters</button></details>}
   </div>
-
-  <div className="filters two section"><label className="field">Category<ModernSelect aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</ModernSelect></label><label className="field">Subcategory<ModernSelect aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</ModernSelect></label></div>
-  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
-  {canManage&&companyId&&<button className="btn small bad section" onClick={archiveCompanyList}>Remove company list</button>}
-  {companyId&&<div className="toolbar section"><ModernSelect aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</ModernSelect><button className="btn" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button></div>}
-  {companyId&&<CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>}
 
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:shown.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
@@ -224,6 +223,12 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
     </tr>)}</tbody>
    </table></div>
   </>}</div>
+  {companyId&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
+  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
+  <button className="btn small" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button>
+  <CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
+  {canManage&&<button className="btn small bad" onClick={archiveCompanyList}>Remove company list</button>}
+  </div></details>}
   {companyId&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}} onColumns={setVisibleFields}/>}
   {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
    <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>

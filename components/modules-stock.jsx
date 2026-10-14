@@ -521,7 +521,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   {key:'current_stock',label:'Stock',render:i=><input className="input stock-entry" inputMode="decimal" enterKeyHint="next" value={entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>}
  ]
 
- const stockTabs=<div className="toolbar section" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
+ const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
  if(stockTab==='company')return <>{stockTabs}<CompanyLists profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} t={t}/></>
  return <>
   {stockTabs}
