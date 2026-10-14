@@ -2,31 +2,31 @@ import {companyAccess,companyBody,companyReply,sheetsToken,sheetsRequest} from '
 // @ts-ignore Shared worksheet parser is covered by node tests.
 import {parseCompanySheet,validateCompanyImport} from '@/lib/company-items.mjs'
 // @ts-ignore Tested in the source-specific sheet parser and reconciliation tests.
-import {reconcilePanelCeilingSections} from '@/lib/company-ceiling-hierarchy.mjs'
+import {reconcilePanelCeilingSections,panelCeilingRowsFromDatabase} from '@/lib/company-ceiling-hierarchy.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
  try{
-  const {db}=await companyAccess(request,true),body=await companyBody(request),token=await sheetsToken()
-  const book=await sheetsRequest(token,'?fields=sheets(properties,developerMetadata)')
-  // Reapply the current Google Sheet's ceiling hierarchy to existing linked items
-  // without running an import or creating duplicate item-master records.
+  const {db}=await companyAccess(request,true),body=await companyBody(request)
+  // Local database grouping works without optional Google Sheets credentials.
   if(body.action==='sync_ceiling_sections'){
    if(!body.companyId)throw new Error('Choose the Panel Sheets company.')
    const {data:company,error}=await db.from('proc_companies')
     .select('id,name,sheet_id').eq('id',body.companyId).single()
    if(error)throw error
-   if(String(company.name||'').trim().toUpperCase()!=='PANEL SHEETS'||company.sheet_id===null)
-    throw new Error('This action only applies to the Panel Sheets source company.')
-   const source=book.sheets?.find((s:{properties:{sheetId:number;title:string;gridProperties:{columnCount:number;rowCount:number}}})=>s.properties.sheetId===company.sheet_id)
-   if(!source)throw new Error('Panel Sheets source tab was not found in Google Sheets.')
-   const {title,gridProperties,sheetId}=source.properties
-   const range="'"+title.replaceAll("'","''")+"'!A1:"+columnLabel(gridProperties.columnCount)+gridProperties.rowCount
-   const fetched=await sheetsRequest(token,'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE')
-   const rows=parseCompanySheet({title,sheetId,values:fetched.values||[]})
+   if(String(company.name||'').trim().toUpperCase()!=='PANEL SHEETS')
+    throw new Error('This action only applies to Panel Sheets.')
+   const {data:existing,error:itemsError}=await db.from('proc_company_list_items')
+    .select('source_key,item:proc_items(description,subgroup,colour,variation)')
+    .eq('company_id',company.id).eq('active',true).limit(250)
+   if(itemsError)throw itemsError
+   const rows=panelCeilingRowsFromDatabase(existing||[])
+   if(!rows.length)throw new Error('No existing Ceiling Fittings rows were found. Import the Panel Sheets catalogue first.')
    const result=await reconcilePanelCeilingSections(db,company,rows)
-   return companyReply({ok:true,...result,message:'Ceiling fittings grouped. Existing stock values and manually moved rows remain unchanged.'})
+   return companyReply({ok:true,...result,message:'Ceiling Fittings grouped. Existing stock values and manually moved rows remain unchanged.'})
   }
+  const token=await sheetsToken()
+  const book=await sheetsRequest(token,'?fields=sheets(properties,developerMetadata)')
   if(body.action==='import'){
    let imported=0;const errors:string[]=[]
    for(const sheet of book.sheets||[]){
