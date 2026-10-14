@@ -20,6 +20,7 @@ async function pickerOptionCount(locator,value){
 }
 async function pickerHasOption(locator,value){assert.equal(await pickerOptionCount(locator,value),1)}
 async function chooseOption(locator,value){
+ if(await locator.evaluate(node=>node.tagName==='SELECT')){await locator.selectOption(value);return}
  await locator.click()
  const page=locator.page(),dialog=page.locator('.picker-panel')
  await dialog.waitFor()
@@ -435,13 +436,23 @@ try{
    await navigate('✓ Stock Entry')
    await page.getByRole('tab',{name:'Company Items',exact:true}).click()
    const view=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
-   await view.getByLabel('Company item description',{exact:true}).first().waitFor()
+   await view.locator('.company-stock-name strong').first().waitFor()
    const enough=view.getByRole('checkbox',{name:'Sufficient stock: '+item.description,exact:true})
    const current=view.getByLabel('Current stock: '+item.description,{exact:true})
    await current.fill('5');await enough.check();assert.equal(await current.isDisabled(),true);assert.equal(await current.inputValue(),'')
    await enough.uncheck();assert.equal(await current.inputValue(),'5')
    assert.equal(await view.locator('.mobile-card-list').count(),0,'Company items keep compact rows on phones')
+   assert.equal(await view.locator('.company-stock-filters').getAttribute('open'),null)
+   assert.equal(await view.locator('.company-stock-tools').getAttribute('open'),null)
+   assert.equal(await view.locator('.company-stock-row').count(),2)
+   assert.equal(await view.locator('.company-stock-row').evaluateAll(nodes=>nodes.every(n=>n.scrollWidth<=n.clientWidth+1)),true,'Stock rows fit without horizontal scrolling')
+   await view.locator('.company-stock-filters>summary').click()
+   await chooseOption(view.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
+   assert.equal(await view.locator('.company-stock-row').count(),1)
+   await view.getByRole('button',{name:'Clear filters',exact:true}).click()
+   assert.equal(await view.locator('.company-stock-row').count(),2)
    await chooseOption(view.getByLabel('Company movement',{exact:true}),'FAST')
+   await view.locator('.company-stock-tools>summary').click()
    await view.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true})
    await pickerHasOption(print.getByLabel('Print movement',{exact:true}),'FAST')
@@ -459,7 +470,8 @@ try{
   }
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){
    await navigate('CL Company Lists')
-   await page.locator('input[aria-label="Company item description"][value="Fixture switch"]').filter({visible:true}).first().waitFor()
+   await page.locator('.company-stock-name strong').filter({hasText:'Fixture switch'}).first().waitFor()
+   await page.locator('.company-stock-tools>summary').filter({visible:true}).first().click()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
    assert.equal(await print.getByLabel('Tables per page',{exact:true}).getAttribute('data-value'),'3')
@@ -534,12 +546,14 @@ try{
   if(process.env.GH_UI_CATALOG==='1'){
   // Catalog actions use intercepted APIs; production is never mutated.
   await navigate('CL Company Lists')
-  await page.locator('input[aria-label="Company item description"][value="Fixture switch"]').filter({visible:true}).first().waitFor()
+  await page.locator('.company-stock-name strong').filter({hasText:'Fixture switch'}).first().waitFor()
   const companyView=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
+  await companyView.locator('.company-stock-filters>summary').click()
   await chooseOption(companyView.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
   assert.equal(await companyView.locator('input[aria-label="Company item description"]').filter({hasNotText:'__unused__'}).evaluateAll((nodes,name)=>nodes.filter(n=>n.value===name).length,item.description),0)
   await chooseOption(companyView.getByLabel('Company list subcategory',{exact:true}),'Switches')
-  await companyView.locator('input[aria-label="Company item description"][value="Fixture switch"]').filter({visible:true}).first().waitFor()
+  await companyView.locator('.company-stock-name strong').filter({hasText:'Fixture switch'}).first().waitFor()
+  await companyView.locator('.company-stock-tools>summary').click()
   await companyView.getByRole('button',{name:'Remove company list',exact:true}).click()
   const companyWarning=page.getByRole('alertdialog',{name:'Remove company list',exact:true})
   assert.equal(await companyWarning.getByRole('button',{name:'Confirm remove list',exact:true}).isDisabled(),true)
