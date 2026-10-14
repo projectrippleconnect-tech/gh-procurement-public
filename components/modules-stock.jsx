@@ -214,7 +214,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     const response=await q.abortSignal(controller.signal)
     if(response.error)throw response.error
     return response
-   })
+   },{signal:controller.signal})
    if(controller.signal.aborted||revision!==stockLoadRevision.current)return
    if(offset===0)total=r.count??0
    const batch=r.data||[]
