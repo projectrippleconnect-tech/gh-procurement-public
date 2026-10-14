@@ -156,5 +156,5 @@ jobs:
         env:
           PGPASSWORD: fixture-only
         run: |
-          createdb -h 127.0.0.1 -U postgres isolated_company_sections
-          psql -h 127.0.0.1 -U postgres -d isolated_company_sections -v ON_ERROR_STOP=1 -f tests/sql/company-section-hierarchy-isolated.sql
+          createdb -h 127.0.0.1 -U postgres isolated_company_hierarchy
+          psql -h 127.0.0.1 -U postgres -d isolated_company_hierarchy -v ON_ERROR_STOP=1 -f tests/sql/company-section-hierarchy-isolated.sql
