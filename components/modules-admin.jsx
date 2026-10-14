@@ -284,6 +284,16 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
  async function featureSave(f,patch){const r=await supabase.from('proc_feature_settings').update({...patch,updated_at:new Date().toISOString()}).eq('feature_key',f.feature_key);if(r.error)fail(r.error);else{flash('Feature settings updated.');onConfigChanged()}}
  async function featureConfig(f,key,value){const n=Number(value);if(!Number.isFinite(n)||n<0)return fail(new Error(t('validation.valid_number','Enter a valid number.')));await featureSave(f,{config:{...(f.config||{}),[key]:n}})}
  async function featureFlag(f,key,value){await featureSave(f,{config:{...(f.config||{}),[key]:!!value}})}
+ async function guidedCountToggle(enabled){
+  if((profile.role_key||profile.role)!=='admin')return fail(new Error('Only the Super Admin can change stock entry modes.'))
+  const r=await supabase.from('proc_settings').upsert({
+   key:'stock_guided_count_enabled',
+   value:!!enabled,
+   description:'Enable Guided Count alongside compact stock entry'
+  })
+  if(r.error)fail(r.error)
+  else{flash(enabled?'Guided Count enabled.':'Guided Count disabled.');onConfigChanged()}
+ }
  async function saveSettings(){
   if(!Number.isFinite(idle)||idle<10||idle>720)return fail(new Error(t('validation.idle_timeout','Idle timeout must be between 10 and 720 minutes.')))
   setBusy(true)
@@ -315,6 +325,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
 <details name="gh-admin-section" className="admin-accordion"><summary>Security controls</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.security_controls','Security controls')}</h3><p>{t('admin.security_controls_hint','Built into this version.')}</p></div></div><div className="security-list"><div><b>Public registration</b><Badge>disabled</Badge></div><div><b>Anonymous procurement access</b><Badge>blocked</Badge></div><div><b>PO approval</b><span>Straight-through within configured limit; exceptions require review</span></div><div><b>Transactional records</b><span>Cancellation instead of deletion</span></div><div><b>Audit trail</b><span>System generated</span></div><div><b>Password recovery</b><span>Enabled</span></div></div></div></details>
 
   </div>}
+  {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<details name="gh-admin-section" className="admin-accordion"><summary>Stock Entry · Modes</summary><div className="card pad section"><h3>Stock Entry Modes</h3><p className="muted tiny">By default, staff open directly into the compact stock-entry list. Turn Guided Count on only when it is needed.</p><div className="stock-row-settings"><Toggle label="Enable Guided Count" checked={settings.stock_guided_count_enabled===true} onChange={guidedCountToggle}/></div></div></details>}
   {can('admin.configure_app')&&<details name="gh-admin-section" className="admin-accordion"><summary>Stock Entry · Row Display</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.stock_row_title','Stock Entry · Row Display')} <InfoButton topic="stock_entry" language={language}/></h3><p>{t('admin.stock_row_subtitle','Choose optional information shown in each fast stock-entry row.')}</p></div></div><div className="stock-row-settings">{stockEntryFields.map(f=><Toggle key={f.field_key} label={(f.label||f.field_key)+(f.required_core?' · '+t('admin.mandatory','Mandatory'):'')} checked={f.enabled} disabled={f.required_core} onChange={v=>fieldToggle(f,v)}/>)}</div>{stockMobileFeature&&<div className="field section"><label>{t('admin.default_rows','Default rows per page')}</label><ModernSelect className="select compact-select" value={Number(stockMobileFeature.config?.default_page_size||20)} onChange={e=>featureSave(stockMobileFeature,{config:{...(stockMobileFeature.config||{}),default_page_size:Number(e.target.value)}})}><option value="20">20</option><option value="50">50</option><option value="100">100</option></ModernSelect></div>}</div></details>}
   {can('admin.users.manage')&&<><details name="gh-admin-section" className="admin-accordion"><summary>Invite User</summary><div className="card pad section">
    <div className="sectionhead"><div><h3>{t('admin.invite_user','Invite User')}</h3><p>Create or enable a GH account and assign its procurement role. Generate a setup link to share directly, or send an email invitation.</p></div><div className="row"><button className="btn primary" disabled={inviteBusy} onClick={()=>inviteUser('link')}>{inviteBusy?'Processing…':'Generate setup link'}</button><button className="btn" disabled={inviteBusy} onClick={()=>inviteUser('email')}>{t('admin.send_invitation','Send Invitation')}</button></div></div>
