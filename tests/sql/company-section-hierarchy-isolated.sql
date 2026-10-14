@@ -26,8 +26,23 @@ INSERT INTO public.proc_company_list_items(id,company_id,item_id,target_stock,re
  ('00000000-0000-4000-8000-000000000202','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000102',50,25,'sheet:gi'),
  ('00000000-0000-4000-8000-000000000203','00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000103',15,7.5,'sheet:other');
 
+-- Emulate the production JWT permission trigger. A direct SQL backfill must
+-- explicitly suspend this guard and restore it before normal item moves run.
+CREATE OR REPLACE FUNCTION private.proc_fixture_company_guard()
+RETURNS trigger LANGUAGE plpgsql AS $guard$
+BEGIN
+ IF current_setting('fixture.staff_jwt',true)='yes' THEN RETURN NEW; END IF;
+ RAISE EXCEPTION 'Permission denied: company_lists.manage';
+END $guard$;
+CREATE TRIGGER a_proc_permission_guard BEFORE UPDATE ON public.proc_company_list_items
+ FOR EACH ROW EXECUTE FUNCTION private.proc_fixture_company_guard();
+
 -- Run the *real* migration script, including its backfill and security policies.
 \ir ../../supabase/migrations/20261014110000_company_section_hierarchy.sql
+DO $verify$ BEGIN
+ ASSERT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='public.proc_company_list_items'::regclass AND tgname='a_proc_permission_guard' AND tgenabled='O'),'Permission trigger not restored';
+END $verify$;
+SET fixture.staff_jwt = 'yes';
 
 DO $$
 DECLARE company_a uuid:='00000000-0000-4000-8000-000000000001';
