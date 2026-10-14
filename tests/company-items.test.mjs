@@ -12,3 +12,31 @@ test('hose column headings create lengths without a spurious header item',()=>{c
 
 test('source identity survives inserted sheet rows without duplicating items',()=>{const a=parseCompanySheet({title:'WURTH',sheetId:8,values:[['WURTH'],['SILICON CLEAR','50']]});const b=parseCompanySheet({title:'WURTH',sheetId:8,values:[['WURTH'],['RUST OFF','6'],['SILICON CLEAR','50']]});assert.equal(a[0].source_key,b[1].source_key)})
 test('conflicting duplicate maxima are held for review',()=>{const rows=parseCompanySheet({title:'WURTH',sheetId:8,values:[['WURTH'],['RUST OFF','6'],['RUST OFF','10']]});assert.equal(rows.length,1);assert.equal(rows[0].max_stock,null)})
+
+test('Bixton LED panel lights use complete descriptions without changing variant identities after sheet renaming',()=>{
+ const before=parseCompanySheet({title:'BIXTON',sheetId:358620078,values:[
+  ['BIXTON'],['','SUNK','SURFACE'],['6W','12','12'],[],['WARM WHITE'],['','SUNK','SURFACE'],['6W','6','6']
+ ]})
+ const after=parseCompanySheet({title:'BIXTON',sheetId:358620078,values:[
+  ['BIXTON'],['','SUNK','SURFACE'],['BIXTON LED PANEL LIGHT 6W','12','12'],[],['WARM WHITE'],['','SUNK','SURFACE'],['BIXTON LED PANEL LIGHT 6W - WARM WHITE','6','6']
+ ]})
+ assert.equal(before.length,4)
+ assert.deepEqual(before.map(x=>x.description),[
+  'BIXTON LED PANEL LIGHT 6W','BIXTON LED PANEL LIGHT 6W',
+  'BIXTON LED PANEL LIGHT 6W - WARM WHITE','BIXTON LED PANEL LIGHT 6W - WARM WHITE'
+ ])
+ assert.deepEqual(before.map(x=>x.source_key),after.map(x=>x.source_key))
+ assert.deepEqual(before.map(x=>x.max_stock),[12,12,6,6])
+ assert.deepEqual(before.map(x=>x.variation),['SUNK','SURFACE','SUNK','SURFACE'])
+})
+test('YP washer and nut descriptions remain stable after expanding supplier shorthand',()=>{
+ const before=parseCompanySheet({title:'BOLT & NUTS',sheetId:16705802,values:[
+  ['YP Washer'],['','1/2','1'],['5mm','1kg',''],[],['YP NUT'],['5mm','2kg']
+ ]})
+ const after=parseCompanySheet({title:'BOLT & NUTS',sheetId:16705802,values:[
+  ['YELLOW-PLATED WASHER'],['','1/2','1'],['5mm','1kg',''],[],['YELLOW-PLATED NUT'],['5mm','2kg']
+ ]})
+ assert.deepEqual(before.map(x=>x.source_key),after.map(x=>x.source_key))
+ assert.ok(after.some(x=>x.description.includes('YELLOW-PLATED WASHER')))
+ assert.ok(after.some(x=>x.description==='YELLOW-PLATED NUT'))
+})
