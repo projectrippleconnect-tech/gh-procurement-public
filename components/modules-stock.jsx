@@ -10,7 +10,7 @@ import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
-import {loadStockCatalogue,isTransientStockQueryError} from '@/lib/stock-catalogue.mjs'
+import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
@@ -110,7 +110,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
- const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
+ const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[stockLoadError,setStockLoadError]=useState(''),[stockLoadRetry,setStockLoadRetry]=useState(0),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
  const[ocrBusy,setOcrBusy]=useState(false),[ocrProgress,setOcrProgress]=useState(null),[ocrRows,setOcrRows]=useState([])
@@ -186,8 +186,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  },[entry,cursor,skipped,cat,movement,mainGroup,dueOnly,heldSearch,draftReady,serverDrafts,profile.id,draftKey,draftRetry])
 
  useEffect(()=>{(async()=>{try{
-  const r=await supabase.rpc('proc_item_filter_options_v1')
-  if(r.error)throw r.error
+  const r=await retryStockQuery(async()=>{const result=await supabase.rpc('proc_item_filter_options_v1');if(result.error)throw result.error;return result})
   const data=r.data||{}
   const list=Array.isArray(data.categories)?data.categories:[]
   setCats(list);setGroups(Array.isArray(data.main_groups)?data.main_groups:[])
@@ -195,17 +194,21 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  }catch(e){fail(e)}})()},[fail])
 
  const stockLoadRevision=useRef(0)
- const load=useCallback(async()=>{const revision=++stockLoadRevision.current;setLoading(true);try{
+ const load=useCallback(async()=>{const revision=++stockLoadRevision.current;setLoading(true);setStockLoadError('');try{
   const pageChunk=500
   const cap=dueOnly?dailyTarget:Infinity
   let all=[],total=0,offset=0
   while(all.length<cap){
-   let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0&&dueOnly?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,Math.min(offset+pageChunk-1,cap-1))
-   if(cat)q=q.eq('category',cat)
-   if(movement)q=q.eq('movement',movement)
-   if(mainGroup)q=q.eq('main_group',mainGroup)
-   if(dueOnly)q=q.eq('is_due',true)
-   const r=await q;if(r.error)throw r.error
+   const r=await retryStockQuery(async()=>{
+    let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0&&dueOnly?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,Math.min(offset+pageChunk-1,cap-1))
+    if(cat)q=q.eq('category',cat)
+    if(movement)q=q.eq('movement',movement)
+    if(mainGroup)q=q.eq('main_group',mainGroup)
+    if(dueOnly)q=q.eq('is_due',true)
+    const response=await q
+    if(response.error)throw response.error
+    return response
+   })
    if(revision!==stockLoadRevision.current)return
    if(offset===0)total=r.count??0
    const batch=r.data||[]
@@ -216,7 +219,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   setDueTotal(total||all.length)
   setItems(all)
   setCursor(0);setBrowsePage(0)
- }catch(e){if(revision===stockLoadRevision.current)fail(e)}finally{if(revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,fail])
+ }catch(e){if(revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
  useEffect(()=>{load();return()=>{stockLoadRevision.current++}},[load])
 
  useEffect(()=>{
@@ -591,6 +594,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    {canManage&&feature('stock.paper_checklists')&&filtersOpen&&<div className="toolbar section no-print"><button className="btn" onClick={()=>movementPdf('FAST')}>FAST Checklist PDF</button><button className="btn" onClick={()=>movementPdf('NORMAL')}>NORMAL Checklist PDF</button><button className="btn" onClick={()=>movementPdf('SLOW')}>SLOW Checklist PDF</button><button className="btn" onClick={stockPdf}>Stock Taking PDF</button></div>}
   </div>
 
+  {stockLoadError&&<div className="card pad section" role="alert"><strong>{stockLoadError}</strong> <button type="button" className="btn small" onClick={()=>setStockLoadRetry(n=>n+1)}>Retry stock list</button></div>}
   {catalogueError&&<div className="card pad section" role="alert"><strong>{catalogueError}</strong> <button type="button" className="btn small" onClick={()=>setCatalogueRetry(n=>n+1)}>Retry stock catalogue</button></div>}
   {heldSearch&&<div className="card pad section stock-held-summary" role="status"><div><strong>Held for stock entry: {heldSearch.query}</strong><p>{items.length} matching items · All sizes stay here until you release them.</p></div><button type="button" className="btn small" onClick={releaseHeldSearch}>Release results</button></div>}
   {viewMode==='guided'&&<div className="card pad section guided-count-shell">{(heldSearch?!catalogueReady:loading)?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
