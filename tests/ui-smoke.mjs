@@ -337,11 +337,18 @@ try{
    await page.getByRole('button',{name:'Save Stock',exact:true}).click()
    assert.equal(await stock.inputValue(),'8')
    assert.equal(await page.locator('.stock-held-summary').count(),1)
-   await page.getByRole('button',{name:'Release results',exact:true}).click()
+   const heldBar=await page.locator('.stock-held-summary').boundingBox()
+   const searchLauncher=await page.locator('.stock-search-launch').boundingBox()
+   assert.ok(heldBar&&searchLauncher&&heldBar.y<searchLauncher.y,'Clear & Unhold must be at the top, above search')
+   await page.getByRole('button',{name:'Clear & Unhold',exact:true}).click()
    await page.locator('.stock-held-summary').waitFor({state:'hidden'})
-   assert.equal(await stock.inputValue(),'8','Releasing the search preserves entered stock')
+   assert.equal(await stock.inputValue(),'8','Clearing and unholding must preserve entered stock')
+   await page.locator('.stock-search-launch').click()
+   assert.equal(await page.locator('#stock-global-search').inputValue(),'','Clear & Unhold must clear the search term')
+   assert.equal(await page.locator('.stock-search-hold input').isChecked(),false,'Held results must be released')
+   assert.ok((await page.getByRole('button',{name:'All Items',exact:true}).getAttribute('class')).includes('selected-choice'),'Search scope returns to All Items')
    assert.deepEqual(errors,[])
-   console.log('PASS held stock search, draft restore, quick entry and release '+width+'px')
+   console.log('PASS held stock search, draft restore, quick entry, and one-tap Clear & Unhold '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_SETTINGS_SEARCH==='1'){
