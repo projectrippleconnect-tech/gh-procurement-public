@@ -30,3 +30,24 @@ test('supplier wording and template edits preserve authoritative order quantitie
  assert.equal(rows[0].item.description,'Supplier cycle lock');assert.equal(rows[0].qty,6);assert.equal(rows[0].unit_price,40);assert.equal(original[0].item.description,'Cycle lock')
  assert.equal(documentCaption(template.caption,{company:documentCompany({},template),po:{po_no:'PO-1',supplier:{name:'Slon'}}}),'General Ceramics PO-1 Slon')
 })
+
+test('adaptive stock headings remain whole and short lists fill the page',()=>{
+ const rows=Array.from({length:10},(_,n)=>({description:'ALCATHINE HOSE 1/2" · 1/2"',size:n%2?'200 FT':'100 FT',uom:'PCS',reorder_level:10}))
+ const pdf=buildCustomStockPdf({items:rows,options:{tablesPerPage:3,fontSize:9}})
+ const text=pdf.output()
+ assert.ok(text.includes('(Reorder level)'))
+ assert.ok(text.includes('(Current stock)'))
+ assert.ok(text.includes('(ALCATHINE HOSE 1/2"'))
+ assert.equal(pdf.getNumberOfPages(),1)
+ const rects=[...text.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) (-?[\d.]+) re/g)]
+ const firstWidths=rects.slice(0,6).reduce((sum,m)=>sum+Number(m[3]),0)
+ assert.ok(Math.abs(firstWidths-190*72/25.4)<1,'One short table uses the complete printable width')
+})
+
+test('adaptive tables preserve every row with many columns and long descriptions',()=>{
+ const rows=Array.from({length:90},(_,n)=>({description:'Long stock description '+n+' with several different product specifications and finishes',size:'100 FT',uom:'PCS',category:'GENERAL',movement:'FAST',max_stock:20,reorder_level:10,brand:'Example'}))
+ const pdf=buildCustomStockPdf({items:rows,options:{tablesPerPage:3,fontSize:11,columns:['no','description','size','uom','category','movement','max_stock','reorder_level','current_stock','brand']}})
+ const text=pdf.output()
+ for(const header of ['Reorder level','Current stock','Movement','Max stock'])assert.ok(text.includes('('+header+')'),header)
+ assert.equal((text.match(/\(Long stock/g)||[]).length,90)
+})

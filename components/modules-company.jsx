@@ -89,7 +89,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
- const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[movement,setMovement]=useState(''),[brand,setBrand]=useState(''),[sufficient,setSufficient]=useState({}),[visibleFields,setVisibleFields]=useState({})
+ const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sufficient,setSufficient]=useState({}),[visibleFields,setVisibleFields]=useState({})
  const startedAt=useRef(null),draftReady=useRef('')
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
@@ -128,7 +128,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  }
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
- const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!movement||r.item?.movement===movement)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,movement,brand])
+ const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
  const currentCompany=companies.find(c=>c.id===companyId)
  useEffect(()=>{setVisibleFields({...defaultCompanyFields,...currentCompany?.visible_fields})},[companyId,currentCompany?.updated_at])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
@@ -195,7 +195,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
   <div className="filters two section"><label className="field">Category<ModernSelect aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</ModernSelect></label><label className="field">Subcategory<ModernSelect aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</ModernSelect></label></div>
   {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
   {canManage&&companyId&&<button className="btn small bad section" onClick={archiveCompanyList}>Remove company list</button>}
-  {companyId&&<div className="toolbar section"><ModernSelect aria-label="Company movement" className="select" value={movement} onChange={e=>setMovement(e.target.value)}><option value="">All movement</option>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect><ModernSelect aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</ModernSelect><button className="btn" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button></div>}
+  {companyId&&<div className="toolbar section"><ModernSelect aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</ModernSelect><button className="btn" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button></div>}
   {companyId&&<CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>}
 
 
@@ -209,13 +209,13 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
       <div className="company-item-meta">
        {visibleFields.max!==false&&<span>Max: <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
        {visibleFields.reorder!==false&&<span>Reorder: <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
-       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
+       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
       </div>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit item</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
        {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
-       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
+       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
      </td>
