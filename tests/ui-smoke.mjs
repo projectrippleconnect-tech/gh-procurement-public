@@ -449,11 +449,10 @@ try{
    await view.getByLabel('Company item description',{exact:true}).first().waitFor()
    assert.equal(await grid.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Expanded editing fits without horizontal scrolling')
    await grid.locator('details.company-item-edit summary').first().click()
-   await chooseOption(view.getByLabel('Company movement',{exact:true}),'FAST')
+   assert.equal(await view.getByLabel('Company movement',{exact:true}).count(),0,'Company lists have no movement filter')
    await view.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true})
-   await pickerHasOption(print.getByLabel('Print movement',{exact:true}),'FAST')
-   await chooseOption(print.getByLabel('Print movement',{exact:true}),'FAST')
+   assert.equal(await print.getByLabel('Print movement',{exact:true}).count(),0,'Company PDFs include all movements')
    const download=page.waitForEvent('download');await print.getByRole('button',{name:'Download Printable PDF',exact:true}).click()
    const pdf=await download;const bytes=await readFile(await pdf.path());assert.ok(bytes.includes(Buffer.from('Stocks Verified By')))
    await print.getByRole('button',{name:'Close',exact:true}).click()
@@ -467,7 +466,7 @@ try{
    assert.equal(await view.getByLabel('Company item colour',{exact:true}).count(),2,'Colour can be enabled again')
    await page.screenshot({path:'test-results/company-items-'+width+'.png',fullPage:true})
    assert.deepEqual(errors,[])
-   console.log('PASS company stock tab, compact rows, sufficient stock, movement PDF and field customization at '+width+'px')
+   console.log('PASS company stock tab, compact rows, sufficient stock, full company PDF and field customization at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){
@@ -475,8 +474,8 @@ try{
    await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
-   assert.equal(await print.getByLabel('Tables per page',{exact:true}).getAttribute('data-value'),'3')
-   assert.equal(await print.getByLabel('Print movement',{exact:true}).count(),1,'Company lists support movement filtering')
+   assert.equal(await print.getByLabel('Maximum tables per page',{exact:true}).getAttribute('data-value'),'3')
+   assert.equal(await print.getByLabel('Print movement',{exact:true}).count(),0,'Company lists have no movement filtering')
    const download=page.waitForEvent('download');await print.getByRole('button',{name:'Download Printable PDF',exact:true}).click()
    const pdf=await download,bytes=await readFile(await pdf.path());const pdfText=b=>[...b.toString('latin1').matchAll(/\(([^()]*)\)\s*Tj/g)].map(m=>m[1]).join(' ');assert.ok(pdfText(bytes).includes('Fixture switch'));assert.ok(bytes.includes(Buffer.from('Stocks Checked By')))
    await writeFile('test-results/'+width+'-company-stock-custom.pdf',bytes)
