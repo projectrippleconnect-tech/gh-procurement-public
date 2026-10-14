@@ -6,14 +6,12 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
-import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
-import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
-import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
+import {Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
 import {StockPrintDialog} from './stock-print-dialog'
@@ -87,7 +85,7 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
  const[stockTab,setStockTab]=useState('general')
  const[submission,setSubmission]=useState(null)
@@ -102,20 +100,16 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const allowedPageSizes=Array.isArray(mobileCfg.allowed_page_sizes)?mobileCfg.allowed_page_sizes.filter(x=>[20,50,100].includes(Number(x))).map(Number):[20,50,100]
  const defaultPageSize=allowedPageSizes.includes(Number(mobileCfg.default_page_size))?Number(mobileCfg.default_page_size):20
  const isCounter=can('stock.count.enter')&&!can('items.edit')&&!can('procurement.requirements.manage')
- const canManage=can('items.edit')||can('procurement.requirements.manage')
- const canAttach=canManage&&feature('stock.paper_attachment')
  const serverDrafts=feature('stock.server_drafts')
- const paperOcr=feature('stock.paper_ocr')
 
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
  const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  useEffect(()=>{if(!guidedCountEnabled)setViewMode('browse')},[guidedCountEnabled])
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
- const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[stockLoadError,setStockLoadError]=useState(''),[stockLoadRetry,setStockLoadRetry]=useState(0),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
+ const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[stockLoadError,setStockLoadError]=useState(''),[stockLoadRetry,setStockLoadRetry]=useState(0),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
- const[ocrBusy,setOcrBusy]=useState(false),[ocrProgress,setOcrProgress]=useState(null),[ocrRows,setOcrRows]=useState([])
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
  const[heldSearch,setHeldSearch]=useState(null)
@@ -420,43 +414,6 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   return()=>vv.removeEventListener('resize',keepVisible)
  },[activeBrowseId])
 
- async function runPaperOcr(){
-  if(!sheetFile)return fail(new Error(t('stock.choose_sheet','Choose the completed stock-count sheet first.')))
-  setOcrBusy(true);setOcrRows([]);setOcrProgress({stage:'Starting OCR',progress:0})
-  try{
-   const result=await extractDocumentTextFile(sheetFile,setOcrProgress)
-   const candidates=[]
-   for(const raw of String(result.rawText||'').split(/\r?\n/)){
-    let line=raw.replace(/^\s*\d+[.)-]?\s+/,'').replace(/\s+/g,' ').trim()
-    if(line.length<4||/^--- page/i.test(line))continue
-    const nums=[...line.matchAll(/(?:^|\s)(\d+(?:\.\d+)?)\s*(?=$|\s)/g)]
-    if(!nums.length)continue
-    const qtyGuess=Number(nums[0][1])
-    const searchText=line.slice(0,nums[0].index).replace(/[|:;-]+$/,'').trim()
-    if(searchText.length<3||!Number.isFinite(qtyGuess)||qtyGuess<0)continue
-    candidates.push({raw:line,searchText,qty:String(qtyGuess)})
-    if(candidates.length>=80)break
-   }
-   const reviewed=[]
-   for(const row of candidates){
-    const s=await supabase.rpc('proc_search_stock_items_v1',{p_query:row.searchText,p_category:null,p_main_group:null,p_movement:null,p_limit:3})
-    const matches=s.error?[]:(s.data||[])
-    reviewed.push({...row,id:globalThis.crypto?.randomUUID?.()||Math.random().toString(36),selected:!!matches[0],match:matches[0]||null,alternatives:matches})
-   }
-   setOcrRows(reviewed)
-   if(!reviewed.length)fail(new Error(t('validation.stock_ocr_none','OCR completed, but no count-like rows were detected. Use a clearer crop/photo or enter the counts manually.')))
-   else flash(reviewed.length+' OCR row(s) detected. Review the matches and quantities before applying them.')
-  }catch(e){fail(e)}finally{setOcrBusy(false);setOcrProgress(null)}
- }
- function updateOcrRow(id,patch){if('qty' in patch){const value=normalizeQuantityInput(patch.qty);if(value===null)return;patch={...patch,qty:value}}setOcrRows(v=>v.map(x=>x.id===id?{...x,...patch}:x))}
- function applyOcrCounts(){
-  const accepted=ocrRows.filter(x=>x.selected&&x.match&&isQuantityInput(x.qty))
-  if(!accepted.length)return fail(new Error(t('validation.stock_ocr_select','Select at least one reviewed OCR row.')))
-  beginCount()
-  setEntry(v=>{const n={...v};accepted.forEach(x=>{n[x.match.item_id]=String(Number(x.qty))});return n})
-  flash(accepted.length+' reviewed OCR count(s) applied to the stock-count draft.')
- }
-
  async function submit(){
   if(busy)return
   const {counted,checked,remaining}=stockCountBatch(entry)
@@ -466,22 +423,17 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
   if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
 
-  setBusy(true);let path=null
+  setBusy(true)
   try{
-   if(sheetFile){
-    path='stock-counts/'+Date.now()+'-'+sheetFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')
-    const u=await supabase.storage.from('gh-procurement').upload(path,sheetFile);if(u.error)throw u.error
-   }
    await draftWrites.current
    await ensureServerCountStart()
    const lines=checked.map(([item_id,v])=>({item_id,current_stock:Number(v)}))
-   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:path})
+   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:null})
    if(r.error)throw r.error
    const automation=r.data?.automation||null
    const next={...entry};checked.forEach(([id])=>delete next[id])
    setEntry(next);setSkipped(new Set());setCursor(0)
    if(!Object.keys(next).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
-   setSheetFile(null);setOcrRows([])
    let message='Stock submitted. '
    if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
    else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
@@ -491,7 +443,6 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    if(historyOpen)await loadStockHistory()
    if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
   }catch(e){
-   if(path)await supabase.storage.from('gh-procurement').remove([path])
    fail(e)
   }finally{setBusy(false)}
  }
@@ -500,20 +451,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(!Object.keys(entry).length&&!skipped.size)return
   await confirmDanger({title:'Discard stock draft',message:'Discard all unsent stock entries on this device/account? Submitted stock records will remain.',warning:'Unsubmitted entries will be lost. Check that you do not need them before confirming.',confirmLabel:'Confirm discard',onConfirm:async()=>{
    if(serverDrafts){await draftWrites.current;const r=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id);if(r.error)throw r.error}
-   setEntry({});setSkipped(new Set());setCursor(0);setSheetFile(null);setOcrRows([]);startedAt.current=null
+   setEntry({});setSkipped(new Set());setCursor(0);startedAt.current=null
    try{localStorage.removeItem(draftKey)}catch{}
    flash('Stock draft discarded.')
   }})
- }
-
- async function movementPdf(m){
-  try{
-   const r=await allRows(()=>{let q=supabase.from('proc_items').select('item_code,category,description,size,max_stock,reorder_level,movement').eq('active',true).eq('movement',m).order('description').order('id');if(cat)q=q.eq('category',cat);if(mainGroup)q=q.eq('main_group',mainGroup);return q});if(r.error)throw r.error
-   exportMovementChecklistPdf({items:r.data||[],company,movement:m,category:cat||''})
-  }catch(e){fail(e)}
- }
- function stockPdf(){
-  exportStockSheetPdf({items:items.map(i=>({...i,id:i.item_id,book_stock:i.book_stock??''})),company,footer,fields,stockTaking:true,title:'STOCK TAKING SHEET',subtitle:[cat||'All Categories',movement||'All Movement',mainGroup||''].filter(Boolean).join(' · ')})
  }
 
  function submissionTime(v){
@@ -591,15 +532,11 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     <button className="btn" onClick={()=>setFiltersOpen(x=>!x)}>{filtersOpen?t('stock.hide_filters','Hide Filters'):t('stock.filters','Filters')}</button>
    </div>
 
-   {filtersOpen&&<div className="filters three section stock-filter-panel">
+   {filtersOpen&&<div className="filters two section stock-filter-panel">
     <ModernSelect className="select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(x=><option key={x}>{x}</option>)}</ModernSelect>
     {!isCounter&&<ModernSelect className="select" value={mainGroup} onChange={e=>setMainGroup(e.target.value)}><option value="">{t('stock.all_groups','All groups')}</option>{groups.map(x=><option key={x}>{x}</option>)}</ModernSelect>}
-    {canAttach&&fieldEnabled(fields,'stock','attachment')&&<label className="file-field"><span>{fieldLabel(fields,'stock','attachment','Completed paper sheet')} (optional)</span><input className="input" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e=>{setSheetFile(e.target.files?.[0]||null);setOcrRows([])}}/></label>}
    </div>}
-   {canAttach&&paperOcr&&sheetFile&&<div className="section"><button className="btn" disabled={ocrBusy} onClick={runPaperOcr}>{ocrBusy?t('stock.reading_sheet','Reading sheet…'):t('stock.ocr_completed','OCR Completed Sheet')}</button>{ocrProgress&&<span className="muted tiny"> {ocrProgress.stage} · {Math.round(Number(ocrProgress.progress||0)*100)}%</span>}</div>}
-   {ocrRows.length>0&&<div className="card pad section"><div className="sectionhead"><div><h4>{t('stock.paper_review','Paper Count OCR Review')}</h4><p>{t('stock.paper_review_hint','OCR is only a suggestion. Confirm the item and physical quantity before applying.')}</p></div><button className="btn good" onClick={applyOcrCounts}>{t('stock.apply_reviewed','Apply Reviewed Counts')}</button></div><div className="stack">{ocrRows.map(row=><div className="ocr-review-row" key={row.id}><label className={'choice-pill '+(row.selected?'selected-choice':'')}><input type="checkbox" checked={row.selected} onChange={e=>updateOcrRow(row.id,{selected:e.target.checked})}/>{t('stock.use','Use')}</label><div><strong>{row.match?itemTitle(row.match):'No confident match'}</strong><div className="muted tiny">{row.raw}</div></div><ModernSelect className="select" value={row.match?.item_id||''} onChange={e=>{const m=row.alternatives.find(x=>x.item_id===e.target.value)||null;updateOcrRow(row.id,{match:m,selected:!!m})}}><option value="">{t('stock.choose_item','Choose item…')}</option>{row.alternatives.map(m=><option key={m.item_id} value={m.item_id}>{itemTitle(m)} · {m.item_code}</option>)}</ModernSelect><input className="input stock-entry" inputMode="decimal" value={row.qty} onChange={e=>updateOcrRow(row.id,{qty:e.target.value})}/></div>)}</div></div>}
 
-   {canManage&&feature('stock.paper_checklists')&&filtersOpen&&<div className="toolbar section no-print"><button className="btn" onClick={()=>movementPdf('FAST')}>FAST Checklist PDF</button><button className="btn" onClick={()=>movementPdf('NORMAL')}>NORMAL Checklist PDF</button><button className="btn" onClick={()=>movementPdf('SLOW')}>SLOW Checklist PDF</button><button className="btn" onClick={stockPdf}>Stock Taking PDF</button></div>}
   </div>
 
   {stockLoadError&&<div className="card pad section" role="alert"><strong>{stockLoadError}</strong> <button type="button" className="btn small" onClick={()=>setStockLoadRetry(n=>n+1)}>Retry stock list</button></div>}
