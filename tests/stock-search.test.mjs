@@ -20,3 +20,12 @@ test('large catalogue filters within a frame-sized budget',()=>{
  for(const query of ['c','co','con','conc','concr'])assert.equal(searchStockItems(large,query).length,30)
  assert.ok(performance.now()-start<100,'Five searches should complete within 100ms')
 })
+
+test('held groups include every matching size across movements and survive draft round trips',()=>{
+ const catalogue=indexStockItems(Array.from({length:85},(_,n)=>({id:String(n),description:n<80?'Concrete nails':'Copper wire',size:String(n)+'mm',movement:n%2?'FAST':'SLOW',category:'GENERAL'})))
+ const held=JSON.parse(JSON.stringify({query:'concrete nails',filters:{}}))
+ assert.equal(searchStockItems(catalogue,held.query,held.filters,Infinity).length,80)
+ assert.equal(searchStockItems(catalogue,held.query,{movement:'FAST'},Infinity).length,40)
+ assert.equal(searchStockItems(catalogue,'copper',{},Infinity).length,5)
+ assert.equal(searchStockItems(catalogue,held.query,held.filters,Infinity).length,80)
+})
