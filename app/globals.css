@@ -757,11 +757,12 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .company-items-grid .company-category-row.company-nested-section th{
  background:color-mix(in srgb,var(--company-section-color,#295b89) 15%, var(--surface));
  border-left:4px solid var(--company-section-color,#295b89);
- padding-left:calc(7px + min(var(--company-section-depth,0),8)*9px);
+ padding-left:calc(7px + min(var(--company-section-depth,0),8)*var(--company-section-indent,9px));
  color:var(--text);
  font-weight:750;
 }
-.company-section-toggle{appearance:none;border:none;background:transparent;color:inherit;font:inherit;text-align:left;width:100%;cursor:pointer;padding:4px 1px;min-height:25px;overflow-wrap:anywhere}
+.company-section-toggle{font-size:var(--company-section-font,12px);padding-block:var(--company-section-padding,6px);}
+.company-section-toggle{appearance:none;border:none;background:transparent;color:inherit;font-family:inherit;font-size:var(--company-section-font,12px);font-weight:750;text-align:left;width:100%;cursor:pointer;padding:4px 1px;min-height:25px;overflow-wrap:anywhere}
 .company-section-toggle:focus-visible{outline:2px solid var(--brand2);outline-offset:2px}
 .company-section-toggle>span{display:inline-block;min-width:15px;font-size:13px}
 .company-items-grid .company-nested-section small{display:inline;font-size:10px;color:var(--muted)}
