@@ -14,7 +14,7 @@ import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
-import {reorderFor,defaultCompanyFields} from '@/lib/company-items.mjs'
+import {reorderFor,defaultCompanyFields,groupCompanyRows,companyCompactMeta} from '@/lib/company-items.mjs'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -83,31 +83,48 @@ function ImageCropper({file,onReady,t=(k,f)=>f||k}){
  </div>
 }
 
-export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,navigate=()=>{},t=(k,f)=>f||k}){
+export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,navigate=()=>{},active=true,t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
  const confirmAction=useActionConfirmation()
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
- const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
+ const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[refreshing,setRefreshing]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sufficient,setSufficient]=useState({}),[visibleFields,setVisibleFields]=useState({})
- const startedAt=useRef(null),draftReady=useRef('')
+ const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
  const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length)setCompanyId(r.data[0].id)},[companyId,fail])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
- const loadRows=useCallback(async()=>{if(!companyId){setRows([]);return}setLoading(true);draftReady.current='';try{
-  const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
-  if(r.error)throw r.error
-  const list=r.data||[];setRows(list)
-  const ids=list.map(x=>x.item_id)
-  if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
-  const saved=localStorage.getItem(draftKey)
-  setEntry({});setSufficient({});startedAt.current=null
-  if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));setSufficient(p.sufficient||{});startedAt.current=p.startedAt||null}catch{}
-  draftReady.current=companyId
- }catch(e){fail(e)}finally{setLoading(false)}},[companyId,fail])
- useEffect(()=>{loadRows()},[loadRows])
+ const loadRows=useCallback(async()=>{
+  const request=++loadSequence.current
+  if(!companyId){setRows([]);return}
+  setLoading(true)
+  try{
+   const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
+   if(r.error)throw r.error
+   if(request!==loadSequence.current)return
+   const list=r.data||[]
+   setRows(list)
+   const ids=list.map(x=>x.item_id)
+   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;if(request!==loadSequence.current)return;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
+   if(draftReady.current!==companyId){
+    const saved=localStorage.getItem(draftKey)
+    setEntry({});setSufficient({});startedAt.current=null
+    if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));setSufficient(p.sufficient||{});startedAt.current=p.startedAt||null}catch{}
+   }
+   draftReady.current=companyId
+  }catch(e){if(request===loadSequence.current)fail(e)}
+  finally{if(request===loadSequence.current)setLoading(false)}
+ },[companyId,draftKey,fail])
+ useEffect(()=>{if(active)loadRows()},[active,loadRows])
+ useEffect(()=>{
+  if(!active)return
+  const refreshOnReturn=()=>{if(document.visibilityState==='visible')loadRows()}
+  window.addEventListener('focus',refreshOnReturn)
+  document.addEventListener('visibilitychange',refreshOnReturn)
+  return()=>{window.removeEventListener('focus',refreshOnReturn);document.removeEventListener('visibilitychange',refreshOnReturn)}
+ },[active,loadRows])
 
  useEffect(()=>{
   if(!companyId||draftReady.current!==companyId)return
@@ -129,10 +146,23 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
  const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
+ const grouped=useMemo(()=>groupCompanyRows(shown),[shown])
  const currentCompany=companies.find(c=>c.id===companyId)
  useEffect(()=>{setVisibleFields({...defaultCompanyFields,...currentCompany?.visible_fields})},[companyId,currentCompany?.updated_at])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
- async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows()}catch(e){fail(e)}}
+ async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
+ async function refreshCompany(){
+  if(refreshing)return
+  setRefreshing(true)
+  try{
+   if(canManage&&(profile.role_key||profile.role)==='admin'){
+    try{const result=await companyApi('sheets',{action:'import'});if(result.errors?.length)flash('Some Google Sheet tabs need review in Company settings.')}
+    catch(e){flash('Company database refreshed. Google Sheets sync unavailable; check Company settings.')}
+   }
+   await loadCompanies()
+   await loadRows()
+  }catch(e){fail(e)}finally{setRefreshing(false)}
+ }
 
  async function archiveCompanyList(){
   if(!canManage||!companyId)return
@@ -188,7 +218,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
 
  return <>
   <div className="company-stock-header">
-   <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div>
+   <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'Refreshing…':'↻ Refresh'}</button>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div></div>
    <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
    {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
     <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
@@ -203,24 +233,24 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
    <div className="tablewrap section company-items-grid"><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
-    <tbody>{shown.map(r=><tr key={r.id} className={r.max_stock_review?'company-review-row':''}>
+    {grouped.map(group=><tbody key={group.key}><tr className="company-category-row"><th colSpan={3}>{group.title} <small>({group.items.length})</small></th></tr>{group.items.map(r=><tr key={r.id} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
      <td><strong className="company-item-name">{r.item?.description}</strong>
-      <div className="company-item-meta">
-       {visibleFields.max!==false&&<span>Max: <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
-       {visibleFields.reorder!==false&&<span>Reorder: <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
-       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
-      </div>
+      <span className="company-item-meta">
+       {visibleFields.max!==false&&<span>Max <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
+       {visibleFields.reorder!==false&&<span>Reorder <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
+       {companyCompactMeta(r.item,visibleFields).map(meta=><span key={meta.key}>{meta.label&&<span className="company-meta-label">{meta.label} </span>}{meta.value}</span>)}
+      </span>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
-      {canManage&&<details className="company-item-edit"><summary>Edit item</summary><div className="company-item-edit-fields">
+      {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
        {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
-       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
+       {['size','colour','variation','brand','movement','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
      </td>
      <td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>
      <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
-    </tr>)}</tbody>
+    </tr>)}</tbody>)}
    </table></div>
   </>}</div>
   {companyId&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">

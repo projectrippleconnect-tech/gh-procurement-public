@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {parseCompanySheet,reorderFor,companySuggested,validateCompanyImport} from '../lib/company-items.mjs'
+import {parseCompanySheet,reorderFor,companySuggested,validateCompanyImport,groupCompanyRows,companyCompactMeta} from '../lib/company-items.mjs'
 test('company maximum preserves zero and missing review; fractional reorder is exact',()=>{assert.equal(reorderFor(3),1.5);assert.equal(reorderFor(null),null);assert.equal(companySuggested({target_stock:30},10),20);assert.equal(companySuggested({target_stock:30},16),0);assert.equal(companySuggested({target_stock:30},'',true),0);assert.equal(companySuggested({max_stock_review:true},2),null)})
 test('Fevicol rain coat applies the maximum independently to each colour',()=>{const rows=parseCompanySheet({title:'FEVICOL ',sheetId:12,values:[['FEVICOL'],['RAIN COAT 1 LTR ALL COLOUR','GREEN','6'],['','WHITE'],['','GREY'],['','BLUE'],['RAIN COAT 4 LTR ALL COLOUR','GREEN','3'],['','WHITE']]});assert.deepEqual(rows.map(r=>r.max_stock),[6,6,6,6,3,3]);assert.deepEqual(rows.map(r=>r.colour),['GREEN','WHITE','GREY','BLUE','GREEN','WHITE'])})
 test('wire brand matrix produces distinct items including blank maxima',()=>{const rows=parseCompanySheet({title:'WIRE CABLES',sheetId:1,values:[['','SR','SUPER PVC ACL'],['1044 WIRE BLUE','20','10'],['BOBBIN','1','']]});assert.equal(rows.length,4);assert.equal(rows[1].brand,'SUPER PVC ACL');assert.equal(rows[1].subgroup,'SUPER PVC ACL');assert.equal(rows[3].max_stock_review,true)})
@@ -12,3 +12,17 @@ test('hose column headings create lengths without a spurious header item',()=>{c
 
 test('source identity survives inserted sheet rows without duplicating items',()=>{const a=parseCompanySheet({title:'WURTH',sheetId:8,values:[['WURTH'],['SILICON CLEAR','50']]});const b=parseCompanySheet({title:'WURTH',sheetId:8,values:[['WURTH'],['RUST OFF','6'],['SILICON CLEAR','50']]});assert.equal(a[0].source_key,b[1].source_key)})
 test('conflicting duplicate maxima are held for review',()=>{const rows=parseCompanySheet({title:'WURTH',sheetId:8,values:[['WURTH'],['RUST OFF','6'],['RUST OFF','10']]});assert.equal(rows.length,1);assert.equal(rows[0].max_stock,null)})
+
+test('company stock rows are grouped naturally without merging duplicate names',()=>{
+ const rows=[
+  {id:'r3',item:{category:'GENERAL',subgroup:'Panel',description:'24W',size:'24W'}},
+  {id:'r2',item:{category:'ELECTRICAL',subgroup:'Lights',description:'12 FEET',size:'12 FEET'}},
+  {id:'r1',item:{category:'GENERAL',subgroup:'Panel',description:'24W',size:'24W'}}
+ ]
+ const groups=groupCompanyRows(rows)
+ assert.deepEqual(groups.map(g=>g.title),['ELECTRICAL / Lights','GENERAL / Panel'])
+ assert.deepEqual(groups.flatMap(g=>g.items.map(x=>x.id)),['r2','r1','r3'])
+ assert.equal(groups[1].items.length,2)
+ assert.deepEqual(companyCompactMeta(rows[0].item,{size:true,uom:true}),[],'Repeat 24W is hidden in metadata')
+ assert.deepEqual(companyCompactMeta({description:'Spotlight',size:'24W',uom:'PCS'},{size:true,uom:true}).map(x=>x.value),['24W','PCS'])
+})

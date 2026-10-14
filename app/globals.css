@@ -664,3 +664,30 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .supplier-directory-actions .btn{min-width:0;max-width:100%;white-space:normal;overflow-wrap:normal;word-break:normal}
 @media(max-width:420px){.supplier-directory-summary{grid-template-columns:minmax(0,1fr) auto 14px;gap:7px}.supplier-directory-meta{grid-template-columns:1fr;gap:9px}.supplier-directory-status .badge{font-size:9px;padding:3px 5px}.supplier-directory-actions .btn{font-size:12px}}
 @media(prefers-reduced-motion:reduce){.supplier-directory-chevron{transition:none}}
+
+
+/* Dense worksheet-like company stock list: 1 product per row, expandable edit only on demand. */
+.company-items-grid .table{table-layout:fixed;width:100%;min-width:0}
+.company-items-grid .company-current-col{width:80px}
+.company-items-grid .company-sufficient-col{width:59px}
+.company-items-grid th,.company-items-grid td{vertical-align:middle;padding:5px 5px;line-height:1.25}
+.company-items-grid .company-category-row th{padding:6px 7px;font-size:11px;font-weight:700;text-align:left;background:var(--surface2,rgba(130,150,170,.11));color:var(--text)}
+.company-items-grid .company-category-row small{display:inline;font-size:10px;font-weight:400;margin-left:3px}
+.company-items-grid .company-item-name{display:inline;font-size:13px;line-height:1.25;margin-right:8px}
+.company-items-grid .company-item-meta{display:inline;font-size:10px;line-height:1.25;color:var(--muted)}
+.company-items-grid .company-item-meta>span{display:inline;white-space:normal;margin-right:8px}
+.company-items-grid .company-item-meta b{font-size:11px;color:var(--text)}
+.company-items-grid .company-meta-label{text-transform:capitalize}
+.company-items-grid .company-item-edit{display:inline-block;margin:0 0 0 4px;vertical-align:baseline}
+.company-items-grid .company-item-edit>summary{display:inline;cursor:pointer;padding:0;font-size:10px;line-height:1.2;text-decoration:underline;text-underline-offset:2px}
+.company-items-grid .company-item-edit[open]{display:block;margin:6px 0}
+.company-items-grid .company-item-edit[open]>summary{display:block;margin-bottom:5px}
+.company-items-grid .company-item-edit-fields{grid-template-columns:repeat(2,minmax(0,1fr));padding:8px;background:rgba(130,150,170,.065);border-radius:6px}
+.company-items-grid .company-item-edit-fields label{display:grid;gap:3px}
+.company-items-grid .stock-entry{min-height:34px;padding:4px;font-size:16px}
+.company-items-grid input[type=checkbox]{width:20px;height:20px;margin:3px auto;vertical-align:middle}
+.company-items-grid .company-review-row{background:rgba(255,176,0,.06)}
+.company-items-grid .company-review-row small{line-height:1.2}
+.company-title-actions{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+.company-stock-title h3{flex:1 1 auto}
+@media(max-width:420px){.company-items-grid .company-current-col{width:70px}.company-items-grid .company-sufficient-col{width:48px}.company-items-grid th,.company-items-grid td{padding:4px 3px}.company-items-grid .company-item-name{font-size:12px}.company-items-grid .company-item-meta{font-size:10px}.company-items-grid .company-item-edit-fields{grid-template-columns:minmax(0,1fr)}.company-stock-title .btn{padding:7px 8px}}
