@@ -467,6 +467,7 @@ try{
    await navigate('✓ Stock Entry')
    const stockHeader=page.locator('section:not([hidden]) .stock-work-header')
    await stockHeader.getByRole('button',{name:/Submit Stock/}).waitFor()
+   assert.equal(await page.getByRole('navigation',{name:'Guided procurement navigation',exact:true}).count(),0,'Procurement stage banner must not appear on Stock Entry')
    assert.equal(await page.locator('section:not([hidden]) .stock-simple-flow').count(),0,'Redundant Enter stock → Submit Stock → Review progress strip is absent')
    await page.locator('.stock-work-header').getByRole('button',{name:'Filters',exact:true}).click()
    assert.equal(await page.locator('.stock-filter-panel input[type="file"]').count(),0,'Paper sheet upload is not shown in Stock Entry')
