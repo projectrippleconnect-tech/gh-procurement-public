@@ -39,7 +39,26 @@ INSERT INTO public.proc_company_list_items(id,company_id,item_id,source_key) VAL
  ('30000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002','source:2'),
  ('30000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000003','source:3'),
  ('30000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000004','source:4');
+-- Production already has a JWT permission trigger; SQL migrations have no staff JWT.
+-- Fail any backfill unless the migration temporarily suspends this guard.
+CREATE OR REPLACE FUNCTION private.proc_test_company_permission_guard()
+RETURNS trigger LANGUAGE plpgsql AS $fixture$
+BEGIN
+ IF current_setting('app.test_company_guard',true)='authorized' THEN RETURN NEW; END IF;
+ RAISE EXCEPTION 'Permission denied: company_lists.manage';
+END $fixture$;
+CREATE TRIGGER a_proc_permission_guard BEFORE UPDATE ON public.proc_company_list_items
+ FOR EACH ROW EXECUTE FUNCTION private.proc_test_company_permission_guard();
 \ir ../../supabase/migrations/20261014110000_company_section_hierarchy.sql
+DO $verify$
+BEGIN
+ IF NOT EXISTS (
+ SELECT 1 FROM pg_trigger
+ WHERE tgrelid='public.proc_company_list_items'::regclass
+ AND tgname='a_proc_permission_guard' AND tgenabled='O'
+ ) THEN RAISE EXCEPTION 'Migration did not restore the live permission guard'; END IF;
+END $verify$;
+SET LOCAL app.test_company_guard = 'authorized';
 
 DO $$
 DECLARE n integer; root uuid; child uuid; cousin uuid; company_one uuid:='10000000-0000-4000-8000-000000000001';
