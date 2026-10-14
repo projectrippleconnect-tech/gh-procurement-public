@@ -201,17 +201,28 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:shown.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
    <div className="muted tiny">{shown.length} item(s) · entered quantities are saved locally until submission.</div>
-   <div className="company-stock-rows">{shown.map(r=><div key={r.id} className={'company-stock-row '+(r.max_stock_review?'company-review-row':'')}>
-    <div className="company-stock-name"><strong>{r.item?.description}</strong><small>{['size','colour','variation','uom'].filter(k=>visibleFields[k]!==false).map(k=>r.item?.[k]).filter(Boolean).join(' · ')}</small>{r.max_stock_review&&<small>Maximum stock needs admin review</small>}
-     <div className="company-stock-levels">{visibleFields.reorder!==false&&<span>Reorder <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}{visibleFields.max!==false&&<span>Max <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}</div>
-    </div>
-    <div className="company-stock-count"><label>Current{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</label><label className="company-enough"><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/>Sufficient</label></div>
-    <details className="company-stock-details"><summary>{canManage?'Details / edit':'Details'}</summary><div className="company-filter-grid">
-     {canManage&&<label className="field">Description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>}
-     {canManage&&visibleFields.max!==false&&<label className="field">Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input stock-entry" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>editItem(r,'target_stock',e.target.value)}/></label>}
-     {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label className="field" key={k}>{k}{canManage?(k==='movement'?<select aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</select>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>):<span>{r.item?.[k]||'—'}</span>}</label>)}
-    </div>{canManage&&<button className="btn small" onClick={()=>removeItem(r)}>Remove</button>}</details>
-   </div>)}</div>
+   <div className="tablewrap section company-items-grid"><table className="table">
+    <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
+    <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
+    <tbody>{shown.map(r=><tr key={r.id} className={r.max_stock_review?'company-review-row':''}>
+     <td><strong className="company-item-name">{r.item?.description}</strong>
+      <div className="company-item-meta">
+       {visibleFields.max!==false&&<span>Max: <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
+       {visibleFields.reorder!==false&&<span>Reorder: <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
+       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
+      </div>
+      {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
+      {canManage&&<details className="company-item-edit"><summary>Edit item</summary><div className="company-item-edit-fields">
+       <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
+       {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
+       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
+       <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
+      </div></details>}
+     </td>
+     <td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>
+     <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
+    </tr>)}</tbody>
+   </table></div>
   </>}</div>
   {companyId&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
   {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
