@@ -9,10 +9,10 @@ import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
 import {allRows,containsAny} from '@/lib/query-pages'
-import {indexStockItems,searchStockItems,stockSearchColumns} from '@/lib/stock-search.mjs'
+import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
-import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
+import {Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
 import {StockPrintDialog} from './stock-print-dialog'
@@ -517,7 +517,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const browseItems=items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
  useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
  const cols=[
-  {key:'description',label:'Item',render:i=><strong>{itemTitle(i)}</strong>},
+  {key:'description',label:'Item',render:i=><strong>{stockItemLabel(i)}</strong>},
   {key:'uom',label:'UOM'},
   {key:'movement',label:'Movement',render:i=><Badge>{i.movement}</Badge>},
   ...(rowField('reorder_level',true)?[{key:'reorder_level',label:'Reorder',render:i=><strong className="stock-reorder-value">{qty(i.reorder_level)}</strong>}]:[]),
@@ -583,7 +583,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    <div className="guided-progress"><i style={{width:(items.length?Math.min(100,(completedCount/items.length)*100):0)+'%'}}/></div>
 
    <div className="guided-item">
-    <div className="stock-card-title"><div><h2 title={itemTitle(current)}><ItemLabel item={current}/></h2></div><Badge>{current.movement}</Badge></div>
+    <div className="stock-card-title"><div><h2 title={stockItemLabel(current)}>{stockItemLabel(current)}</h2></div><Badge>{current.movement}</Badge></div>
     <div className="guided-meta">{[current.brand,current.uom].filter(Boolean).map(x=><span key={x}>{x}</span>)}{rowField('reorder_level',true)&&<span className="stock-reorder-value">Reorder: {qty(current.reorder_level)}</span>}</div>
     <div className="guided-entry"><label>{t('stock.physical','Physical Stock')}</label><input ref={guidedInput} className="input" inputMode="decimal" enterKeyHint="next" value={entry[current.item_id]??''} onChange={e=>setCount(current.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveNext()}}} placeholder="Enter quantity"/></div>
     {!isCounter&&<div className="guided-stats"><div><span>{t('stock.max','Maximum Stock')} <InfoButton topic="maximum_stock" language={language}/></span><b>{qty(current.max_stock)}</b></div><div><span>{t('stock.reorder','Reorder Level')} <InfoButton topic="reorder_level" language={language}/></span><b>{qty(current.reorder_level)}</b></div><div><span>{t('stock.suggested','Suggested')}</span><b className="warn-text">{suggested(current)===null?'—':qty(suggested(current))}</b></div></div>}
@@ -617,11 +617,11 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
       rowField('max_stock')?'MAX:'+qty(i.max_stock):null
      ].filter(Boolean)
      return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')} key={i.item_id}>
-      <button type="button" className="stock-dense-info" title={itemTitle(i)} onClick={()=>setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}>
-       <span className="stock-dense-title"><ItemLabel item={i}/></span>
+      <button type="button" className="stock-dense-info" title={stockItemLabel(i)} onClick={()=>setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}>
+       <span className="stock-dense-title">{stockItemLabel(i)}</span>
        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
       </button>
-      <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={itemTitle(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
+      <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
      </div>
     })}
    </div>
@@ -637,9 +637,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
      {searchTerm&&<button className="btn small" onClick={()=>setSearchTerm('')}>{t('common.clear','Clear')}</button>}
     </div>
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
-    <label className="stock-search-hold"><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span><strong>Hold these results for stock entry</strong><small>{catalogueReady?'Keep all matching items in Stock Entry until released.':'Preparing all matching items…'}</small></span></label>
+    <label className="stock-search-hold"><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span><strong>Hold all matching results for stock entry</strong><small>{catalogueReady?'Keep all matching items in Stock Entry until released.':'Preparing all matching items…'}</small></span></label>
     <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
-      <div><strong>{itemTitle(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.category].filter(Boolean).join(' › ')}</small></div>
+      <div><strong>{stockItemLabel(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.subgroup,i.category].filter(Boolean).join(' › ')}</small></div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>
      </button>)}</div>
    </div>
@@ -647,7 +647,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
   {quickItem&&<div className="modal-backdrop stock-quick-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setQuickItem(null)}}>
    <div className="modal stock-quick-modal card">
-    <div className="modal-head"><div><h3>{itemTitle(quickItem)}</h3></div><button className="btn small" onClick={()=>setQuickItem(null)}>✕</button></div>
+    <div className="modal-head"><div><h3>{stockItemLabel(quickItem)}</h3></div><button className="btn small" onClick={()=>setQuickItem(null)}>✕</button></div>
     <div className="guided-meta">{[quickItem.brand,quickItem.uom,quickItem.category].filter(Boolean).map(x=><span key={x}>{x}</span>)}</div>
     {!isCounter&&<div className="guided-stats section"><div><span>{t('stock.max','Maximum Stock')} <InfoButton topic="maximum_stock" language={language}/></span><b>{qty(quickItem.max_stock)}</b></div><div><span>{t('stock.reorder','Reorder Level')} <InfoButton topic="reorder_level" language={language}/></span><b>{qty(quickItem.reorder_level)}</b></div></div>}
     <div className="guided-entry section"><label>{t('stock.physical','Physical Stock')}</label><input ref={quickInput} className="input" inputMode="decimal" enterKeyHint="done" value={quickValue} onChange={e=>{const value=normalizeQuantityInput(e.target.value);if(value!==null)setQuickValue(value)}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveQuick(Number(quickValue)===0)}}} placeholder="Enter quantity"/></div>
