@@ -671,7 +671,18 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .company-items-grid .company-current-col{width:80px}
 .company-items-grid .company-sufficient-col{width:59px}
 .company-items-grid th,.company-items-grid td{vertical-align:middle;padding:5px 5px;line-height:1.25}
-.company-items-grid .company-category-row th{padding:6px 7px;font-size:11px;font-weight:700;text-align:left;background:var(--surface2,rgba(130,150,170,.11));color:var(--text)}
+.company-items-grid .company-category-row th{
+ padding:8px 9px 8px 12px;
+ font-size:12px;
+ font-weight:850;
+ letter-spacing:.025em;
+ text-align:left;
+ background:#124d5e;
+ color:#f5ffff;
+ border-top:1px solid #28788a;
+ border-bottom:1px solid #28788a;
+ box-shadow:inset 4px 0 0 #56dfcf;
+}
 .company-items-grid .company-category-row small{display:inline;font-size:10px;font-weight:400;margin-left:3px}
 .company-items-grid .company-item-name{display:inline;font-size:13px;line-height:1.25;margin-right:8px}
 .company-items-grid .company-item-meta{display:inline;font-size:10px;line-height:1.25;color:var(--muted)}
