@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {indexStockItems,searchStockItems} from '../lib/stock-search.mjs'
+import {indexStockItems,searchStockItems,stockItemLabel} from '../lib/stock-search.mjs'
 const rows=indexStockItems([{id:'1',description:'Concrete nails',category:'GENERAL',movement:'FAST',size:'2 inch'},{id:'2',description:'Copper wire',category:'ELECTRICAL',movement:'SLOW'},{id:'3',description:'Concrete drill',category:'GENERAL',movement:'SLOW'}])
 test('results narrow from the first character through each keystroke',()=>{
  assert.equal(searchStockItems(rows,'c').length,3)
@@ -28,4 +28,25 @@ test('held groups include every matching size across movements and survive draft
  assert.equal(searchStockItems(catalogue,held.query,{movement:'FAST'},Infinity).length,40)
  assert.equal(searchStockItems(catalogue,'copper',{},Infinity).length,5)
  assert.equal(searchStockItems(catalogue,held.query,held.filters,Infinity).length,80)
+})
+
+test('company variations show their actual product name before the size',()=>{
+ const concreteBit={id:'pe10',description:'10mm',size:'10mm',subgroup:'CONCRETE BIT',brand:'PE+',category:'PE+',movement:'NORMAL'}
+ assert.equal(stockItemLabel(concreteBit),'CONCRETE BIT · 10mm')
+ assert.equal(stockItemLabel({description:'CONCRETE BIT',size:'10MM'}),'CONCRETE BIT · 10MM')
+ assert.equal(stockItemLabel({description:'CONCRETE NAILS',size:'2"'}),'CONCRETE NAILS · 2"')
+})
+
+test('search ranks visible concrete product names above size-only company variations',()=>{
+ const variations=indexStockItems([
+  {id:'pe10',description:'10mm',size:'10mm',subgroup:'CONCRETE BIT',category:'PE+',brand:'PE+'},
+  {id:'pe12',description:'12mm',size:'12mm',subgroup:'CONCRETE BIT',category:'PE+',brand:'PE+'},
+  {id:'nail',description:'CONCRETE NAILS',size:'2"',category:'GENERAL',movement:'FAST'},
+  {id:'bit',description:'CONCRETE BIT',size:'8MM',category:'GENERAL',movement:'NORMAL'},
+  {id:'wire',description:'COPPER WIRE',size:'2mm',category:'ELECTRICAL'}
+ ])
+ assert.deepEqual(searchStockItems(variations,'concrete').map(x=>x.item_id),['nail','bit','pe10','pe12'])
+ assert.deepEqual(searchStockItems(variations,'concrete nails',{},Infinity).map(x=>x.item_id),['nail'])
+ assert.deepEqual(searchStockItems(variations,'concrete',{category:'PE+'},Infinity).map(x=>x.item_id),['pe10','pe12'])
+ assert.deepEqual(searchStockItems(variations,'concrete',{},2).map(x=>x.item_id),['nail','bit'])
 })
