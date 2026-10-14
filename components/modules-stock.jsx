@@ -193,8 +193,14 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   if(initialFilter!=='due'&&cat&&list.length&&!list.includes(cat))setCat(list.includes('GENERAL')?'GENERAL':list[0])
  }catch(e){fail(e)}})()},[fail])
 
- const stockLoadRevision=useRef(0)
- const load=useCallback(async()=>{const revision=++stockLoadRevision.current;setLoading(true);setStockLoadError('');try{
+ const stockLoadRevision=useRef(0),stockLoadController=useRef(null)
+ const load=useCallback(async()=>{
+  stockLoadController.current?.abort()
+  const controller=new AbortController()
+  stockLoadController.current=controller
+  const revision=++stockLoadRevision.current
+  setLoading(true);setStockLoadError('')
+  try{
   const pageChunk=500
   const cap=dueOnly?dailyTarget:Infinity
   let all=[],total=0,offset=0
@@ -205,11 +211,11 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
     if(movement)q=q.eq('movement',movement)
     if(mainGroup)q=q.eq('main_group',mainGroup)
     if(dueOnly)q=q.eq('is_due',true)
-    const response=await q
+    const response=await q.abortSignal(controller.signal)
     if(response.error)throw response.error
     return response
    })
-   if(revision!==stockLoadRevision.current)return
+   if(controller.signal.aborted||revision!==stockLoadRevision.current)return
    if(offset===0)total=r.count??0
    const batch=r.data||[]
    all=all.concat(batch)
@@ -219,8 +225,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   setDueTotal(total||all.length)
   setItems(all)
   setCursor(0);setBrowsePage(0)
- }catch(e){if(revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
- useEffect(()=>{load();return()=>{stockLoadRevision.current++}},[load])
+ }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
+ useEffect(()=>{load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load])
 
  useEffect(()=>{
   if(!searchOpen||typeof window==='undefined'||!window.visualViewport){setSearchViewport(null);return}
