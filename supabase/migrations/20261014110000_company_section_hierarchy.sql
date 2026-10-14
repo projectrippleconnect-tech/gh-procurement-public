@@ -109,7 +109,7 @@ GRANT EXECUTE ON FUNCTION public.proc_company_seed_sections(uuid) TO authenticat
 ALTER TABLE public.proc_company_list_items DISABLE TRIGGER a_proc_permission_guard;
 
 -- Existing section labels are migrated without changing proc_items, balances or source identities.
-DO $
+DO $$
 DECLARE r record; dest uuid;
 BEGIN
  FOR r IN SELECT cli.id,cli.company_id,i.category,i.main_group,i.subgroup
@@ -119,7 +119,7 @@ BEGIN
   dest:=private.proc_company_ensure_section_path(r.company_id,ARRAY[r.category,r.main_group,r.subgroup]);
   UPDATE public.proc_company_list_items SET section_id=dest WHERE id=r.id;
  END LOOP;
-END $;
+END $$;
 -- Restore the original permission trigger before releasing the table lock.
 ALTER TABLE public.proc_company_list_items ENABLE TRIGGER a_proc_permission_guard;
 
