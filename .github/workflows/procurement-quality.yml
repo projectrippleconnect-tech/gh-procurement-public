@@ -139,9 +139,22 @@ jobs:
         run: |
           createdb -h 127.0.0.1 -U postgres isolated_access
           psql -h 127.0.0.1 -U postgres -d isolated_access -v ON_ERROR_STOP=1 -f tests/sql/access-restrictions-isolated.sql
+      - name: Verify company section hierarchy and isolated moves in disposable PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_sections
+          psql -h 127.0.0.1 -U postgres -d isolated_company_sections -v ON_ERROR_STOP=1 -f tests/sql/company-sections-isolated.sql
       - name: Verify default screenshot protection and override authorization
         env:
           PGPASSWORD: fixture-only
         run: |
           createdb -h 127.0.0.1 -U postgres isolated_capture
           psql -h 127.0.0.1 -U postgres -d isolated_capture -v ON_ERROR_STOP=1 -f tests/sql/capture-controls-isolated.sql
+
+      - name: Verify nested company section migration in disposable PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_sections_hierarchy
+          psql -h 127.0.0.1 -U postgres -d isolated_company_sections_hierarchy -v ON_ERROR_STOP=1 -f tests/sql/company-section-hierarchy-isolated.sql
