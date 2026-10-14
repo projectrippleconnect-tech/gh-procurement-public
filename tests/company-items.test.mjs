@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {parseCompanySheet,reorderFor,companySuggested,validateCompanyImport,groupCompanyRows,companyCompactMeta} from '../lib/company-items.mjs'
+import {parseCompanySheet,reorderFor,companySuggested,validateCompanyImport,groupCompanyRows,companyCompactMeta,COMPANY_ITEM_COLUMNS,defaultCompanyFields} from '../lib/company-items.mjs'
 test('company maximum preserves zero and missing review; fractional reorder is exact',()=>{assert.equal(reorderFor(3),1.5);assert.equal(reorderFor(null),null);assert.equal(companySuggested({target_stock:30},10),20);assert.equal(companySuggested({target_stock:30},16),0);assert.equal(companySuggested({target_stock:30},'',true),0);assert.equal(companySuggested({max_stock_review:true},2),null)})
 test('Fevicol rain coat applies the maximum independently to each colour',()=>{const rows=parseCompanySheet({title:'FEVICOL ',sheetId:12,values:[['FEVICOL'],['RAIN COAT 1 LTR ALL COLOUR','GREEN','6'],['','WHITE'],['','GREY'],['','BLUE'],['RAIN COAT 4 LTR ALL COLOUR','GREEN','3'],['','WHITE']]});assert.deepEqual(rows.map(r=>r.max_stock),[6,6,6,6,3,3]);assert.deepEqual(rows.map(r=>r.colour),['GREEN','WHITE','GREY','BLUE','GREEN','WHITE'])})
 test('wire brand matrix produces distinct items including blank maxima',()=>{const rows=parseCompanySheet({title:'WIRE CABLES',sheetId:1,values:[['','SR','SUPER PVC ACL'],['1044 WIRE BLUE','20','10'],['BOBBIN','1','']]});assert.equal(rows.length,4);assert.equal(rows[1].brand,'SUPER PVC ACL');assert.equal(rows[1].subgroup,'SUPER PVC ACL');assert.equal(rows[3].max_stock_review,true)})
@@ -25,4 +25,12 @@ test('company stock rows are grouped naturally without merging duplicate names',
  assert.equal(groups[1].items.length,2)
  assert.deepEqual(companyCompactMeta(rows[0].item,{size:true,uom:true}),[],'Repeat 24W is hidden in metadata')
  assert.deepEqual(companyCompactMeta({description:'Spotlight',size:'24W',uom:'PCS'},{size:true,uom:true}).map(x=>x.value),['24W','PCS'])
+})
+
+test('company inventory omits movement from row display and configurable columns',()=>{
+ const {movement,...item}={description:'Bixton LED panel light',size:'12W',movement:'FAST',uom:'PCS'}
+ assert.equal(movement,'FAST','underlying stock movement is not changed')
+ assert.equal(COMPANY_ITEM_COLUMNS.includes('movement'),false)
+ assert.equal('movement' in defaultCompanyFields,false)
+ assert.equal(companyCompactMeta({...item,movement:'FAST'},{movement:true}).some(x=>x.key==='movement'),false)
 })
