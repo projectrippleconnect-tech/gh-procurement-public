@@ -99,10 +99,23 @@ END $$;
 REVOKE ALL ON FUNCTION public.proc_company_seed_sections(uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.proc_company_seed_sections(uuid) TO authenticated;
 
--- Existing section labels are migrated without changing proc_items, balances or source identities.
+-- Existing rows are migrated transactionally. Legacy procurement installations
+-- may already have an item-level permission guard trigger; migrations run as
+-- the schema owner, not an authenticated staff member. Suspend that one
+-- guard ONLY for this backfill, in this same transaction, then re-enable it.
+-- The company item check/finite guards remain enabled, and no stock values,
+-- item identities or other business fields are changed.
 DO $$
-DECLARE r record; dest uuid;
+DECLARE r record; dest uuid; has_guard boolean;
 BEGIN
+ SELECT EXISTS (
+   SELECT 1 FROM pg_trigger
+   WHERE tgrelid='public.proc_company_list_items'::regclass
+   AND tgname='a_proc_permission_guard' AND NOT tgisinternal
+ ) INTO has_guard;
+ IF has_guard THEN
+  EXECUTE 'ALTER TABLE public.proc_company_list_items DISABLE TRIGGER a_proc_permission_guard';
+ END IF;
  FOR r IN SELECT cli.id,cli.company_id,i.category,i.main_group,i.subgroup
           FROM public.proc_company_list_items cli
           JOIN public.proc_items i ON i.id=cli.item_id
@@ -110,6 +123,9 @@ BEGIN
   dest:=private.proc_company_ensure_section_path(r.company_id,ARRAY[r.category,r.main_group,r.subgroup]);
   UPDATE public.proc_company_list_items SET section_id=dest WHERE id=r.id;
  END LOOP;
+ IF has_guard THEN
+  EXECUTE 'ALTER TABLE public.proc_company_list_items ENABLE TRIGGER a_proc_permission_guard';
+ END IF;
 END $$;
 
 ALTER TABLE public.proc_company_sections ENABLE ROW LEVEL SECURITY;
