@@ -320,7 +320,7 @@ function ProcurementApp(){
  }
  function canStep(step){return visibleNav.some(n=>n[0]===guidedDestination(step))}
  function guideTo(step){if(canStep(step))go(guidedDestination(step),'',step)}
- const p={settings,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
+ const p={settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
  return <div className="app" style={interfaceVariables(settings.interface_preferences)}>
   <aside className="sidebar">
    <div className="brand"><div className="brandmark">GH</div><div><h1>GH Procurement</h1><small>{t('app.purchase_control','Purchase Control')}</small></div></div>
