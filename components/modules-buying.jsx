@@ -436,9 +436,9 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
     <summary className="supplier-directory-summary">
      <span className="supplier-directory-identity">
       <strong className="supplier-directory-name" title={s.name}>{s.name}</strong>
-      <span className="supplier-directory-subtitle">{[s.supplier_code,toSriLankaSupplierPhone(s.phone)||s.phone].filter(Boolean).join(' · ')||'Supplier'}</span>
+      <span className="supplier-directory-subtitle">{[fieldEnabled(fields,'suppliers','supplier_code')?s.supplier_code:null,fieldEnabled(fields,'suppliers','phone')?(toSriLankaSupplierPhone(s.phone)||s.phone):null].filter(Boolean).join(' · ')||'Supplier'}</span>
      </span>
-     <span className="supplier-directory-status"><Badge>{s.active?'active':'inactive'}</Badge></span>
+     {fieldEnabled(fields,'suppliers','status')&&<span className="supplier-directory-status"><Badge>{s.active?'active':'inactive'}</Badge></span>}
      <span className="supplier-directory-chevron" aria-hidden="true">⌄</span>
     </summary>
     <div className="supplier-directory-content">
