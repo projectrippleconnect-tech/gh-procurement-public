@@ -89,7 +89,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
- const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[movement,setMovement]=useState(''),[brand,setBrand]=useState(''),[sufficient,setSufficient]=useState({}),[visibleFields,setVisibleFields]=useState({})
+ const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sufficient,setSufficient]=useState({}),[visibleFields,setVisibleFields]=useState({})
  const startedAt=useRef(null),draftReady=useRef('')
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
@@ -128,7 +128,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  }
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
- const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!movement||r.item?.movement===movement)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,movement,brand])
+ const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
  const currentCompany=companies.find(c=>c.id===companyId)
  useEffect(()=>{setVisibleFields({...defaultCompanyFields,...currentCompany?.visible_fields})},[companyId,currentCompany?.updated_at])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
@@ -189,13 +189,12 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  return <>
   <div className="company-stock-header">
    <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div>
-   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setMovement('');setBrand('');setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
-   {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,movement,brand].filter(Boolean).length>0?' · '+[category,subgroup,movement,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
+   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
     <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
     <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
-    <label className="field">Movement<select aria-label="Company movement" className="select" value={movement} onChange={e=>setMovement(e.target.value)}><option value="">All movement</option>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</select></label>
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
-   </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setMovement('');setBrand('')}}>Clear filters</button></details>}
+   </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('')}}>Clear filters</button></details>}
   </div>
 
 
@@ -209,13 +208,13 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
       <div className="company-item-meta">
        {visibleFields.max!==false&&<span>Max: <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
        {visibleFields.reorder!==false&&<span>Reorder: <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
-       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
+       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
       </div>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit item</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
        {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
-       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
+       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
      </td>
