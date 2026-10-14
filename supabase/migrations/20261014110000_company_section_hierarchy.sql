@@ -145,3 +145,26 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.proc_company_import_section_paths(uuid,jsonb) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.proc_company_import_section_paths(uuid,jsonb) TO authenticated;
+
+-- Atomic bulk movement for authorized section managers, including delegated roles.
+-- Validate all requested rows first; no partial or cross-company moves.
+CREATE OR REPLACE FUNCTION public.proc_company_move_list_items(p_company_id uuid,p_section_id uuid,p_item_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE expected_count integer; actual_count integer;
+BEGIN
+ PERFORM private.proc_assert_access();
+ IF NOT private.proc_has_permission('company_lists.manage') THEN RAISE EXCEPTION 'Company management permission required'; END IF;
+ IF p_item_ids IS NULL OR cardinality(p_item_ids)<1 OR cardinality(p_item_ids)>500 THEN RAISE EXCEPTION 'Choose between 1 and 500 items'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.proc_company_sections WHERE id=p_section_id AND company_id=p_company_id AND active) THEN
+  RAISE EXCEPTION 'Destination section does not belong to the selected company';
+ END IF;
+ SELECT count(*) INTO expected_count FROM (SELECT DISTINCT unnest(p_item_ids) AS id) unique_ids;
+ SELECT count(*) INTO actual_count FROM public.proc_company_list_items WHERE id=ANY(p_item_ids) AND company_id=p_company_id AND active;
+ IF actual_count<>expected_count THEN RAISE EXCEPTION 'Some selected rows are not available in this company'; END IF;
+ UPDATE public.proc_company_list_items SET section_id=p_section_id
+  WHERE id=ANY(p_item_ids) AND company_id=p_company_id AND active;
+ GET DIAGNOSTICS actual_count=ROW_COUNT;
+ RETURN actual_count;
+END $$;
+REVOKE ALL ON FUNCTION public.proc_company_move_list_items(uuid,uuid,uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.proc_company_move_list_items(uuid,uuid,uuid[]) TO authenticated;
