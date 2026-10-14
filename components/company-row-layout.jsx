@@ -7,18 +7,18 @@ import {companyCompactMeta,reorderFor} from '@/lib/company-items.mjs'
 import {COMPANY_ROW_LAYOUT_DEFAULTS,COMPANY_ROW_POSITION_FIELDS,normalizeCompanyRowLayout,companyRowPosition,companyRowStyle} from '@/lib/company-row-layout.mjs'
 
 /** All item information is rendered once, in the row selected by the company layout. */
-export function CompanyItemDetails({row,visibleFields={},layout={}}){
+export function CompanyItemDetails({row,visibleFields={},layout={},preview=false}){
  const item=row.item||{},meta=companyCompactMeta(item,visibleFields),size=meta.find(x=>x.key==='size')
  const p=normalizeCompanyRowLayout(layout)
  const cells=[
-  ...(size?[{key:'size',node:<strong className="company-item-size">{size.value}</strong>}]:[]),
+  ...(size?[{key:'size',node:<strong className={preview?'company-layout-sample-size':'company-item-size'}>{size.value}</strong>}]:[]),
   ...(visibleFields.max!==false?[{key:'max',node:<span className="company-item-meta company-meta-max">Max <b>{row.max_stock_review?'Review':qty(row.target_stock)}</b></span>}]:[]),
   ...(visibleFields.reorder!==false?[{key:'reorder',node:<span className="company-item-meta company-meta-reorder">Reorder <b>{row.max_stock_review?'—':qty(row.reorder_level??reorderFor(row.target_stock))}</b></span>}]:[]),
   ...meta.filter(x=>x.key!=='size').map(x=>({key:'details:'+x.key,position:'details',node:<span className="company-item-meta company-meta-other">{x.label&&<span className="company-meta-label">{x.label} </span>}{x.value}</span>}))
  ]
  const at=place=>cells.filter(x=>companyRowPosition(p,x.position||x.key)===place)
  return <div className="company-item-presentation">
-  <div className="company-item-line company-first-line"><strong className="company-item-name">{item.description}</strong>{at('first').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>
+  <div className="company-item-line company-first-line"><strong className={preview?'company-layout-sample-name':'company-item-name'}>{item.description}</strong>{at('first').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>
   {at('second').length>0&&<div className="company-item-line company-second-line">{at('second').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>}
  </div>
 }
@@ -57,7 +57,7 @@ export function CompanyRowLayoutControls({company,onSaved,flash,fail}){
    </div>
    <div className="company-layout-preview" style={companyRowStyle(draft)}>
     <span className="muted tiny">Live preview</span>
-    <CompanyItemDetails row={preview} visibleFields={fields} layout={draft}/>
+    <CompanyItemDetails row={preview} visibleFields={fields} layout={draft} preview/>
    </div>
    <div className="toolbar section"><button type="button" className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save company layout'}</button><button type="button" className="btn" disabled={busy} onClick={()=>setDraft({...COMPANY_ROW_LAYOUT_DEFAULTS})}>Reset layout to default</button></div>
   </div>
