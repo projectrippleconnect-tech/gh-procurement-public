@@ -75,6 +75,11 @@ jobs:
         env:
           GH_UI_STOCK_NUMBERS: '1'
         run: npm run test:ui
+      - name: Verify held stock search and draft restoration
+        env:
+          GH_UI_HELD_SEARCH: '1'
+          GH_UI_WIDTHS: '390,1366'
+        run: npm run test:ui
       - name: Verify guided layouts at mobile, tablet and desktop widths
         run: npm run test:ui
       - name: Verify automatic three-stage procurement progression

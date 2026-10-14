@@ -106,7 +106,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const paperOcr=feature('stock.paper_ocr')
 
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
- const[items,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
+ const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
  const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
@@ -115,6 +115,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const[ocrBusy,setOcrBusy]=useState(false),[ocrProgress,setOcrProgress]=useState(null),[ocrRows,setOcrRows]=useState([])
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
+ const[heldSearch,setHeldSearch]=useState(null)
  const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false)
  const[quickItem,setQuickItem]=useState(null),[quickValue,setQuickValue]=useState(''),[urgentBusy,setUrgentBusy]=useState(false)
  const startedAt=useRef(null),startPromise=useRef(null),quickInput=useRef(null),guidedInput=useRef(null)
@@ -145,6 +146,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   }
   setEntry(normalizeQuantityDraft(chosen.entry||{}));setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
   if(chosen.filters){
+   if(chosen.filters.heldSearch?.query?.trim()){setHeldSearch(chosen.filters.heldSearch);setSearchTerm(chosen.filters.heldSearch.query)}
    if(chosen.filters.cat!==undefined)setCat(chosen.filters.cat)
    if(chosen.filters.movement!==undefined)setMovement(chosen.filters.movement)
    if(chosen.filters.mainGroup!==undefined)setMainGroup(chosen.filters.mainGroup)
@@ -155,7 +157,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  useEffect(()=>{
   if(!draftReady)return
   const savedAt=new Date().toISOString()
-  const filters={cat,movement,mainGroup,dueOnly}
+  const filters={cat,movement,mainGroup,dueOnly,heldSearch}
   const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
   // Save locally immediately so leaving the screen cannot cancel the last keystroke.
   let localSaved=false,cancelled=false
@@ -180,7 +182,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    }
   },650)
   return()=>{cancelled=true;clearTimeout(timer)}
- },[entry,cursor,skipped,cat,movement,mainGroup,dueOnly,draftReady,serverDrafts,profile.id,draftKey,draftRetry])
+ },[entry,cursor,skipped,cat,movement,mainGroup,dueOnly,heldSearch,draftReady,serverDrafts,profile.id,draftKey,draftRetry])
 
  useEffect(()=>{(async()=>{try{
   const r=await supabase.rpc('proc_item_filter_options_v1')
@@ -243,10 +245,17 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   return()=>controller.abort()
  },[profile.id,searchOpen])
  const localSearchIndex=useMemo(()=>{
-  const rows=new Map(items.map(row=>[row.item_id,row]))
+  const rows=new Map(loadedItems.map(row=>[row.item_id,row]))
   for(const row of searchCatalogue)rows.set(row.item_id,row)
   return indexStockItems([...rows.values()].sort((a,b)=>(a.description||'').localeCompare(b.description||'')))
- },[items,searchCatalogue])
+ },[loadedItems,searchCatalogue])
+ const items=useMemo(()=>heldSearch?searchStockItems(localSearchIndex,heldSearch.query,heldSearch.filters||{},Infinity):loadedItems,[heldSearch,localSearchIndex,loadedItems])
+ function releaseHeldSearch(){setHeldSearch(null);setCursor(0);setBrowsePage(0)}
+ function holdSearchResults(){
+  if(!searchTerm.trim()||!catalogueReady)return
+  setHeldSearch({query:searchTerm.trim(),filters:searchScope==='current'?{category:cat,main_group:mainGroup,movement}:{}})
+  setCursor(0);setBrowsePage(0);setViewMode('browse');setSearchOpen(false)
+ }
  const visibleSearchResults=useMemo(()=>{
   const filters=searchScope==='current'?{category:cat,main_group:mainGroup,movement}:{}
   const local=searchStockItems(localSearchIndex,searchTerm,filters)
@@ -568,7 +577,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    {canManage&&feature('stock.paper_checklists')&&filtersOpen&&<div className="toolbar section no-print"><button className="btn" onClick={()=>movementPdf('FAST')}>FAST Checklist PDF</button><button className="btn" onClick={()=>movementPdf('NORMAL')}>NORMAL Checklist PDF</button><button className="btn" onClick={()=>movementPdf('SLOW')}>SLOW Checklist PDF</button><button className="btn" onClick={stockPdf}>Stock Taking PDF</button></div>}
   </div>
 
-  {viewMode==='guided'&&<div className="card pad section guided-count-shell">{loading?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
+  {heldSearch&&<div className="card pad section stock-held-summary" role="status"><div><strong>Held for stock entry: {heldSearch.query}</strong><p>{items.length} matching items · All sizes stay here until you release them.</p></div><button type="button" className="btn small" onClick={releaseHeldSearch}>Release results</button></div>}
+  {viewMode==='guided'&&<div className="card pad section guided-count-shell">{(heldSearch?!catalogueReady:loading)?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
    <div className="guided-progress-head"><div><strong>{completedCount} counted</strong><span>{skippedCurrent} {t('stock.skipped','skipped')} · {remainingCount} {t('stock.remaining','remaining')}</span></div><b>{cursor+1} / {items.length}</b></div>
    <div className="guided-progress"><i style={{width:(items.length?Math.min(100,(completedCount/items.length)*100):0)+'%'}}/></div>
 
@@ -582,7 +592,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    </div>
   </>}</div>}
 
-  {viewMode==='browse'&&<div className="card pad section stock-fast-panel">{loading?<Empty>{t('common.loading','Loading…')}</Empty>:browseItems.length===0?<Empty>{t('stock.no_items','No items in this queue.')}</Empty>:<>
+  {viewMode==='browse'&&<div className="card pad section stock-fast-panel">{(heldSearch?!catalogueReady:loading)?<Empty>{t('common.loading','Loading…')}</Empty>:browseItems.length===0?<Empty>{t('stock.no_items','No items in this queue.')}</Empty>:<>
    <div className="stock-fast-head">
     <div><h3>{t('stock.browse','Fast Entry')}</h3><p><b>{completedCount}</b> {t('stock.counted','entered')} · <b>{Math.max(items.length-completedCount,0)}</b> {t('stock.pending','not entered')}</p></div>
     <div className="stock-page-tools">
@@ -627,6 +637,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
      {searchTerm&&<button className="btn small" onClick={()=>setSearchTerm('')}>{t('common.clear','Clear')}</button>}
     </div>
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
+    <label className="stock-search-hold"><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span><strong>Hold these results for stock entry</strong><small>{catalogueReady?'Keep all matching items in Stock Entry until released.':'Preparing all matching items…'}</small></span></label>
     <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
       <div><strong>{itemTitle(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.category].filter(Boolean).join(' › ')}</small></div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>

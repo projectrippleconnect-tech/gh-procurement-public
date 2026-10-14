@@ -320,6 +320,30 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_HELD_SEARCH==='1'){
+   await navigate('✓ Stock Entry')
+   await page.locator('.stock-search-launch').click()
+   await page.locator('#stock-global-search').fill('Fixture')
+   await page.locator('.stock-search-hold input').click()
+   await page.locator('.stock-held-summary').waitFor()
+   const stock=page.locator(width<=700?'.browse-stock-input':'section:not([hidden]) .desktop-table input.stock-entry').filter({visible:true}).first()
+   await stock.fill('7')
+   await navigate('⌂ Home');await navigate('✓ Stock Entry')
+   await page.locator('.stock-held-summary').waitFor()
+   assert.equal(await stock.inputValue(),'7')
+   await page.locator('.stock-search-launch').click()
+   await page.locator('.stock-search-result').first().click()
+   await page.locator('.stock-quick-modal .guided-entry input').fill('8')
+   await page.getByRole('button',{name:'Save Stock',exact:true}).click()
+   assert.equal(await stock.inputValue(),'8')
+   assert.equal(await page.locator('.stock-held-summary').count(),1)
+   await page.getByRole('button',{name:'Release results',exact:true}).click()
+   await page.locator('.stock-held-summary').waitFor({state:'hidden'})
+   assert.equal(await stock.inputValue(),'8','Releasing the search preserves entered stock')
+   assert.deepEqual(errors,[])
+   console.log('PASS held stock search, draft restore, quick entry and release '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_SETTINGS_SEARCH==='1'){
    await navigate('⚙ Admin')
    const search=page.getByLabel('Search settings',{exact:true})
