@@ -2,6 +2,7 @@
 import {useMemo,useState,useEffect} from 'react'
 import {supabase} from '@/lib/supabase'
 import {sectionPaths,validSectionParent} from '@/lib/company-section-tree.mjs'
+import {companyApi} from './company-controls'
 
 const formDefault={name:'',parent_id:'',color:'',sort_order:0}
 export function CompanySectionManager({company,sections=[],rows=[],onChanged,flash,fail}){
@@ -49,6 +50,13 @@ export function CompanySectionManager({company,sections=[],rows=[],onChanged,fla
  return <details className="company-section-manager section">
   <summary>Manage sections & nested categories</summary>
   <p className="muted tiny">Sections belong only to {company?.name||'the selected company'}. Add unlimited subsections, move whole branches, color headers, and move selected stock rows without changing shared item names or historical counts.</p>
+  {String(company?.name||'').trim().toUpperCase()==='PANEL SHEETS'&&<div className="section">
+   <button type="button" className="btn primary" disabled={busy} onClick={()=>run(async()=>{
+    const result=await companyApi('sheets',{action:'sync_ceiling_sections',companyId:company.id})
+    flash('Ceiling Fittings hierarchy synchronized: '+result.created+' headings added, '+result.moved+' existing items moved. Manual categories and stock numbers preserved.')
+   })}>Sync Ceiling Fittings hierarchy from Google Sheet</button>
+   <p className="muted tiny">White Plain, Black Line and Teak (Plain / Black Line) are nested beneath Panel Sheets / Ceiling Fittings. Existing manually placed products stay where staff moved them.</p>
+  </div>}
   <div className="company-section-editor">
    <h4>{editId?'Edit section':'Create a section / subsection'}</h4>
    <div className="company-layout-controls">
