@@ -86,7 +86,7 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,footer,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
  const[stockTab,setStockTab]=useState('general')
  const[submission,setSubmission]=useState(null)
@@ -96,6 +96,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const feature=(key,fallback=true)=>features.find(x=>x.feature_key===key)?.enabled??fallback
  const cycleCfg=features.find(x=>x.feature_key==='stock.cycle_counting')?.config||{}
  const mobileCfg=features.find(x=>x.feature_key==='stock.mobile_entry')?.config||{}
+ const guidedCountEnabled=settings.stock_guided_count_enabled===true
  const dailyTarget=Math.max(10,Number(cycleCfg.daily_target||75))
  const allowedPageSizes=Array.isArray(mobileCfg.allowed_page_sizes)?mobileCfg.allowed_page_sizes.filter(x=>[20,50,100].includes(Number(x))).map(Number):[20,50,100]
  const defaultPageSize=allowedPageSizes.includes(Number(mobileCfg.default_page_size))?Number(mobileCfg.default_page_size):20
@@ -108,6 +109,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
  const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
+ useEffect(()=>{if(!guidedCountEnabled)setViewMode('browse')},[guidedCountEnabled])
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
  const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[sheetFile,setSheetFile]=useState(null),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
@@ -552,10 +554,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
 
   <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{setSearchTerm(item.item_code);setSearchOpen(true);await load()}}/>
    <StockPrintDialog profile={profile} company={company} can={can} fail={fail}/>
-   <div className="stock-mode-tabs section">
+   {guidedCountEnabled&&<div className="stock-mode-tabs section">
     <button className={'btn '+(viewMode==='guided'?'primary':'')} onClick={()=>setViewMode('guided')}>{t('stock.guided','Guided Count')}</button>
     <button className={'btn '+(viewMode==='browse'?'primary':'')} onClick={()=>setViewMode('browse')}>{t('stock.browse','Fast Entry')}</button>
-   </div>
+   </div>}
 
    {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:items.length+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
 
@@ -578,7 +580,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   </div>
 
   {heldSearch&&<div className="card pad section stock-held-summary" role="status"><div><strong>Held for stock entry: {heldSearch.query}</strong><p>{items.length} matching items · All sizes stay here until you release them.</p></div><button type="button" className="btn small" onClick={releaseHeldSearch}>Release results</button></div>}
-  {viewMode==='guided'&&<div className="card pad section guided-count-shell">{(heldSearch?!catalogueReady:loading)?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
+  {guidedCountEnabled&&viewMode==='guided'&&<div className="card pad section guided-count-shell">{(heldSearch?!catalogueReady:loading)?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
    <div className="guided-progress-head"><div><strong>{completedCount} counted</strong><span>{skippedCurrent} {t('stock.skipped','skipped')} · {remainingCount} {t('stock.remaining','remaining')}</span></div><b>{cursor+1} / {items.length}</b></div>
    <div className="guided-progress"><i style={{width:(items.length?Math.min(100,(completedCount/items.length)*100):0)+'%'}}/></div>
 
@@ -592,9 +594,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
    </div>
   </>}</div>}
 
-  {viewMode==='browse'&&<div className="card pad section stock-fast-panel">{(heldSearch?!catalogueReady:loading)?<Empty>{t('common.loading','Loading…')}</Empty>:browseItems.length===0?<Empty>{t('stock.no_items','No items in this queue.')}</Empty>:<>
+  {(!guidedCountEnabled||viewMode==='browse')&&<div className="card pad section stock-fast-panel">{(heldSearch?!catalogueReady:loading)?<Empty>{t('common.loading','Loading…')}</Empty>:browseItems.length===0?<Empty>{t('stock.no_items','No items in this queue.')}</Empty>:<>
    <div className="stock-fast-head">
-    <div><h3>{t('stock.browse','Fast Entry')}</h3><p><b>{completedCount}</b> {t('stock.counted','entered')} · <b>{Math.max(items.length-completedCount,0)}</b> {t('stock.pending','not entered')}</p></div>
+    <div>{guidedCountEnabled&&<h3>{t('stock.browse','Fast Entry')}</h3>}<p><b>{completedCount}</b> {t('stock.counted','entered')} · <b>{Math.max(items.length-completedCount,0)}</b> {t('stock.pending','not entered')}</p></div>
     <div className="stock-page-tools">
      <label><span>{t('stock.page_size','Rows per page')}</span><ModernSelect className="select dense-page-select" value={browsePageSize} onChange={e=>{setBrowsePageSize(Number(e.target.value));setBrowsePage(0)}}>{allowedPageSizes.map(n=><option key={n} value={n}>{n}</option>)}</ModernSelect></label>
      <label><span>{t('stock.jump','Jump to page')}</span><ModernSelect className="select dense-page-select" value={browsePage} onChange={e=>setBrowsePage(Number(e.target.value))}>{Array.from({length:browsePages},(_,n)=><option key={n} value={n}>{n+1}</option>)}</ModernSelect></label>
