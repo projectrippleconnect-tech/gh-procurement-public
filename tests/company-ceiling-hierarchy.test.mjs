@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {parseCompanySheet} from '../lib/company-items.mjs'
-import {PANEL_CEILING_PATHS,withPanelCeilingPaths,reconcilePanelCeilingSections} from '../lib/company-ceiling-hierarchy.mjs'
+import {PANEL_CEILING_PATHS,withPanelCeilingPaths,panelCeilingRowsFromDatabase,reconcilePanelCeilingSections} from '../lib/company-ceiling-hierarchy.mjs'
 
 const source=[
  [],['GI CHANNEL'],['SIZE'],['GI Channel 35mm','200'],[],[],[],
@@ -68,4 +68,18 @@ test('original White, Black and Teak import keys remain stable after adding nest
  }
  assert.equal(before.length,9)
  assert.equal(after.length,12)
+})
+
+test('database-only reconciliation maps legacy colour labels without Sheets access',()=>{
+ const existing=[
+  {source_key:'legacy-white',item:{description:"CEILING FITTINGS MAINTEE 12'",subgroup:'CEILING FITTINGS',colour:'WHITE'}},
+  {source_key:'legacy-black',item:{description:"CEILING FITTINGS CROSSTEE 12'",subgroup:'CEILING FITTINGS',colour:'BLACK'}},
+  {source_key:'legacy-teak',item:{description:"CEILING FITTINGS WALL ANGLE 10'",subgroup:'CEILING FITTINGS',colour:'TEAK'}},
+  {source_key:'gi',item:{description:'GI Channel',subgroup:'GI CHANNEL',colour:'WHITE'}}
+ ]
+ assert.deepEqual(panelCeilingRowsFromDatabase(existing),[
+  {source_key:'legacy-white',section_path:PANEL_CEILING_PATHS[2]},
+  {source_key:'legacy-black',section_path:PANEL_CEILING_PATHS[3]},
+  {source_key:'legacy-teak',section_path:PANEL_CEILING_PATHS[4]}
+ ])
 })
