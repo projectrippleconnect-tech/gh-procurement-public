@@ -72,13 +72,13 @@ END $$;
 
 -- Reparenting an ancestor into its own child must fail.
 DO $$
-DECLARE parent_id uuid; child_id uuid;
+DECLARE v_parent uuid; v_child uuid;
 BEGIN
- SELECT id INTO parent_id FROM public.proc_company_sections
+ SELECT id INTO v_parent FROM public.proc_company_sections
  WHERE company_id='10000000-0000-4000-8000-000000000001' AND name='Electrical';
- SELECT id INTO child_id FROM public.proc_company_sections WHERE parent_id=parent_id AND name='Switches';
+ SELECT id INTO v_child FROM public.proc_company_sections WHERE parent_id=v_parent AND name='Switches';
  BEGIN
-  UPDATE public.proc_company_sections SET parent_id=child_id WHERE id=parent_id;
+  UPDATE public.proc_company_sections SET parent_id=v_child WHERE id=v_parent;
   RAISE EXCEPTION 'Circular section movement was allowed';
  EXCEPTION WHEN raise_exception THEN
   IF SQLERRM NOT LIKE '%descendants%' THEN RAISE; END IF;
