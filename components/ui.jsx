@@ -25,7 +25,7 @@ export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
 export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavigate,t=(k,f)=>f||k}){
- if(!['stock','requirements','rfq','po','receiving'].includes(view))return null
+ if(!['requirements','rfq','po','receiving'].includes(view))return null
  const receiving=view==='receiving',stage=stageForTask(step,view)
  const current=PROCUREMENT_STEPS.find(s=>s.id===step)||PROCUREMENT_STEPS[0]
  const available=PROCUREMENT_STEPS.filter(s=>canStep(s.id))
