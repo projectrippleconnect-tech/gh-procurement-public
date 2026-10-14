@@ -233,15 +233,15 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
    <div className="tablewrap section company-items-grid"><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
-    <tbody>{shown.map(r=><tr key={r.id} className={r.max_stock_review?'company-review-row':''}>
+    {grouped.map(group=><tbody key={group.key}><tr className="company-category-row"><th colSpan={3}>{group.title} <small>({group.items.length})</small></th></tr>{group.items.map(r=><tr key={r.id} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
      <td><strong className="company-item-name">{r.item?.description}</strong>
-      <div className="company-item-meta">
-       {visibleFields.max!==false&&<span>Max: <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
-       {visibleFields.reorder!==false&&<span>Reorder: <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
-       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
-      </div>
+      <span className="company-item-meta">
+       {visibleFields.max!==false&&<span>Max <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
+       {visibleFields.reorder!==false&&<span>Reorder <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
+       {companyCompactMeta(r.item,visibleFields).map(meta=><span key={meta.key}>{meta.label&&<span className="company-meta-label">{meta.label} </span>}{meta.value}</span>)}
+      </span>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
-      {canManage&&<details className="company-item-edit"><summary>Edit item</summary><div className="company-item-edit-fields">
+      {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
        {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
        {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
@@ -250,7 +250,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
      </td>
      <td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>
      <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
-    </tr>)}</tbody>
+    </tr>)}</tbody>)}
    </table></div>
   </>}</div>
   {companyId&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
