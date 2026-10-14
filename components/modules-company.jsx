@@ -14,7 +14,9 @@ import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
-import {reorderFor,defaultCompanyFields,groupCompanyRows,companyCompactMeta} from '@/lib/company-items.mjs'
+import {reorderFor,defaultCompanyFields,groupCompanyRows} from '@/lib/company-items.mjs'
+import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
+import {normalizeCompanyRowLayout,companyRowStyle} from '@/lib/company-row-layout.mjs'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -148,6 +150,7 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
  const grouped=useMemo(()=>groupCompanyRows(shown),[shown])
  const currentCompany=companies.find(c=>c.id===companyId)
+ const rowLayout=normalizeCompanyRowLayout(currentCompany?.visible_fields?.row_layout)
  useEffect(()=>{setVisibleFields({...defaultCompanyFields,...currentCompany?.visible_fields})},[companyId,currentCompany?.updated_at])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
  async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
@@ -226,20 +229,15 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('')}}>Clear filters</button></details>}
   </div>
-
+  {canManage&&<CompanyRowLayoutControls company={currentCompany} flash={flash} fail={fail} onSaved={saved=>{setCompanies(list=>list.map(c=>c.id===saved.id?{...c,...saved}:c));setVisibleFields({...defaultCompanyFields,...saved.visible_fields})}}/>}
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:shown.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
    <div className="muted tiny">{shown.length} item(s) · entered quantities are saved locally until submission.</div>
-   <div className="tablewrap section company-items-grid"><table className="table">
+   <div className="tablewrap section company-items-grid" style={companyRowStyle(rowLayout)}><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
     {grouped.map(group=><tbody key={group.key}><tr className="company-category-row"><th colSpan={3}>{group.title} <small>({group.items.length})</small></th></tr>{group.items.map(r=><tr key={r.id} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
-     <td><strong className="company-item-name">{r.item?.description}</strong>
-      <span className="company-item-meta">
-       {visibleFields.max!==false&&<span>Max <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
-       {visibleFields.reorder!==false&&<span>Reorder <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
-       {companyCompactMeta(r.item,visibleFields).map(meta=><span key={meta.key}>{meta.label&&<span className="company-meta-label">{meta.label} </span>}{meta.value}</span>)}
-      </span>
+     <td><CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
