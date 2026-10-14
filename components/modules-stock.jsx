@@ -8,7 +8,8 @@ import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {exportMovementChecklistPdf,exportStockSheetPdf} from '@/lib/pdf'
 import {extractDocumentTextFile} from '@/lib/price-list-extract'
-import {allRows} from '@/lib/query-pages'
+import {allRows,containsAny} from '@/lib/query-pages'
+import {indexStockItems,searchStockItems,stockSearchColumns} from '@/lib/stock-search.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {ItemLabel,Badge,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
@@ -114,6 +115,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
  const[ocrBusy,setOcrBusy]=useState(false),[ocrProgress,setOcrProgress]=useState(null),[ocrRows,setOcrRows]=useState([])
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
+ const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false)
  const[quickItem,setQuickItem]=useState(null),[quickValue,setQuickValue]=useState(''),[urgentBusy,setUrgentBusy]=useState(false)
  const startedAt=useRef(null),startPromise=useRef(null),quickInput=useRef(null),guidedInput=useRef(null)
  const draftKey='gh-stock-count-draft:'+profile.id
@@ -223,39 +225,58 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   return()=>{vv.removeEventListener('resize',update);vv.removeEventListener('scroll',update)}
  },[searchOpen])
 
+ // Warm a lightweight catalogue before typing; refresh it when search reopens.
  useEffect(()=>{
-  if(!searchOpen){setSearchResults([]);setSearchBusy(false);return}
+  const controller=new AbortController()
+  ;(async()=>{try{
+   let rows=[]
+   for(let offset=0;;offset+=500){
+    const r=await supabase.from('proc_items').select(stockSearchColumns).eq('active',true)
+     .order('description').order('id').range(offset,offset+499).abortSignal(controller.signal)
+    if(controller.signal.aborted)return
+    if(r.error)throw r.error
+    rows=rows.concat(r.data||[])
+    setSearchCatalogue(indexStockItems(rows))
+    if((r.data||[]).length<500){setCatalogueReady(true);break}
+   }
+  }catch{/* The bounded direct search remains available if catalogue loading fails. */}})()
+  return()=>controller.abort()
+ },[profile.id,searchOpen])
+ const localSearchIndex=useMemo(()=>{
+  const rows=new Map(items.map(row=>[row.item_id,row]))
+  for(const row of searchCatalogue)rows.set(row.item_id,row)
+  return indexStockItems([...rows.values()].sort((a,b)=>(a.description||'').localeCompare(b.description||'')))
+ },[items,searchCatalogue])
+ const visibleSearchResults=useMemo(()=>{
+  const filters=searchScope==='current'?{category:cat,main_group:mainGroup,movement}:{}
+  const local=searchStockItems(localSearchIndex,searchTerm,filters)
+  const seen=new Set(local.map(row=>row.item_id))
+  return [...local,...searchStockItems(searchResults,searchTerm,filters).filter(row=>!seen.has(row.item_id))].slice(0,30)
+ },[localSearchIndex,searchTerm,searchScope,cat,mainGroup,movement,searchResults])
+ useEffect(()=>{
+  setSearchResults([])
   const term=searchTerm.trim()
-  if(!term){setSearchResults([]);setSearchBusy(false);return}
-  const t=setTimeout(async()=>{
-   setSearchBusy(true)
-   const scoped=searchScope==='current'
-   try{
-    const r=await supabase.rpc('proc_search_stock_items_v1',{
-     p_query:term,
-     p_category:scoped?(cat||null):null,
-     p_main_group:scoped?(mainGroup||null):null,
-     p_movement:scoped?(movement||null):null,
-     p_limit:30
-    })
-    if(!r.error){setSearchResults(r.data||[]);return}
-
-    const safe=term.replace(/[,%()]/g,' ').trim()
-    if(!safe){setSearchResults([]);return}
-    const pattern='%'+safe+'%'
-    let q=supabase.from('proc_items').select('id,item_code,category,brand,description,main_group,subgroup,size,uom,movement,max_stock,reorder_level').eq('active',true)
-      .or('item_code.ilike.'+pattern+',description.ilike.'+pattern+',brand.ilike.'+pattern+',category.ilike.'+pattern+',main_group.ilike.'+pattern+',subgroup.ilike.'+pattern+',size.ilike.'+pattern+',uom.ilike.'+pattern)
-      .order('description').limit(30)
-    if(scoped&&cat)q=q.eq('category',cat)
-    if(scoped&&mainGroup)q=q.eq('main_group',mainGroup)
-    if(scoped&&movement)q=q.eq('movement',movement)
-    const f=await q
-    if(f.error)throw f.error
-    setSearchResults((f.data||[]).map(x=>({...x,item_id:x.id,book_stock:null,is_due:null})))
-   }catch(e){fail(e)}finally{setSearchBusy(false)}
-  },160)
-  return()=>clearTimeout(t)
- },[searchOpen,searchTerm,searchScope,cat,mainGroup,movement,fail])
+  if(!searchOpen||!term||catalogueReady){setSearchBusy(false);return}
+  const controller=new AbortController()
+  setSearchBusy(true)
+  ;(async()=>{try{
+   // Search the item table directly, avoiding the expensive stock-history RPC.
+   let q=supabase.from('proc_items').select(stockSearchColumns).eq('active',true)
+    .or(containsAny(['item_code','description','brand','category','main_group','subgroup','size','uom'],term))
+    .order('description').order('id').limit(30).abortSignal(controller.signal)
+   if(searchScope==='current'){
+    if(cat)q=q.eq('category',cat)
+    if(mainGroup)q=q.eq('main_group',mainGroup)
+    if(movement)q=q.eq('movement',movement)
+   }
+   const r=await q
+   if(controller.signal.aborted)return
+   if(r.error)throw r.error
+   setSearchResults(indexStockItems(r.data||[]))
+  }catch(e){if(!controller.signal.aborted)fail(e)}
+  finally{if(!controller.signal.aborted)setSearchBusy(false)}})()
+  return()=>controller.abort()
+ },[searchOpen,searchTerm,searchScope,cat,mainGroup,movement,catalogueReady,fail])
 
  async function ensureServerCountStart(){
   if(startedAt.current)return startedAt.current
@@ -606,7 +627,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
      {searchTerm&&<button className="btn small" onClick={()=>setSearchTerm('')}>{t('common.clear','Clear')}</button>}
     </div>
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
-    <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy?<Empty>{t('stock.searching','Searching all items…')}</Empty>:searchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:searchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
+    <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
       <div><strong>{itemTitle(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.category].filter(Boolean).join(' › ')}</small></div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>
      </button>)}</div>
