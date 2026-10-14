@@ -54,3 +54,18 @@ test('reconcile rejects unrelated companies without database writes',async()=>{
  assert.deepEqual(await reconcilePanelCeilingSections(never,{name:'ORANGE'},[{section_path:PANEL_CEILING_PATHS[2]}]),
   {created:0,moved:0,matched:0,skipped:0})
 })
+
+test('original White, Black and Teak import keys remain stable after adding nested headings',()=>{
+ const legacy=source.map(r=>[...r])
+ legacy[7]=['CEILING FITTINGS']
+ legacy[8]=['DESCRIPTION','WHITE','BLACK','TEAK']
+ const before=parse(legacy).filter(r=>r.subgroup==='CEILING FITTINGS')
+ const after=parse(source).filter(r=>r.subgroup==='CEILING FITTINGS')
+ for(const older of before){
+  const replacement=after.find(r=>r.source_position===older.source_position)
+  assert.ok(replacement,'original variant position is preserved')
+  assert.equal(replacement.source_key,older.source_key)
+ }
+ assert.equal(before.length,9)
+ assert.equal(after.length,12)
+})
