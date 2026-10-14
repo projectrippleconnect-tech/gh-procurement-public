@@ -458,6 +458,12 @@ try{
   }
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
    await navigate('✓ Stock Entry')
+   await page.locator('.stock-work-header').getByRole('button',{name:'Filters',exact:true}).click()
+   assert.equal(await page.locator('.stock-filter-panel input[type="file"]').count(),0,'Paper sheet upload is not shown in Stock Entry')
+   for(const label of ['FAST Checklist PDF','NORMAL Checklist PDF','SLOW Checklist PDF','Stock Taking PDF']){
+    assert.equal(await page.getByRole('button',{name:label,exact:true}).count(),0,label+' is not shown in Stock Entry')
+   }
+   assert.equal(await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).count(),1,'The separate customizable printing tool is preserved')
    await page.getByRole('tab',{name:'Company Items',exact:true}).click()
    const view=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
    await view.locator('.company-item-name').first().waitFor()
