@@ -632,7 +632,12 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .company-stock-details{grid-column:1/-1;min-width:0}.company-stock-details>summary{font-size:11px;color:var(--muted);cursor:pointer;min-height:28px;padding:5px 0}.company-tools-content{display:grid;gap:8px;min-width:0}.company-tools-content>.btn{justify-self:start;max-width:100%;white-space:normal}
 @media(max-width:700px){.company-stock-search{grid-template-columns:minmax(0,1fr)}.company-stock-title h3{font-size:15px}.company-stock-title .btn{min-height:40px}.company-stock-rows{margin-top:4px}}
 
-.stock-search-hold{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--line);flex:0 0 auto;cursor:pointer}.stock-search-hold input{width:20px;height:20px;flex-shrink:0;accent-color:var(--brand2)}.stock-search-hold span{display:grid;gap:4px;min-width:0}.stock-search-hold small{color:var(--muted)}.stock-held-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.stock-held-summary p{margin:5px 0 0;color:var(--muted)}
+.stock-search-hold{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--line);flex:0 0 auto;cursor:pointer}.stock-search-hold input{width:20px;height:20px;flex-shrink:0;accent-color:var(--brand2)}.stock-search-hold span{display:grid;gap:4px;min-width:0}.stock-search-hold small{color:var(--muted)}.stock-held-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-width:0;padding:10px 12px;margin:10px 0;border:1px solid var(--line);border-radius:12px;background:rgba(255,176,0,.055)}
+.stock-held-summary-info{min-width:0;flex:1 1 170px;overflow-wrap:anywhere}
+.stock-held-summary-info strong{display:block;font-size:13px}
+.stock-held-summary p{margin:3px 0 0;color:var(--muted);font-size:12px}
+.stock-clear-unhold{flex:0 0 auto}
+@media(max-width:420px){.stock-held-summary{gap:8px;padding:9px}.stock-clear-unhold{white-space:normal;text-align:center}}
 
 
 /* Suppliers: compact, single-line directory rows with expandable details and actions. */
