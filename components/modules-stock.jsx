@@ -269,7 +269,19 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   return indexStockItems([...rows.values()].sort((a,b)=>(a.description||'').localeCompare(b.description||'')))
  },[loadedItems,searchCatalogue])
  const items=useMemo(()=>heldSearch?searchStockItems(localSearchIndex,heldSearch.query,heldSearch.filters||{},Infinity):loadedItems,[heldSearch,localSearchIndex,loadedItems])
- function releaseHeldSearch(){setHeldSearch(null);setCursor(0);setBrowsePage(0)}
+ function releaseHeldSearch(){
+  // Return to the usual filter-based stock list in one tap.
+  // Keep entry/skipped/drafts unchanged: this is NOT a discard action.
+  setHeldSearch(null)
+  setSearchTerm('')
+  setSearchResults([])
+  setSearchError('')
+  setSearchBusy(false)
+  setSearchScope('all')
+  setSearchOpen(false)
+  setCursor(0)
+  setBrowsePage(0)
+ }
  function holdSearchResults(){
   if(!searchTerm.trim()||!catalogueReady)return
   setHeldSearch({query:searchTerm.trim(),filters:searchScope==='current'?{category:cat,main_group:mainGroup,movement}:{}})
@@ -562,6 +574,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
    <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+Object.values(entry).filter(v=>v!==''&&v!==undefined).length}</button></div></div>
+   {heldSearch&&<div className="stock-held-summary" role="status">
+    <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
+    <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>
+   </div>}
    <div className="stock-simple-flow" aria-label="Stock entry steps"><b>1 · Enter stock</b><span>→</span><b>2 · Submit Stock</b><span>→</span><b>3 · Review</b></div>
    {historyOpen&&<div className="stock-history-panel section">
     <div className="stock-history-head"><div><strong>{t('stock.history_title','Stock Submission History')}</strong><span>{t('stock.history_hint','Recount anytime. The latest count updates current stock; older submissions stay unchanged.')}</span></div><button className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button></div>
@@ -604,7 +620,6 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
 
   {stockLoadError&&<div className="card pad section" role="alert"><strong>{stockLoadError}</strong> <button type="button" className="btn small" onClick={()=>setStockLoadRetry(n=>n+1)}>Retry stock list</button></div>}
   {catalogueError&&<div className="card pad section" role="alert"><strong>{catalogueError}</strong> <button type="button" className="btn small" onClick={()=>setCatalogueRetry(n=>n+1)}>Retry stock catalogue</button></div>}
-  {heldSearch&&<div className="card pad section stock-held-summary" role="status"><div><strong>Held for stock entry: {heldSearch.query}</strong><p>{items.length} matching items · All sizes stay here until you release them.</p></div><button type="button" className="btn small" onClick={releaseHeldSearch}>Release results</button></div>}
   {guidedCountEnabled&&viewMode==='guided'&&<div className="card pad section guided-count-shell">{(heldSearch?!catalogueReady:loading)?<Empty>{t('stock.preparing','Preparing your count queue…')}</Empty>:!current?<Empty>{t('stock.none_due','No items are due in this selection.')}</Empty>:<>
    <div className="guided-progress-head"><div><strong>{completedCount} counted</strong><span>{skippedCurrent} {t('stock.skipped','skipped')} · {remainingCount} {t('stock.remaining','remaining')}</span></div><b>{cursor+1} / {items.length}</b></div>
    <div className="guided-progress"><i style={{width:(items.length?Math.min(100,(completedCount/items.length)*100):0)+'%'}}/></div>
