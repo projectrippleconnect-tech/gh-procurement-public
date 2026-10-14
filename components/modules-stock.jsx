@@ -103,7 +103,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const serverDrafts=feature('stock.server_drafts')
 
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
- const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
+ const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[sufficient,setSufficient]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  useEffect(()=>{if(!guidedCountEnabled)setViewMode('browse')},[guidedCountEnabled])
  const[activeBrowseId,setActiveBrowseId]=useState(null),[expandedBrowseId,setExpandedBrowseId]=useState(null)
@@ -141,7 +141,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    }
    }catch(e){fail(new Error('Account draft could not be loaded. Restored the draft saved on this device. '+(e.message||'')))}
   }
-  setEntry(normalizeQuantityDraft(chosen.entry||{}));setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
+  setEntry(normalizeQuantityDraft(chosen.entry||{}));setSufficient(Object.fromEntries(Object.entries(chosen.filters?.sufficient||{}).filter(([,v])=>v===true)));setCursor(Number(chosen.cursor||0));setSkipped(new Set(chosen.skipped||[]));startedAt.current=Number.isFinite(Date.parse(chosen.startedAt||''))?chosen.startedAt:null
   if(chosen.filters){
    if(chosen.filters.heldSearch?.query?.trim()){setHeldSearch(chosen.filters.heldSearch);setSearchTerm(chosen.filters.heldSearch.query)}
    if(chosen.filters.cat!==undefined)setCat(chosen.filters.cat)
@@ -154,7 +154,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  useEffect(()=>{
   if(!draftReady)return
   const savedAt=new Date().toISOString()
-  const filters={cat,movement,mainGroup,dueOnly,heldSearch}
+  const filters={cat,movement,mainGroup,dueOnly,heldSearch,sufficient}
   const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
   // Save locally immediately so leaving the screen cannot cancel the last keystroke.
   let localSaved=false,cancelled=false
@@ -179,7 +179,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    }
   },650)
   return()=>{cancelled=true;clearTimeout(timer)}
- },[entry,cursor,skipped,cat,movement,mainGroup,dueOnly,heldSearch,draftReady,serverDrafts,profile.id,draftKey,draftRetry])
+ },[entry,sufficient,cursor,skipped,cat,movement,mainGroup,dueOnly,heldSearch,draftReady,serverDrafts,profile.id,draftKey,draftRetry])
 
  useEffect(()=>{(async()=>{try{
   const r=await retryStockQuery(async()=>{const result=await supabase.rpc('proc_item_filter_options_v1');if(result.error)throw result.error;return result})
@@ -336,15 +336,21 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const raw=normalizeQuantityInput(v)
   if(raw===null)return
   if(raw!==''&&!/^\d*(?:\.\d{0,3})?$/.test(raw))return
-  beginCount();setEntry(x=>({...x,[id]:raw}));setSkipped(s=>{if(!s.has(id))return s;const n=new Set(s);n.delete(id);return n})
+  beginCount();setEntry(x=>({...x,[id]:raw}));setSufficient(s=>{if(!s[id])return s;const n={...s};delete n[id];return n});setSkipped(s=>{if(!s.has(id))return s;const n=new Set(s);n.delete(id);return n})
+ }
+ function setEnough(id,checked){
+  beginCount()
+  setSufficient(previous=>{const next={...previous};if(checked)next[id]=true;else delete next[id];return next})
+  if(checked)setSkipped(previous=>{if(!previous.has(id))return previous;const next=new Set(previous);next.delete(id);return next})
  }
  const suggested=i=>{
   const v=entry[i.item_id]
+  if(sufficient[i.item_id])return 0
   if(v===''||v===undefined)return null
   const n=Number(v)
   return Number.isFinite(n)&&n<=Number(i.reorder_level)?Math.max(Number(i.max_stock)-n,0):0
  }
- const completedCount=useMemo(()=>items.filter(i=>entry[i.item_id]!==undefined&&entry[i.item_id]!=='').length,[items,entry])
+ const completedCount=useMemo(()=>items.filter(i=>sufficient[i.item_id]||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')).length,[items,entry,sufficient])
  const skippedCurrent=useMemo(()=>items.filter(i=>skipped.has(i.item_id)).length,[items,skipped])
  const remainingCount=Math.max(items.length-completedCount-skippedCurrent,0)
  const current=items[Math.min(cursor,Math.max(items.length-1,0))]||null
@@ -353,7 +359,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(!items.length)return
   for(let step=0;step<items.length;step++){
    const idx=(from+step)%items.length,id=items[idx].item_id
-   if((entry[id]===undefined||entry[id]==='')&&!skipped.has(id)){setCursor(idx);setTimeout(()=>guidedInput.current?.focus(),40);return}
+   if(!sufficient[id]&&(entry[id]===undefined||entry[id]==='')&&!skipped.has(id)){setCursor(idx);setTimeout(()=>guidedInput.current?.focus(),40);return}
   }
   setCursor(Math.min(from,items.length-1))
  }
@@ -376,8 +382,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  async function saveNext(){
   if(!current)return
   const v=entry[current.item_id]
-  if(!isQuantityInput(v))return fail(new Error(t('stock.quantity_continue_error','Enter a valid physical stock quantity before continuing.')))
-  if(Number(v)===0&&feature('urgent.zero_stock_prompt',true))await markUrgentNow(current,0,'zero_stock')
+  if(!sufficient[current.item_id]&&!isQuantityInput(v))return fail(new Error(t('stock.quantity_continue_error','Enter a valid physical stock quantity before continuing.')))
+  if(!sufficient[current.item_id]&&Number(v)===0&&feature('urgent.zero_stock_prompt',true))await markUrgentNow(current,0,'zero_stock')
   nextUnfinished(cursor+1)
  }
  function skipCurrent(){
@@ -427,8 +433,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
 
  async function submit(){
   if(busy)return
-  const {counted,checked,remaining}=stockCountBatch(entry)
-  if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one current-stock quantity.')))
+  const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
+  if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one stock quantity or mark an item sufficient.')))
   if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
   const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
   const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
@@ -438,13 +444,13 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   try{
    await draftWrites.current
    await ensureServerCountStart()
-   const lines=checked.map(([item_id,v])=>({item_id,current_stock:Number(v)}))
+   const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v)})
    const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:null})
    if(r.error)throw r.error
    const automation=r.data?.automation||null
-   const next={...entry};checked.forEach(([id])=>delete next[id])
-   setEntry(next);setSkipped(new Set());setCursor(0)
-   if(!Object.keys(next).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
+   const next={...entry},nextSufficient={...sufficient};checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
+   setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
+   if(!Object.keys(next).length&&!Object.keys(nextSufficient).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
    let message='Stock submitted. '
    if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
    else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
@@ -459,10 +465,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  }
 
  async function discardDraft(){
-  if(!Object.keys(entry).length&&!skipped.size)return
+  if(!Object.keys(entry).length&&!Object.keys(sufficient).length&&!skipped.size)return
   await confirmDanger({title:'Discard stock draft',message:'Discard all unsent stock entries on this device/account? Submitted stock records will remain.',warning:'Unsubmitted entries will be lost. Check that you do not need them before confirming.',confirmLabel:'Confirm discard',onConfirm:async()=>{
    if(serverDrafts){await draftWrites.current;const r=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id);if(r.error)throw r.error}
-   setEntry({});setSkipped(new Set());setCursor(0);startedAt.current=null
+   setEntry({});setSufficient({});setSkipped(new Set());setCursor(0);startedAt.current=null
    try{localStorage.removeItem(draftKey)}catch{}
    flash('Stock draft discarded.')
   }})
@@ -504,7 +510,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   ...(rowField('main_group')?[{key:'main_group',label:'Main Group'}]:[]),
   ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group'}]:[]),
   ...(rowField('max_stock')?[{key:'max_stock',label:'Max',render:i=>qty(i.max_stock)}]:[]),
-  {key:'current_stock',label:'Stock',render:i=><input className="input stock-entry" inputMode="decimal" enterKeyHint="next" value={entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>}
+  {key:'current_stock',label:'Stock',render:i=><input aria-label={'Current stock: '+stockItemLabel(i)} className="input stock-entry" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[i.item_id]} value={sufficient[i.item_id]?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>},
+  {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
  ]
 
  const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
@@ -562,9 +569,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="guided-item">
     <div className="stock-card-title"><div><h2 title={stockItemLabel(current)}>{stockItemLabel(current)}</h2></div><Badge>{current.movement}</Badge></div>
     <div className="guided-meta">{[current.brand,current.uom].filter(Boolean).map(x=><span key={x}>{x}</span>)}{rowField('reorder_level',true)&&<span className="stock-reorder-value">Reorder: {qty(current.reorder_level)}</span>}</div>
-    <div className="guided-entry"><label>{t('stock.physical','Physical Stock')}</label><input ref={guidedInput} className="input" inputMode="decimal" enterKeyHint="next" value={entry[current.item_id]??''} onChange={e=>setCount(current.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveNext()}}} placeholder="Enter quantity"/></div>
+    <div className="guided-entry"><label>{t('stock.physical','Physical Stock')}</label><input ref={guidedInput} className="input" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[current.item_id]} value={sufficient[current.item_id]?'':entry[current.item_id]??''} onChange={e=>setCount(current.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();saveNext()}}} placeholder="Enter quantity"/></div>
+    <label className="stock-guided-sufficient"><input className="stock-sufficient-checkbox" type="checkbox" checked={!!sufficient[current.item_id]} onChange={e=>setEnough(current.item_id,e.target.checked)}/> Sufficient — above reorder level</label>
     {!isCounter&&<div className="guided-stats"><div><span>{t('stock.max','Maximum Stock')} <InfoButton topic="maximum_stock" language={language}/></span><b>{qty(current.max_stock)}</b></div><div><span>{t('stock.reorder','Reorder Level')} <InfoButton topic="reorder_level" language={language}/></span><b>{qty(current.reorder_level)}</b></div><div><span>{t('stock.suggested','Suggested')}</span><b className="warn-text">{suggested(current)===null?'—':qty(suggested(current))}</b></div></div>}
-    {Number(entry[current.item_id])===0&&entry[current.item_id]!==''&&entry[current.item_id]!==undefined&&<div className="urgent-zero-notice"><b>{t('stock.zero_detected','Zero stock detected')}</b><span>{t('stock.zero_push_urgent','This item will be pushed to Urgent Actions when you continue.')}</span></div>}
+    {!sufficient[current.item_id]&&Number(entry[current.item_id])===0&&entry[current.item_id]!==''&&entry[current.item_id]!==undefined&&<div className="urgent-zero-notice"><b>{t('stock.zero_detected','Zero stock detected')}</b><span>{t('stock.zero_push_urgent','This item will be pushed to Urgent Actions when you continue.')}</span></div>}
     <div className="guided-actions"><button className="btn" onClick={previous}>{t('common.previous','Previous')}</button><button className="btn" onClick={skipCurrent}>{t('stock.skip','Skip')}</button><button className="btn primary" onClick={saveNext}>{t('stock.save_next','Save & Next')}</button></div>
    </div>
   </>}</div>}
@@ -578,11 +586,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     </div>
    </div>
    <div className="stock-pagination dense-pagination"><button className="btn small" disabled={browsePage<=0} onClick={()=>setBrowsePage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><strong>{t('common.page','Page')} {browsePage+1} {t('common.of','of')} {browsePages}</strong><button className="btn small" disabled={browsePage>=browsePages-1} onClick={()=>setBrowsePage(x=>Math.min(browsePages-1,x+1))}>{t('common.next','Next')}</button></div>
-   <div className="desktop-table tablewrap"><table className="table"><thead><tr>{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{browseItems.map(i=><tr key={i.item_id} className={entry[i.item_id]!==undefined&&entry[i.item_id]!==''?'selected':''}>{cols.map(c=><td key={c.key}>{c.render?c.render(i):String(i[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
+   <div className="desktop-table tablewrap"><table className="table"><thead><tr>{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{browseItems.map(i=><tr key={i.item_id} className={sufficient[i.item_id]||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')?'selected':''}>{cols.map(c=><td key={c.key}>{c.render?c.render(i):String(i[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
    <div className="mobile-card-list browse-entry-list stock-dense-list">
-    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}</span><span>{t('stock.stock','STOCK')}</span></div>
+    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}</span><span>{t('stock.stock','STOCK')}</span><span>Sufficient</span></div>
     {browseItems.map((i,index)=>{
-     const entered=entry[i.item_id]!==undefined&&entry[i.item_id]!==''
+     const enough=!!sufficient[i.item_id]
+     const entered=enough||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')
      const expanded=expandedBrowseId===i.item_id
      const optional=[
 
@@ -593,17 +602,18 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
       rowField('subgroup')?i.subgroup:null,
       rowField('max_stock')?'MAX:'+qty(i.max_stock):null
      ].filter(Boolean)
-     return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')} key={i.item_id}>
+     return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')+(enough?' sufficient':'')} key={i.item_id}>
       <button type="button" className="stock-dense-info" title={stockItemLabel(i)} onClick={()=>setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}>
        <span className="stock-dense-title">{stockItemLabel(i)}</span>
        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
       </button>
-      <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" value={entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
+      <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
+      <label className="stock-dense-sufficient" title="Stock is above the reorder level; exact count not required"><input type="checkbox" className="stock-sufficient-checkbox" aria-label={'Sufficient stock: '+stockItemLabel(i)} checked={enough} onChange={e=>setEnough(i.item_id,e.target.checked)}/></label>
      </div>
     })}
    </div>
    <div className="stock-pagination dense-pagination bottom"><button className="btn small" disabled={browsePage<=0} onClick={()=>setBrowsePage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><strong>{t('common.page','Page')} {browsePage+1} {t('common.of','of')} {browsePages}</strong><button className="btn small" disabled={browsePage>=browsePages-1} onClick={()=>setBrowsePage(x=>Math.min(browsePages-1,x+1))}>{t('common.next','Next')}</button></div>
-   <div className="stock-draft-note" role="status" aria-live="polite"><span>{draftSave.server==='saved'||(draftSave.local&&draftSave.server==='disabled')?'✓':'•'}</span><span>{!draftReady?'Loading saved draft…':draftSave.server==='saving'?(draftSave.local?'Saved on this device · syncing…':'Saving draft…'):draftSave.server==='saved'?'Draft saved to your account.':draftSave.server==='failed'?(draftSave.local?'Saved on this device · account sync failed.':'Draft could not be saved. Keep this screen open and retry.'):draftSave.local?'Draft saved on this device.':'Draft could not be saved on this device. Keep this screen open and retry.'}</span>{draftReady&&(draftSave.server==='failed'||!draftSave.local)&&draftSave.server!=='saving'&&<button type="button" className="btn small" onClick={()=>setDraftRetry(v=>v+1)}>Retry draft save</button>}{(Object.keys(entry).length>0||skipped.size>0)&&<button type="button" className="btn small bad" onClick={discardDraft}>Discard Draft</button>}</div>
+   <div className="stock-draft-note" role="status" aria-live="polite"><span>{draftSave.server==='saved'||(draftSave.local&&draftSave.server==='disabled')?'✓':'•'}</span><span>{!draftReady?'Loading saved draft…':draftSave.server==='saving'?(draftSave.local?'Saved on this device · syncing…':'Saving draft…'):draftSave.server==='saved'?'Draft saved to your account.':draftSave.server==='failed'?(draftSave.local?'Saved on this device · account sync failed.':'Draft could not be saved. Keep this screen open and retry.'):draftSave.local?'Draft saved on this device.':'Draft could not be saved on this device. Keep this screen open and retry.'}</span>{draftReady&&(draftSave.server==='failed'||!draftSave.local)&&draftSave.server!=='saving'&&<button type="button" className="btn small" onClick={()=>setDraftRetry(v=>v+1)}>Retry draft save</button>}{(Object.keys(entry).length>0||Object.keys(sufficient).length>0||skipped.size>0)&&<button type="button" className="btn small bad" onClick={discardDraft}>Discard Draft</button>}</div>
   </>}</div>}
 
   {searchOpen&&<div className="stock-search-overlay" style={searchViewport?{height:searchViewport.height+'px',top:searchViewport.top+'px'}:undefined}>

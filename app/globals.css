@@ -691,3 +691,19 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .company-title-actions{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 .company-stock-title h3{flex:1 1 auto}
 @media(max-width:420px){.company-items-grid .company-current-col{width:70px}.company-items-grid .company-sufficient-col{width:48px}.company-items-grid th,.company-items-grid td{padding:4px 3px}.company-items-grid .company-item-name{font-size:12px}.company-items-grid .company-item-meta{font-size:10px}.company-items-grid .company-item-edit-fields{grid-template-columns:minmax(0,1fr)}.company-stock-title .btn{padding:7px 8px}}
+
+
+/* General stock entry: three compact mobile columns without sideways scrolling. */
+.stock-dense-columns,.stock-dense-row{grid-template-columns:minmax(0,1fr) 80px 68px}
+.stock-dense-columns span:nth-child(2),.stock-dense-columns span:nth-child(3){text-align:center}
+.stock-dense-columns span:nth-child(3){font-size:8.5px;letter-spacing:0}
+.stock-dense-sufficient{display:flex;align-items:center;justify-content:center;min-width:0;min-height:44px;margin:0;cursor:pointer}
+.stock-sufficient-checkbox{width:20px;height:20px;min-width:20px;cursor:pointer;accent-color:#eeb139}
+.stock-dense-row.sufficient{background:#11281f}
+.stock-dense-row.sufficient .dense-stock-input{opacity:.48}
+.stock-guided-sufficient{display:flex;align-items:center;gap:9px;margin:10px 0;cursor:pointer;font-weight:700}
+@media(max-width:390px){
+ .stock-dense-columns,.stock-dense-row{grid-template-columns:minmax(0,1fr) 70px 58px}
+ .stock-dense-columns span:nth-child(3){font-size:8px}
+ .dense-stock-input{width:61px!important}
+}
