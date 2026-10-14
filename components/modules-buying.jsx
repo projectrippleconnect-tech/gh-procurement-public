@@ -431,7 +431,30 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const cols=configuredColumns(fields,'suppliers',defaults)
  const scopeLabel=sc=>sc.scope_type==='item'?[sc.item?.description,sc.item?.size].filter(Boolean).join(' · '):`${sc.scope_type.replace('_',' ')}: ${sc.scope_value}`
  return <div className="split">
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><ModernSelect aria-label="Supplier directory type" className="select section" value={directoryKind} onChange={e=>setDirectoryKind(e.target.value)}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect><input className="input section" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section"><DataTable columns={canEdit?[...cols,{key:'actions',label:'',render:s=><div className="toolbar">{fieldEnabled(fields,'suppliers','coverage')&&<button className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}<button className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button>{canDelete&&<DeleteRecordButton profile={profile} table="proc_suppliers" record={s} label="supplier" fail={fail} onDeleted={async()=>{setCoverageSupplier(null);flash('Supplier and reviewed linked records deleted.');await load()}}/>}</div>}]:cols} rows={filtered} mobileCards/></div></div>
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><ModernSelect aria-label="Supplier directory type" className="select section" value={directoryKind} onChange={e=>setDirectoryKind(e.target.value)}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect><input className="input section" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section supplier-directory-list" aria-label="Supplier directory">
+   {filtered.length===0?<Empty/>:filtered.map(s=><details className="supplier-directory-row" key={s.id}>
+    <summary className="supplier-directory-summary">
+     <span className="supplier-directory-identity">
+      <strong className="supplier-directory-name" title={s.name}>{s.name}</strong>
+      <span className="supplier-directory-subtitle">{[fieldEnabled(fields,'suppliers','supplier_code')?s.supplier_code:null,fieldEnabled(fields,'suppliers','phone')?(toSriLankaSupplierPhone(s.phone)||s.phone):null].filter(Boolean).join(' · ')||'Supplier'}</span>
+     </span>
+     {fieldEnabled(fields,'suppliers','status')&&<span className="supplier-directory-status"><Badge>{s.active?'active':'inactive'}</Badge></span>}
+     <span className="supplier-directory-chevron" aria-hidden="true">⌄</span>
+    </summary>
+    <div className="supplier-directory-content">
+     <dl className="supplier-directory-meta">
+      {cols.filter(c=>!['name','supplier_code','status'].includes(c.key)).map(c=><div className="supplier-directory-meta-pair" key={c.key}>
+       <dt>{c.label}</dt><dd>{c.render?c.render(s):String(s[c.key]??'—')}</dd>
+      </div>)}
+     </dl>
+     {canEdit&&<div className="supplier-directory-actions">
+      {fieldEnabled(fields,'suppliers','coverage')&&<button type="button" className="btn small" onClick={()=>openCoverage(s)}>{fieldLabel(fields,'suppliers','coverage',t('suppliers.coverage','Coverage'))}</button>}
+      <button type="button" className="btn small" onClick={()=>toggle(s)}>{s.active?t('suppliers.deactivate','Deactivate'):t('suppliers.activate','Activate')}</button>
+      {canDelete&&<DeleteRecordButton profile={profile} table="proc_suppliers" record={s} label="supplier" fail={fail} onDeleted={async()=>{setCoverageSupplier(null);flash('Supplier and reviewed linked records deleted.');await load()}}/>}
+     </div>}
+    </div>
+   </details>)}
+  </div></div>
   <div className="stack">
    {canAdd&&<div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.add_title','Add Supplier')}</h3><p>{t('suppliers.add_hint','Supplier code is optional and can be generated automatically.')}</p></div></div><div className="formgrid">
     {[
