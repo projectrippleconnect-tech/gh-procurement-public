@@ -2,8 +2,11 @@
 -- No production credentials or operational records are used.
 BEGIN;
 CREATE SCHEMA private;
-CREATE ROLE authenticated;
-CREATE ROLE anon;
+DO $
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
+END $;
 CREATE OR REPLACE FUNCTION private.proc_assert_access() RETURNS void LANGUAGE plpgsql AS $$BEGIN RETURN; END$$;
 CREATE OR REPLACE FUNCTION private.proc_access_allowed() RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
 CREATE OR REPLACE FUNCTION private.proc_has_permission(text) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
