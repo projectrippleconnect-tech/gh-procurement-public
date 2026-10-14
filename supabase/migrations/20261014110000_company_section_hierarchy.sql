@@ -99,8 +99,17 @@ END $$;
 REVOKE ALL ON FUNCTION public.proc_company_seed_sections(uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.proc_company_seed_sections(uuid) TO authenticated;
 
+-- The existing company-list permission trigger expects a signed staff JWT. A
+-- one-off SQL migration deliberately has no JWT, so temporarily disable ONLY
+-- that guard while backfilling legacy section IDs. ALTER TABLE takes a lock
+-- until this transaction commits, preventing user writes while it is disabled.
+-- The constraint, reorder and numeric-integrity triggers remain active.
+-- If any statement fails, the migration transaction rolls back, including this
+-- trigger toggle. Runtime updates still require company_lists.manage.
+ALTER TABLE public.proc_company_list_items DISABLE TRIGGER a_proc_permission_guard;
+
 -- Existing section labels are migrated without changing proc_items, balances or source identities.
-DO $$
+DO $
 DECLARE r record; dest uuid;
 BEGIN
  FOR r IN SELECT cli.id,cli.company_id,i.category,i.main_group,i.subgroup
@@ -110,7 +119,9 @@ BEGIN
   dest:=private.proc_company_ensure_section_path(r.company_id,ARRAY[r.category,r.main_group,r.subgroup]);
   UPDATE public.proc_company_list_items SET section_id=dest WHERE id=r.id;
  END LOOP;
-END $$;
+END $;
+-- Restore the original permission trigger before releasing the table lock.
+ALTER TABLE public.proc_company_list_items ENABLE TRIGGER a_proc_permission_guard;
 
 ALTER TABLE public.proc_company_sections ENABLE ROW LEVEL SECURITY;
 CREATE POLICY proc_company_sections_read ON public.proc_company_sections FOR SELECT TO authenticated
