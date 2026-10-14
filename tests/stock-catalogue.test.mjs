@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {loadStockCatalogue,isTransientStockQueryError,STOCK_CATALOGUE_PAGE_SIZE} from '../lib/stock-catalogue.mjs'
+import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery,STOCK_CATALOGUE_PAGE_SIZE} from '../lib/stock-catalogue.mjs'
 
 test('catalogue loads in bounded pages, without missing held-search items',async()=>{
  const pages=[],progress=[]
@@ -80,4 +80,16 @@ test('catalogue read policies cache permission checks without changing allowed p
  assert.match(stock,/setCatalogueReady\(true\)/)
  assert.match(stock,/setCatalogueError\(/)
  assert.match(stock,/const timer=setTimeout\(/)
+})
+
+test('superseded queries stop retrying immediately',async()=>{
+ const controller=new AbortController()
+ let calls=0
+ const result=await retryStockQuery(async()=>{
+  calls++
+  controller.abort()
+  throw {code:'57014',message:'statement timeout'}
+ },{signal:controller.signal,wait:async()=>{throw new Error('must not retry aborted query')}})
+ assert.equal(result,null)
+ assert.equal(calls,1)
 })
