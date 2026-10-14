@@ -118,3 +118,30 @@ CREATE POLICY proc_company_sections_update ON public.proc_company_sections FOR U
  WITH CHECK ((SELECT private.proc_access_allowed()) AND private.proc_has_permission('company_lists.manage'));
 GRANT SELECT,INSERT,UPDATE ON public.proc_company_sections TO authenticated;
 -- This table is not deletable by staff; sections are archived or merged after reassigning their items.
+
+-- App-managed Google Sheets carry a Section Path. Only newly unassigned rows consume
+-- that path; refreshing a sheet must never override staff-edited placements.
+CREATE OR REPLACE FUNCTION public.proc_company_import_section_paths(p_company_id uuid,p_rows jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE element jsonb; parts text[]; dest uuid; changed integer:=0; key text; updated integer;
+BEGIN
+ PERFORM private.proc_assert_access();
+ IF NOT private.proc_has_permission('company_lists.manage') THEN RAISE EXCEPTION 'Company management permission required'; END IF;
+ IF jsonb_typeof(p_rows)<>'array' OR jsonb_array_length(p_rows)>15000 THEN RAISE EXCEPTION 'Invalid sheet paths'; END IF;
+ FOR element IN SELECT value FROM jsonb_array_elements(p_rows) LOOP
+  key=nullif(btrim(element->>'source_key'),'');
+  parts=string_to_array(coalesce(element->>'section_path',''),' / ');
+  IF key IS NULL OR cardinality(parts)>50 OR nullif(btrim(coalesce(element->>'section_path','')),'') IS NULL THEN CONTINUE; END IF;
+  -- Avoid creating orphaned sections for stale / unrelated spreadsheet rows.
+  IF EXISTS(SELECT 1 FROM public.proc_company_list_items
+            WHERE company_id=p_company_id AND source_key=key AND active AND section_id IS NULL) THEN
+   dest=private.proc_company_ensure_section_path(p_company_id,parts);
+   UPDATE public.proc_company_list_items SET section_id=dest
+   WHERE company_id=p_company_id AND source_key=key AND active AND section_id IS NULL;
+   GET DIAGNOSTICS updated=ROW_COUNT; changed=changed+updated;
+  END IF;
+ END LOOP;
+ RETURN changed;
+END $$;
+REVOKE ALL ON FUNCTION public.proc_company_import_section_paths(uuid,jsonb) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.proc_company_import_section_paths(uuid,jsonb) TO authenticated;
