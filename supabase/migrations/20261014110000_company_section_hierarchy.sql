@@ -55,10 +55,14 @@ CREATE TRIGGER proc_company_item_section_validate BEFORE INSERT OR UPDATE OF sec
 -- Creates or finds a section path without touching the shared proc_items group names.
 CREATE OR REPLACE FUNCTION private.proc_company_ensure_section_path(p_company uuid,p_path text[])
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE parent uuid; part text; new_id uuid;
+DECLARE parent uuid; part text; new_id uuid; seen text[]:=ARRAY[]::text[];
 BEGIN
  FOREACH part IN ARRAY p_path LOOP
   part=nullif(btrim(part),''); IF part IS NULL THEN CONTINUE; END IF;
+  -- Existing supplier sheets commonly repeat the company name in Category and
+  -- Main Group; avoid duplicate headers such as Orange / Orange / Switches.
+  IF lower(part)=ANY(seen) THEN CONTINUE; END IF;
+  seen=array_append(seen,lower(part));
   SELECT id INTO new_id FROM public.proc_company_sections
    WHERE company_id=p_company AND parent_id IS NOT DISTINCT FROM parent AND lower(name)=lower(part) AND active
    ORDER BY id LIMIT 1;
