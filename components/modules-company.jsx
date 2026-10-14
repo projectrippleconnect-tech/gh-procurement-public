@@ -14,7 +14,7 @@ import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
-import {companySuggested,reorderFor,defaultCompanyFields} from '@/lib/company-items.mjs'
+import {reorderFor,defaultCompanyFields} from '@/lib/company-items.mjs'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -129,7 +129,6 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
  const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!movement||r.item?.movement===movement)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,movement,brand])
- const suggested=r=>companySuggested(r,entry[r.id],sufficient[r.id])
  const currentCompany=companies.find(c=>c.id===companyId)
  useEffect(()=>{setVisibleFields({...defaultCompanyFields,...currentCompany?.visible_fields})},[companyId,currentCompany?.updated_at])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
@@ -202,7 +201,28 @@ export function CompanyLists({profile,company,fields,flash,fail,can=()=>false,na
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:shown.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
    <div className="muted tiny">{shown.length} item(s) · entered quantities are saved locally until submission.</div>
-   <div className="tablewrap section company-items-grid"><table className="table"><thead><tr><th>Item / description</th><th>Sufficient</th><th>Current</th>{visibleFields.max!==false&&<th>Max</th>}{visibleFields.reorder!==false&&<th>Reorder · 50%</th>}<th>Order</th>{['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><th key={k}>{k}</th>)}{canManage&&<th/>}</tr></thead><tbody>{shown.map(r=><tr key={r.id} className={r.max_stock_review?'company-review-row':''}><td>{canManage?<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/>:<strong>{r.item?.description}</strong>}<small>{[r.item?.size,r.item?.colour,r.item?.variation].filter(Boolean).join(' · ')}</small>{r.max_stock_review&&<small>Maximum stock needs admin review</small>}</td><td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td><td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>{visibleFields.max!==false&&<td>{canManage?<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input stock-entry" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>editItem(r,'target_stock',e.target.value)}/>:r.max_stock_review?'Review':qty(r.target_stock)}</td>}{visibleFields.reorder!==false&&<td><b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></td>}<td><b>{suggested(r)===null?'—':qty(suggested(r))}</b></td>{['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><td key={k}>{canManage?(k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>):r.item?.[k]||'—'}</td>)}{canManage&&<td><button className="btn small" onClick={()=>removeItem(r)}>Remove</button></td>}</tr>)}</tbody></table></div>
+   <div className="tablewrap section company-items-grid"><table className="table">
+    <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
+    <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
+    <tbody>{shown.map(r=><tr key={r.id} className={r.max_stock_review?'company-review-row':''}>
+     <td><strong className="company-item-name">{r.item?.description}</strong>
+      <div className="company-item-meta">
+       {visibleFields.max!==false&&<span>Max: <b>{r.max_stock_review?'Review':qty(r.target_stock)}</b></span>}
+       {visibleFields.reorder!==false&&<span>Reorder: <b>{r.max_stock_review?'—':qty(r.reorder_level??reorderFor(r.target_stock))}</b></span>}
+       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false&&r.item?.[k]).map(k=><span key={k}><span className="company-meta-label">{k}: </span>{r.item[k]}</span>)}
+      </div>
+      {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
+      {canManage&&<details className="company-item-edit"><summary>Edit item</summary><div className="company-item-edit-fields">
+       <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
+       {visibleFields.max!==false&&<label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>}
+       {['size','colour','variation','brand','category','subgroup','movement','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}{k==='movement'?<ModernSelect aria-label="Item movement" className="select" value={r.item?.movement||'NORMAL'} onChange={e=>editItem(r,k,e.target.value)}>{['FAST','NORMAL','SLOW'].map(m=><option key={m}>{m}</option>)}</ModernSelect>:<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/>}</label>)}
+       <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
+      </div></details>}
+     </td>
+     <td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>
+     <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
+    </tr>)}</tbody>
+   </table></div>
   </>}</div>
   {companyId&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}} onColumns={setVisibleFields}/>}
   {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
