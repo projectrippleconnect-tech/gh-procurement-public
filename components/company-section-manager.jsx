@@ -40,10 +40,11 @@ export function CompanySectionManager({company,sections=[],rows=[],onChanged,fla
  async function moveSelected(){
   const ids=Object.entries(selected).filter(([,v])=>v).map(([id])=>id)
   if(!ids.length||!target)throw new Error('Select one or more items and a destination section.')
-  const r=await supabase.from('proc_company_list_items').update({section_id:target}).eq('company_id',company.id).in('id',ids)
+  const r=await supabase.rpc('proc_company_move_list_items',{p_company_id:company.id,p_section_id:target,p_item_ids:ids})
   if(r.error)throw r.error
+  if(Number(r.data)!==ids.length)throw new Error('Item move did not complete. Refresh and try again.')
   setSelected({})
-  flash(ids.length+' company-list item(s) moved. Stock values remain unchanged.')
+  flash(r.data+' company-list item(s) moved. Stock values remain unchanged.')
  }
  return <details className="company-section-manager section">
   <summary>Manage sections & nested categories</summary>
