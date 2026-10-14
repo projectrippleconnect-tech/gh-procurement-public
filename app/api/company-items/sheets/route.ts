@@ -1,11 +1,31 @@
 import {companyAccess,companyBody,companyReply,sheetsToken,sheetsRequest} from '@/lib/company-server'
 // @ts-ignore Shared worksheet parser is covered by node tests.
 import {parseCompanySheet,validateCompanyImport} from '@/lib/company-items.mjs'
+// @ts-ignore Tested in the source-specific sheet parser and reconciliation tests.
+import {reconcilePanelCeilingSections,panelCeilingRowsFromDatabase} from '@/lib/company-ceiling-hierarchy.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
  try{
-  const {db}=await companyAccess(request,true),body=await companyBody(request),token=await sheetsToken()
+  const {db}=await companyAccess(request,true),body=await companyBody(request)
+  // Local database grouping works without optional Google Sheets credentials.
+  if(body.action==='sync_ceiling_sections'){
+   if(!body.companyId)throw new Error('Choose the Panel Sheets company.')
+   const {data:company,error}=await db.from('proc_companies')
+    .select('id,name,sheet_id').eq('id',body.companyId).single()
+   if(error)throw error
+   if(String(company.name||'').trim().toUpperCase()!=='PANEL SHEETS')
+    throw new Error('This action only applies to Panel Sheets.')
+   const {data:existing,error:itemsError}=await db.from('proc_company_list_items')
+    .select('source_key,item:proc_items(description,subgroup,colour,variation)')
+    .eq('company_id',company.id).eq('active',true).limit(250)
+   if(itemsError)throw itemsError
+   const rows=panelCeilingRowsFromDatabase(existing||[])
+   if(!rows.length)throw new Error('No existing Ceiling Fittings rows were found. Import the Panel Sheets catalogue first.')
+   const result=await reconcilePanelCeilingSections(db,company,rows)
+   return companyReply({ok:true,...result,message:'Ceiling Fittings grouped. Existing stock values and manually moved rows remain unchanged.'})
+  }
+  const token=await sheetsToken()
   const book=await sheetsRequest(token,'?fields=sheets(properties,developerMetadata)')
   if(body.action==='import'){
    let imported=0;const errors:string[]=[]
@@ -29,6 +49,12 @@ export async function POST(request:Request){
       }
       const seeded=await db.rpc('proc_company_seed_sections',{p_company_id:targetCompany})
       if(seeded.error)throw seeded.error
+      if(String(importTitle).trim().toUpperCase()==='PANEL SHEETS'){
+       const {data:sourceCompany,error:companyError}=await db.from('proc_companies')
+        .select('id,name,sheet_id').eq('id',targetCompany).single()
+       if(companyError)throw companyError
+       await reconcilePanelCeilingSections(db,sourceCompany,rows)
+      }
      }
     }catch(e){errors.push(title+': '+(e instanceof Error?e.message:'Import failed'))}
    }
