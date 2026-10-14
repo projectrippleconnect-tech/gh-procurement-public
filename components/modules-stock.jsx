@@ -274,7 +274,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],company,
   return [...local,...searchStockItems(searchResults,searchTerm,filters).filter(row=>!seen.has(row.item_id))].slice(0,30)
  },[localSearchIndex,searchTerm,searchScope,cat,mainGroup,movement,searchResults])
  useEffect(()=>{
-  setSearchResults([]);setSearchError('')
+  setSearchResults([]);setSearchError('');setSearchBusy(false)
   const term=searchTerm.trim()
   if(!searchOpen||term.length<2||catalogueReady){setSearchBusy(false);return}
   const controller=new AbortController()
