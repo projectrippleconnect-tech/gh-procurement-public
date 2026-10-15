@@ -56,3 +56,14 @@ test('legacy rank recovery is disabled for complex multi-brand wire matrices',()
  assert.equal(ordered,null)
  assert.equal(verifiedLegacyCandidate({row:sourceRow,index:0,reviewedName:'TEST',ordered,sheetId:295110924}),null)
 })
+
+test('ORANGE brand is not confused with the WHITE modular finish during legacy matching',()=>{
+ const values=[[],[],['Orange Casablanca 1 Gang 1-Way Switch - White','20','CASABLANCA 1 GANG 1-WAY SWITCH WHITE ORANGE','SWITCHES','CASABLANCA','WHITE','MODULAR']]
+ const row={source_key:'63501805:changed-hash',source_position:'63501805:3:2',brand:'ORANGE',colour:'ORANGE',max_stock:20}
+ const link={id:'c1',item_id:'i1',source_key:'63501805:old-hash',source_sheet_id:63501805,sort_order:0,target_stock:20,active:true,
+  item:{id:'i1',source:'COMPANY SHEET',description:'1 GANG 1 WAY',category:'ORANGE',main_group:'ORANGE',subgroup:'CASABLANCA WHITE',brand:'ORANGE',colour:'WHITE'}}
+ const result=buildReviewedPlan({title:'ORANGE',sheetId:63501805,values,parsedRows:[row],links:[link]})
+ assert.equal(result.stats.verifiedLegacyMatches,1)
+ assert.equal(result.changes[0].patch.description,'CASABLANCA 1 GANG 1-WAY SWITCH WHITE ORANGE')
+ assert.equal(result.changes[0].patch.subgroup,'CASABLANCA')
+})
