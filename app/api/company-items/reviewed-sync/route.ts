@@ -7,7 +7,7 @@ import {buildReviewedPlan,legacySheetValues} from '@/lib/reviewed-company-sync.m
 
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
-type Change={id:string;old:{description:string;main_group:string|null;subgroup:string|null};patch:{description?:string;main_group?:string;subgroup?:string}}
+type Change={id:string;matchMethod:'source_key'|'verified_legacy';old:{description:string;main_group:string|null;subgroup:string|null};patch:{description?:string;main_group?:string;subgroup?:string}}
 const MAX_APPLY=25
 
 export async function POST(request:Request){
@@ -32,7 +32,7 @@ export async function POST(request:Request){
    title,sheetId:company.sheet_id,values:legacySheetValues(title,values)
   }))
   const {data:links,error:linksError}=await db.from('proc_company_list_items')
-   .select('id,item_id,source_key,active,item:proc_items(id,description,main_group,subgroup,source)')
+   .select('id,item_id,source_key,source_sheet_id,sort_order,target_stock,max_stock_review,active,item:proc_items(id,description,main_group,subgroup,brand,size,colour,variation,uom,source)')
    .eq('company_id',company.id).limit(1000)
   if(linksError)throw linksError
   if((links||[]).length>=1000)throw new Error('Company list exceeds the safe reconciliation limit.')
@@ -44,12 +44,14 @@ export async function POST(request:Request){
   const result={
    ok:true,company:company.name,stats:plan.stats,
    unmatchedSample:plan.unmatched.slice(0,12),
-   previewSample:changes.slice(0,12).map((x:Change)=>({id:x.id,from:x.old.description,to:x.patch.description||x.old.description,category:x.patch.main_group||x.old.main_group}))
+   previewSample:changes.slice(0,12).map((x:Change)=>({id:x.id,from:x.old.description,to:x.patch.description||x.old.description,category:x.patch.main_group||x.old.main_group,matchMethod:x.matchMethod}))
   }
   if(body.action==='preview')return companyReply({...result,fingerprint,message:'Preview only; no app records changed.'})
   if(typeof body.fingerprint!=='string'||body.fingerprint!==fingerprint)
    throw new Error('The catalogue or app records changed. Preview again before applying.')
   if(!changes.length)return companyReply({...result,applied:0,message:'No safe identity-matched changes pending.'})
+  if(changes.slice(0,MAX_APPLY).some(x=>x.matchMethod==='verified_legacy')&&body.ackLegacy!==true)
+   throw new Error('Confirm the reviewed legacy-item matches before applying.');
   let applied=0
   const errors:string[]=[]
   // No inserts, deletes, source-key rewrites, quantity updates or privileged SQL.
