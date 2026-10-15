@@ -464,7 +464,7 @@ try{
    await context.close();continue
   }
   if(process.env.GH_UI_CONTACT_PICKER==='1'){
-   await context.addInitScript(()=>{
+   await page.evaluate(()=>{
     window.ghContactMode='empty';window.ghContactRequests=[]
     Object.defineProperty(navigator,'contacts',{configurable:true,value:{
      getProperties:async()=>['name','tel'],
@@ -478,7 +478,7 @@ try{
      }
     }})
    })
-   await page.reload();await navigate('CL Company Lists')
+   await navigate('CL Company Lists')
    const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
    await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
    const name=manager.getByPlaceholder('Company contact name',{exact:true})
