@@ -19,7 +19,7 @@ test('reviewed names map to exact sidecar cells for matrices',()=>{
  assert.equal(reviewedNameAt('KOBE',k,15,2),'LED FLOODLIGHT 10W WW KOBE')
  assert.equal(reviewedNameAt('KOBE',k,4,2),'WHEELBARROW KOBE')
  let board=Array(20).fill(null).map(()=>[])
- board[13][9]='CLADDING BOARD WHITE';board[3][9]='PLYWOOD BOARD LOCAL 1/8IN'
+ board[13][10]='CLADDING BOARD WHITE';board[3][9]='PLYWOOD BOARD LOCAL 1/8IN'
  assert.equal(reviewedNameAt('BOARD ITEMS',board,13,3),'CLADDING BOARD WHITE')
  assert.equal(reviewedNameAt('BOARD ITEMS',board,3,2),'PLYWOOD BOARD LOCAL 1/8IN')
 })
