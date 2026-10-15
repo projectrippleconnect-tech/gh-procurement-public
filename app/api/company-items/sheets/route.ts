@@ -47,7 +47,7 @@ export async function POST(request:Request){
      const existingCompanyId=owner||linked.data?.id
      if(existingCompanyId){
       const old=await db.from('proc_company_list_items').select('source_key')
-       .eq('company_id',existingCompanyId).eq('active',true).limit(1000)
+       .eq('company_id',existingCompanyId).limit(1000)
       if(old.error)throw old.error
       if((old.data||[]).length>=1000)throw new Error('Existing company list exceeds the safe import limit.')
       const guard=companyImportCollisionGuard((old.data||[]).map((x:{source_key:string|null})=>x.source_key),rows)
