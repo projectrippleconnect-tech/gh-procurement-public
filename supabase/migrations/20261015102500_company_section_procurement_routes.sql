@@ -1,5 +1,6 @@
 -- Group-level purchase routing; additive settings with transactional admin-controlled updates.
 -- Existing companies and their procurement settings are not reconfigured.
+ALTER TABLE public.proc_companies ADD COLUMN IF NOT EXISTS group_auto_approve boolean NOT NULL DEFAULT false;
 CREATE TABLE public.proc_company_section_routes (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  company_id uuid NOT NULL REFERENCES public.proc_companies(id) ON DELETE CASCADE,
@@ -58,7 +59,7 @@ BEGIN
  -- Saving an auto-send direct group is explicit admin authorization for normal
  -- stock submissions to make approved quantity-only orders. Legacy routes stay unchanged.
  IF p_mode='direct' AND coalesce(p_auto_send,true) THEN
-  UPDATE public.proc_companies SET auto_approve=true,automation_admin_id=auth.uid(),updated_at=now() WHERE id=p_company_id;
+  UPDATE public.proc_companies SET group_auto_approve=true,automation_admin_id=auth.uid(),updated_at=now() WHERE id=p_company_id;
  END IF;
  RETURN jsonb_build_object('id',route_v,'mode',p_mode,'suppliers',cardinality(sorted_ids));
 END $$;
@@ -122,7 +123,7 @@ begin
  select * into c from public.proc_companies where id=p_company_id and active for update;
  if c.id is null then return result;end if;
  if p_auto then
-  if not c.auto_approve or not private.proc_has_permission('stock.count.enter') then raise exception 'Automatic company approval is not enabled';end if;
+  if not (c.auto_approve or c.group_auto_approve) or not private.proc_has_permission('stock.count.enter') then raise exception 'Automatic company approval is not enabled';end if;
   actor:=c.automation_admin_id;
  else
   if not private.proc_is_role(array['admin']) or not private.proc_has_permission('procurement.orders.approve') then raise exception 'Administrator approval required';end if;actor:=auth.uid();
@@ -137,6 +138,8 @@ begin
    if jsonb_array_length(route_v->'supplier_ids')<>1 then raise exception 'Direct orders require exactly one active supplier for every item';end if;
    supplier_v:=(route_v->'supplier_ids'->>0)::uuid;
    send_v:=coalesce((route_v->>'auto_send')::boolean,false);
+   -- Automatic submission only includes explicit opted-in routes or pre-existing company-level approval.
+   if p_auto and ((route_v->>'explicit')::boolean and not send_v or not (route_v->>'explicit')::boolean and not c.auto_approve) then continue;end if;
    qty_v:=r.adjusted_qty-r.ordered_qty;
    if supplier_v is null or not exists(select 1 from public.proc_suppliers where id=supplier_v and active and supplier_kind='company') then raise exception 'Set an active company supplier contact for every ordered brand';end if;
    select (value->>'id')::uuid into po_id_v from jsonb_array_elements(result) where value->>'supplier_id'=supplier_v::text and (value->>'auto_send')::boolean=send_v;
@@ -188,7 +191,7 @@ begin
  end loop;
  req_count:=private.proc_submit_stock_count_impl(count_id_v);
  ids:=private.proc_company_link_count(c.id,count_id_v);
- if c.auto_approve and coalesce(cardinality(ids),0)>0 then orders:=private.proc_company_auto_from_count(c.id,count_id_v,ids);end if;
+ if (c.auto_approve or c.group_auto_approve) and coalesce(cardinality(ids),0)>0 then orders:=private.proc_company_auto_from_count(c.id,count_id_v,ids);end if;
  return jsonb_build_object('count_id',count_id_v,'count_no',count_no_v,'requirements_created',req_count,'purchase_orders',orders,'company_id',c.id);
 end $$;
 
@@ -204,7 +207,7 @@ begin
  if po.id is null then raise exception 'Company order is not eligible for automatic sending';end if;
  if exists(select 1 from public.proc_po_lines l cross join lateral private.proc_company_effective_route(c.id,l.item_id) route_info(route) where l.po_id=po.id and (route_info.route->>'mode'<>'direct' or coalesce((route_info.route->>'auto_send')::boolean,false)=false or (route_info.route->'supplier_ids'->>0)::uuid is distinct from po.supplier_id)) then raise exception 'Company order route or recipient has changed; review queued order before sending';end if;
  -- Stock staff can process orders only when admin configured automatic approval.
- if not private.proc_has_permission('company_lists.manage') and not(c.auto_approve and private.proc_has_permission('stock.count.enter')) then raise exception 'Admin-approved sending required';end if;
+ if not private.proc_has_permission('company_lists.manage') and not((c.auto_approve or c.group_auto_approve) and private.proc_has_permission('stock.count.enter')) then raise exception 'Admin-approved sending required';end if;
  select * into s from public.proc_suppliers where id=po.supplier_id and active and supplier_kind='company';
  if s.id is null then raise exception 'Company supplier unavailable';end if;
  select jsonb_agg(jsonb_build_object('description',i.description,'brand',i.brand,'size',i.size,'colour',i.colour,'variation',i.variation,'uom',i.uom,'qty',l.qty,'remarks',i.remarks) order by i.description,l.id) into lines from public.proc_po_lines l join public.proc_items i on i.id=l.item_id where l.po_id=po.id;
