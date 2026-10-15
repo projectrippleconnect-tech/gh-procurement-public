@@ -234,7 +234,7 @@ GRANT EXECUTE ON FUNCTION public.proc_company_direct_candidate_ids(uuid,uuid[]) 
 -- handles the actual transmission and subsequent quotation/award flow.
 CREATE OR REPLACE FUNCTION public.proc_company_prepare_group_rfq(p_company_id uuid,p_section_id uuid,p_due_date date DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE ids uuid[];suppliers uuid[];override_v jsonb;result_v jsonb;r record;
+DECLARE ids uuid[];suppliers uuid[];override_v jsonb;result_v jsonb;
 BEGIN
  PERFORM private.proc_assert_access();
  IF NOT private.proc_is_role(ARRAY['admin']) OR NOT private.proc_has_permission('procurement.rfq.manage') THEN
