@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { connection } from 'next/server'
 import './globals.css'
+import {ContactSharingSetup} from '@/components/contact-sharing-setup'
 
 export const metadata: Metadata = {
   title: 'GH Procurement',
@@ -14,5 +15,5 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, view
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Each HTML response needs the nonce generated for its incoming request.
   await connection()
-  return <html lang="en"><body>{children}</body></html>
+  return <html lang="en"><body><ContactSharingSetup/>{children}</body></html>
 }

@@ -5,5 +5,41 @@
   "display": "standalone",
   "background_color": "#0b1220",
   "theme_color": "#0b1220",
-  "description": "General Hardware procurement control"
+  "description": "General Hardware procurement control",
+  "id": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/gh-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/gh-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "share_target": {
+    "action": "/share/contact/receive",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "files": [
+        {
+          "name": "contact",
+          "accept": [
+            "text/vcard",
+            "text/x-vcard",
+            "text/directory",
+            ".vcf"
+          ]
+        }
+      ]
+    }
+  }
 }
