@@ -145,6 +145,13 @@ jobs:
         run: |
           createdb -h 127.0.0.1 -U postgres isolated_company_sections
           psql -h 127.0.0.1 -U postgres -d isolated_company_sections -v ON_ERROR_STOP=1 -f tests/sql/company-sections-isolated.sql
+      - name: Verify multi-supplier group RFQs and automatic direct PO routing
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_routes
+          psql -h 127.0.0.1 -U postgres -d isolated_company_routes -v ON_ERROR_STOP=1 -f tests/sql/company-group-routing-isolated.sql
+
       - name: Verify default screenshot protection and override authorization
         env:
           PGPASSWORD: fixture-only
