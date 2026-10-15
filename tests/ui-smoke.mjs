@@ -463,6 +463,34 @@ try{
    console.log('PASS Super Admin, location permission, geofence, working-hours lock and active-session expiry at '+width+'px')
    await context.close();continue
   }
+  if(process.env.GH_UI_CONTACT_SHARE==='1'){
+   await page.waitForFunction(()=>!!navigator.serviceWorker.controller)
+   const sharedUrl=await page.evaluate(async()=>{
+    const form=new FormData()
+    form.append('contact',new File(['BEGIN:VCARD\nVERSION:3.0\nFN:Shared supplier\nTEL:0771234567\nTEL:0112345678\nEND:VCARD'],'supplier.vcf',{type:'text/x-vcard'}))
+    const response=await fetch('/share/contact/receive',{method:'POST',body:form})
+    return response.url
+   })
+   assert.match(sharedUrl,/share\/contact\?share=[a-f0-9]{32}$/)
+   await page.goto(sharedUrl)
+   await page.getByRole('heading',{name:'Review shared contact',exact:true}).waitFor()
+   assert.equal(await page.getByRole('radio').count(),2)
+   await page.getByRole('radio').nth(1).check()
+   await page.getByRole('button',{name:'Continue with this contact',exact:true}).click()
+   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await navigate('CL Company Lists')
+   const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
+   await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
+   await manager.getByRole('button',{name:'Use shared contact here',exact:true}).click()
+   assert.equal(await manager.getByPlaceholder('Company contact name',{exact:true}).inputValue(),'Shared supplier')
+   assert.equal(await manager.getByPlaceholder('+94771234567',{exact:true}).inputValue(),'+94112345678')
+   assert.equal(await manager.getByRole('button',{name:'Use shared contact here',exact:true}).count(),0)
+   const pending=await page.evaluate(()=>localStorage.getItem('gh_phone_contact_pending_v1'))
+   assert.equal(pending,null)
+   assert.deepEqual(errors,[])
+   console.log('PASS native-style POST → service worker → review → company contact draft at '+width+'px; no supplier saved')
+   await context.close();continue
+  }
   if(process.env.GH_UI_CONTACT_PICKER==='1'){
    await page.evaluate(()=>{
     window.ghContactMode='empty';window.ghContactRequests=[]

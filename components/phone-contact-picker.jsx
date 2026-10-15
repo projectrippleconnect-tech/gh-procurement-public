@@ -2,6 +2,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {openWebContactPicker} from '@/lib/web-contact-picker.mjs'
 import {contactPickerOutcome} from '@/lib/contact-picker-outcome.mjs'
+import {ReceivedPhoneContact} from './received-phone-contact'
 
 export function PhoneContactPicker({disabled=false,onSelected}){
  const [properties,setProperties]=useState(['name','tel'])
@@ -32,6 +33,7 @@ export function PhoneContactPicker({disabled=false,onSelected}){
    <button type="button" className="btn small" disabled={disabled||pending} onClick={()=>pick()}>{pending?'Waiting for phone…':'Pick from phone'}</button>
    <button type="button" className="btn small" disabled={disabled||pending} onClick={()=>pick(true)}>Pick phone number only</button>
   </div>
+  <ReceivedPhoneContact disabled={disabled||pending} onSelected={onSelected}/>
   <p className="muted tiny">Choose a contact, keep Phone numbers selected, then tap Done. Review the name and number before saving.</p>
   {result&&!result.ok&&<div role="status"><p className="muted tiny">{result.message}</p></div>}
   <details className="section" open={result?.code==='empty'||result?.code==='denied'||undefined}>
