@@ -2,13 +2,16 @@
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation} from './danger-confirmation'
-import {choicesFromPicker,parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {interpretContactPickerResult,contactPickerStatusMessage} from '@/lib/device-contact-picker.mjs'
+import {PhoneContactImportHelp} from './phone-contact-import-help'
 
 export function CompanyContactManager({company,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
  const confirmDanger=useDangerConfirmation()
  const [contacts,setContacts]=useState([]),[search,setSearch]=useState(''),[fileSearch,setFileSearch]=useState('')
  const [imported,setImported]=useState([]),[draft,setDraft]=useState({name:'',phone:''}),[editId,setEditId]=useState('')
  const [busy,setBusy]=useState(false),[open,setOpen]=useState(false)
+ const [pickerStatus,setPickerStatus]=useState(''),[showPickerHelp,setShowPickerHelp]=useState(false)
  const fileRef=useRef(null)
  const load=useCallback(async()=>{
   if(!company?.id)return
@@ -39,28 +42,33 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
   setEditId(current.id);setOpen(true)
  }
  function selectCandidate(person){
-  setDraft({name:person.name,phone:person.phone});setEditId('');setOpen(true);setImported([])
+  setDraft({name:person.name,phone:person.phone});setEditId('');setOpen(true);setImported([]);setPickerStatus('')
  }
  async function pickFromPhone(){
   if(!navigator.contacts?.select){
-   flash('This browser does not support phone contacts. Use Import .vcf or add the contact manually.')
+   setPickerStatus('unsupported');setShowPickerHelp(true)
    return
   }
   try{
-   // The native picker supplies its own search; only the selected name and number are returned.
-   const chosen=choicesFromPicker(await navigator.contacts.select(['name','tel'],{multiple:false}))
-   if(!chosen.length)throw new Error('No valid Sri Lankan phone number was selected.')
-   if(chosen.length===1)selectCandidate(chosen[0])
-   else{setImported(chosen);setFileSearch('');setOpen(true)}
-  }catch(error){if(error?.name!=='AbortError')fail(error)}
+   // Native Android may close its contact search without returning a contact.
+   // Leave the existing company contact and any typed details untouched.
+   const selected=await navigator.contacts.select(['name','tel'],{multiple:false})
+   const result=interpretContactPickerResult({selected})
+   if(result.status!=='selected'){setPickerStatus(result.status);setShowPickerHelp(true);return}
+   if(result.choices.length===1)selectCandidate(result.choices[0])
+   else{setImported(result.choices);setFileSearch('');setOpen(true);setPickerStatus('')}
+  }catch(error){
+   const result=interpretContactPickerResult({error})
+   setPickerStatus(result.status);setShowPickerHelp(true)
+  }
  }
  async function importVcf(file){
   if(!file)return
-  if(file.size>2*1024*1024)throw new Error('Select a .vcf contacts file smaller than 2 MB.')
+  if(file.size>5*1024*1024)throw new Error('Select a .vcf contacts file smaller than 5 MB.')
   if(!/\.vcf$/i.test(file.name))throw new Error('Only .vcf contact files are supported.')
   const parsed=parseCompanyVcards(await file.text())
   if(!parsed.length)throw new Error('The file has no valid Sri Lankan phone numbers.')
-  setImported(parsed);setFileSearch('');setOpen(true)
+  setImported(parsed);setFileSearch('');setOpen(true);setPickerStatus('')
   flash(parsed.length+' contact number(s) available. Search and choose one to save; the file is not uploaded.')
  }
  async function saveDraft(){
@@ -95,10 +103,13 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
    <div className="toolbar">
     <button type="button" className="btn small" disabled={busy} onClick={()=>perform(pickFromPhone)}>Pick from phone</button>
     <button type="button" className="btn small" disabled={busy} onClick={()=>fileRef.current?.click()}>Import .vcf</button>
-    <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import phone contact file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';perform(()=>importVcf(file))}}/>
+    <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard,application/vcard" aria-label="Import phone contact file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';perform(()=>importVcf(file))}}/>
     {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>confirmDanger({title:'Remove designated contact',message:'Unlink '+(current?.name||'this contact')+' from '+company.name+'?',warning:'Supplier records and past orders remain untouched. Automatic company orders may need another designated contact.',confirmLabel:'Remove company link',onConfirm:()=>link(null)})}>Remove from company</button></>}
    </div>
-   <p className="muted tiny">Phone picker opens your device contact search when supported. Otherwise import a shared .vcf contact or enter the number. Only the contact you save is stored.</p>
+   <p className="muted tiny">Phone contacts are selected through Android's native picker where supported. If the picker closes or shows no contacts, your company contact and typed details are kept. Import a saved .vcf or enter the number instead.</p>
+   {pickerStatus&&<p className="muted tiny" role="status">{contactPickerStatusMessage(pickerStatus)}</p>}
+   <button type="button" className="btn small section" onClick={()=>setShowPickerHelp(v=>!v)} aria-expanded={showPickerHelp}>{showPickerHelp?'Hide import instructions':'Picker shows no contacts? See how to import'}</button>
+   <PhoneContactImportHelp visible={showPickerHelp}/>
    <label className="field">Search saved company contacts
     <input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or number…"/>
    </label>

@@ -3,6 +3,8 @@ import {useEffect,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {choicesFromPicker,parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
 import {planGroupSupplierSave} from '@/lib/group-supplier-contact-plan.mjs'
+import {interpretContactPickerResult,contactPickerStatusMessage} from '@/lib/device-contact-picker.mjs'
+import {PhoneContactImportHelp} from './phone-contact-import-help'
 
 const empty={name:'',phone:''}
 
@@ -12,7 +14,8 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
  const [draft,setDraft]=useState(empty)
  const [imported,setImported]=useState([]),[importSearch,setImportSearch]=useState('')
  const [saving,setSaving]=useState(false),[loadingFile,setLoadingFile]=useState(false)
- const fileRef=useRef(null)
+ const [pickerStatus,setPickerStatus]=useState(''),[showPickerHelp,setShowPickerHelp]=useState(false)
+ const fileRef=useRef(null),nameRef=useRef(null)
  useEffect(()=>{
   if(editingSupplier)setDraft({name:editingSupplier.name||'',phone:editingSupplier.phone||editingSupplier.whatsapp||''})
  },[editingSupplier?.id])
@@ -23,32 +26,46 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
  function setCandidate(contact){
   if(editingSupplier)onCancel()
   setDraft({name:contact.name,phone:contact.phone})
+  setPickerStatus('')
  }
  function addManually(){
-  onCancel()
-  setDraft(empty)
+  // Do not discard typed details just because the Android picker failed.
+  if(editingSupplier){onCancel();setDraft(empty)}
+  setPickerStatus('')
+  nameRef.current?.focus()
  }
  async function pickPhoneContact(){
+  // Native Android owns its picker/search UI; don't reset the draft on cancel.
   if(!navigator.contacts?.select){
-   flash('Direct phone contact picking is unavailable in this browser. Export a contact as .vcf and use Import contacts, or enter it manually.')
+   setPickerStatus('unsupported');setShowPickerHelp(true)
    return
   }
   try{
-   const contacts=choicesFromPicker(await navigator.contacts.select(['name','tel'],{multiple:false}))
-   if(!contacts.length)throw new Error('No valid Sri Lankan phone number was selected.')
-   if(contacts.length===1){setCandidate(contacts[0]);flash('Contact selected. Edit its name if needed, then tap Save contact.')}
-   else{setImported(contacts);setImportSearch('');flash('Choose which phone number to save from the selected contact.')}
-  }catch(error){if(error?.name!=='AbortError')fail(error)}
+   // Keep this call directly inside the user click (required user activation).
+   const selected=await navigator.contacts.select(['name','tel'],{multiple:false})
+   const result=interpretContactPickerResult({selected})
+   if(result.status!=='selected'){setPickerStatus(result.status);setShowPickerHelp(true);return}
+   if(result.choices.length===1){
+    setCandidate(result.choices[0])
+    flash('Contact selected. Edit its name if needed, then tap Save contact.')
+   }else{
+    setImported(result.choices);setImportSearch('');setPickerStatus('')
+    flash('Select the correct number and save it.')
+   }
+  }catch(error){
+   const result=interpretContactPickerResult({error})
+   setPickerStatus(result.status);setShowPickerHelp(true)
+  }
  }
  async function importContacts(file){
   if(!file)return
   setLoadingFile(true)
   try{
-   if(file.size>2*1024*1024)throw new Error('Choose a .vcf file smaller than 2 MB.')
+   if(file.size>5*1024*1024)throw new Error('Choose a .vcf file smaller than 5 MB.')
    if(!/\.vcf$/i.test(file.name))throw new Error('Import a .vcf contact file exported from your phone.')
    const contacts=parseCompanyVcards(await file.text())
    if(!contacts.length)throw new Error('The file contains no valid Sri Lankan contact numbers.')
-   setImported(contacts);setImportSearch('')
+   setImported(contacts);setImportSearch('');setPickerStatus('')
    flash(contacts.length+' contact option(s) found. Pick one, edit its name and save it. The file stays on your device.')
   }catch(error){fail(error)}finally{setLoadingFile(false)}
  }
@@ -73,8 +90,8 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
     if(r.error)throw r.error
    }
    await onSaved(id,plan.action)
-   setDraft(empty)
-   if(plan.action==='reuse')flash('Existing supplier linked to this group; the saved name was preserved. Edit that supplier if you need to rename it.')
+   setDraft(empty);setPickerStatus('')
+   if(plan.action='reuse')flash('Existing supplier linked to this group; the saved name was preserved. Edit that supplier if you need to rename it.')
    else if(plan.action==='update')flash('Supplier contact name and number updated and kept in the group.')
    else flash('Supplier contact saved and selected. Add another supplier or save the group route.')
   }catch(error){fail(error)}finally{setSaving(false)}
@@ -85,9 +102,12 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
    <button type="button" className="btn small" disabled={saving||loadingFile} onClick={pickPhoneContact}>Pick from phone</button>
    <button type="button" className="btn small" disabled={saving||loadingFile} onClick={()=>fileRef.current?.click()}>Import .vcf</button>
    <button type="button" className="btn small" disabled={saving||loadingFile} onClick={addManually}>Enter manually</button>
-   <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import supplier phone contacts" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';importContacts(file)}}/>
+   <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard,application/vcard" aria-label="Import supplier phone contacts" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';importContacts(file)}}/>
   </div>
-  <p className="muted tiny">Choose or import a contact, correct its name or number, then save. Only the contact you save is stored. Browsers without a phone picker can use a .vcf export or manual entry.</p>
+  <p className="muted tiny">Choose or import a contact, correct its name or number, then save. Only the contact you save is stored. Android controls its phone picker; you can always import a .vcf file or enter the number manually.</p>
+  {pickerStatus&&<p className="muted tiny" role="status">{contactPickerStatusMessage(pickerStatus)}</p>}
+  <button type="button" className="btn small section" onClick={()=>setShowPickerHelp(v=>!v)} aria-expanded={showPickerHelp}>{showPickerHelp?'Hide import instructions':'Picker shows no contacts? See how to import'}</button>
+  <PhoneContactImportHelp visible={showPickerHelp}/>
   {imported.length>0&&<div className="section">
    <label className="field">Search imported contacts
     <input type="search" className="input" value={importSearch} onChange={e=>setImportSearch(e.target.value)} placeholder="Find contact by name or number…"/>
@@ -100,7 +120,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
   </div>}
   <div className="formgrid section">
    <label className="field">Supplier / contact name
-    <input className="input" autoComplete="off" maxLength={160} value={draft.name} onChange={e=>setDraft(v=>({...v,name:e.target.value}))} placeholder="Supplier contact name"/>
+    <input ref={nameRef} className="input" autoComplete="off" maxLength={160} value={draft.name} onChange={e=>setDraft(v=>({...v,name:e.target.value}))} placeholder="Supplier contact name"/>
    </label>
    <label className="field">Phone / WhatsApp
     <input className="input" type="tel" inputMode="tel" autoComplete="off" value={draft.phone} onChange={e=>setDraft(v=>({...v,phone:e.target.value}))} placeholder="+94771234567"/>
