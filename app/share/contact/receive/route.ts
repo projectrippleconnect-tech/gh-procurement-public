@@ -1,6 +1,5 @@
 import {NextResponse} from 'next/server'
-// Fallback when an installed app has not activated the local share receiver.
-// Never parse, log, persist or forward contact content on the server.
+// Compatibility for stale installed share targets; never read/store the body.
 export async function POST(request:Request){
- return NextResponse.redirect(new URL('/share/contact?error=not-ready',request.url),303)
+ return NextResponse.redirect(new URL('/',request.url),303)
 }

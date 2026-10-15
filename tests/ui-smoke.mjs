@@ -161,7 +161,7 @@ try{
    else if(name==='proc_admin_record_preview_v1'){const b=req.postDataJSON();data={label:b.p_table==='proc_rfqs'?rfq.rfq_no:b.p_table==='proc_suppliers'?supplier.supplier_code:po.po_no,counts:{[b.p_table]:1},token:'fixture-record-token'}}
    else if(['proc_admin_delete_record_v1','proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
-   else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true}]
+   else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
@@ -463,80 +463,49 @@ try{
    console.log('PASS Super Admin, location permission, geofence, working-hours lock and active-session expiry at '+width+'px')
    await context.close();continue
   }
-  if(process.env.GH_UI_CONTACT_SHARE==='1'){
-   await page.waitForFunction(()=>!!navigator.serviceWorker.controller)
-   const sharedUrl=await page.evaluate(async()=>{
-    const form=new FormData()
-    form.append('contact',new File(['BEGIN:VCARD\nVERSION:3.0\nFN:Shared supplier\nTEL:0771234567\nTEL:0112345678\nEND:VCARD'],'supplier.vcf',{type:'text/x-vcard'}))
-    const response=await fetch('/share/contact/receive',{method:'POST',body:form})
-    return response.url
-   })
-   assert.match(sharedUrl,/share\/contact\?share=[a-f0-9]{32}$/)
-   await page.goto(sharedUrl)
-   await page.getByRole('heading',{name:'Review shared contact',exact:true}).waitFor()
-   assert.equal(await page.getByRole('radio').count(),2)
-   await page.getByRole('radio').nth(1).check()
-   await page.getByRole('button',{name:'Continue with this contact',exact:true}).click()
-   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
-   await navigate('CL Company Lists')
-   const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
-   await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
-   await manager.getByRole('button',{name:'Use shared contact here',exact:true}).click()
-   assert.equal(await manager.getByPlaceholder('Company contact name',{exact:true}).inputValue(),'Shared supplier')
-   assert.equal(await manager.getByPlaceholder('+94771234567',{exact:true}).inputValue(),'+94112345678')
-   assert.equal(await manager.getByRole('button',{name:'Use shared contact here',exact:true}).count(),0)
-   const pending=await page.evaluate(()=>localStorage.getItem('gh_phone_contact_pending_v1'))
-   assert.equal(pending,null)
-   assert.deepEqual(errors,[])
-   console.log('PASS native-style POST → service worker → review → company contact draft at '+width+'px; no supplier saved')
-   await context.close();continue
-  }
-  if(process.env.GH_UI_CONTACT_PICKER==='1'){
+  if(process.env.GH_UI_CONTACT_PASTE==='1'){
    await page.evaluate(()=>{
-    window.ghContactMode='empty';window.ghContactRequests=[]
-    Object.defineProperty(navigator,'contacts',{configurable:true,value:{
-     getProperties:async()=>['name','tel'],
-     select:(fields,options)=>{
-      window.ghContactRequests.push({fields,options,active:navigator.userActivation.isActive})
-      if(window.ghContactMode==='denied')return Promise.reject(new DOMException('Denied','NotAllowedError'))
-      if(window.ghContactMode==='cancel')return Promise.reject(new DOMException('Dismissed','AbortError'))
-      if(window.ghContactMode==='empty')return Promise.resolve([])
-      if(window.ghContactMode==='multiple')return Promise.resolve([{name:['Sales'],tel:['0771234567','0112345678']}])
-      return Promise.resolve([{tel:['0771234567']}])
-     }
-    }})
+    window.ghClipboardReads=0;window.ghClipboardText='Sales Rep\n077 123 4567';window.ghClipboardDenied=false
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{readText:async()=>{
+     window.ghClipboardReads++
+     if(window.ghClipboardDenied)throw new DOMException('Denied','NotAllowedError')
+     return window.ghClipboardText
+    }}})
    })
    await navigate('CL Company Lists')
    const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
    await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
-   const name=manager.getByPlaceholder('Company contact name',{exact:true})
-   const phone=manager.getByPlaceholder('+94771234567',{exact:true})
-   await name.fill('Unsaved supplier');await phone.fill('0779876543')
-   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
-   await manager.getByRole('status').getByText(/browser shared no contact/).waitFor()
-   assert.equal(await name.inputValue(),'Unsaved supplier');assert.equal(await phone.inputValue(),'0779876543')
-   assert.equal(await manager.getByRole('button',{name:/vcf/i}).count(),0)
-   await page.evaluate(()=>window.ghContactMode='denied')
-   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
-   await manager.getByRole('status').getByText(/did not allow/).waitFor()
-   await page.evaluate(()=>window.ghContactMode='cancel')
-   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
-   await manager.getByRole('status').getByText(/No contact was shared/).waitFor()
-   assert.equal(await phone.inputValue(),'0779876543')
-   await page.evaluate(()=>window.ghContactMode='multiple')
-   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
-   await manager.getByRole('button',{name:'Choose',exact:true}).nth(1).click()
-   assert.equal(await phone.inputValue(),'+94112345678')
-   await page.evaluate(()=>window.ghContactMode='selected')
-   await manager.getByRole('button',{name:'Pick phone number only',exact:true}).click()
-   await page.waitForFunction(()=>document.querySelector('input[placeholder="+94771234567"]')?.value==='+94771234567')
+   assert.equal(await page.evaluate(()=>window.ghClipboardReads),0,'Opening the form never reads the clipboard')
+   for(const name of ['Pick from phone','Pick phone number only','Receive from Contacts app','Import .vcf'])assert.equal(await manager.getByRole('button',{name,exact:true}).count(),0)
+   assert.equal(await manager.getByRole('link',{name:'Receive from Contacts app',exact:true}).count(),0)
+   const name=manager.getByPlaceholder('Company contact name',{exact:true}),phone=manager.getByPlaceholder('+94771234567',{exact:true}),paste=manager.getByRole('button',{name:'Paste contact',exact:true}),box=manager.getByLabel('Paste contact text',{exact:true})
+   await paste.click()
+   assert.equal(await name.inputValue(),'Sales Rep');assert.equal(await phone.inputValue(),'+94771234567')
+   await page.evaluate(()=>window.ghClipboardText='011 234 5678');await paste.click()
+   assert.equal(await name.inputValue(),'Sales Rep','Number-only paste keeps the entered name');assert.equal(await phone.inputValue(),'+94112345678')
+   await page.evaluate(()=>window.ghClipboardText='Bad data +61 412345678');await paste.click()
+   await manager.getByRole('status').getByText(/No valid Sri Lankan/).waitFor()
+   assert.equal(await name.inputValue(),'Sales Rep');assert.equal(await phone.inputValue(),'+94112345678')
+   await page.evaluate(()=>{window.ghClipboardText='Sales Rep\n0771234567\n0112345678'});await paste.click()
+   assert.equal(await phone.inputValue(),'+94112345678','Multiple numbers do not select one automatically')
+   await manager.getByRole('button',{name:'Use +94771234567',exact:true}).click()
    assert.equal(await phone.inputValue(),'+94771234567')
-   const calls=await page.evaluate(()=>window.ghContactRequests)
-   assert.ok(calls.every(c=>c.active),'Every picker request retains the user click activation')
-   assert.deepEqual(calls.at(-1).fields,['tel'])
-   assert.ok(calls.every(c=>c.options.multiple===false))
+   await page.evaluate(()=>window.ghClipboardDenied=true);await paste.click()
+   await box.waitFor({state:'visible'})
+   await page.waitForFunction(()=>document.activeElement?.getAttribute('placeholder')==='Contact name and number, or just the number')
+   await box.evaluate(node=>{
+    const data=new DataTransfer();data.setData('text/plain','Manual Rep\n0779876543')
+    node.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}))
+   })
+   assert.equal(await name.inputValue(),'Manual Rep');assert.equal(await phone.inputValue(),'+94779876543')
+   await manager.getByRole('button',{name:'Edit current',exact:true}).click()
+   await page.evaluate(()=>{window.ghClipboardDenied=false;window.ghClipboardText='0771234567'});await paste.click()
+   assert.equal(await manager.getByRole('button',{name:'Save contact changes',exact:true}).count(),1,'Pasting while editing preserves the existing supplier identity')
+   assert.equal(await name.inputValue(),supplier.name)
+   const manifest=await (await page.request.get(root+'/manifest.webmanifest')).json()
+   assert.equal(manifest.share_target,undefined,'Obsolete contact share target is removed')
    assert.deepEqual(errors,[])
-   console.log('PASS web contact draft preservation, permission recovery, cancellation, multiple numbers and tel-only retry at '+width+'px (simulated browser contact provider)')
+   console.log('PASS pasted contacts, number-only names, manual paste after permission denial, multi-number choice and edit identity at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
