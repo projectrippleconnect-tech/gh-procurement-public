@@ -39,7 +39,7 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.proc_company_sections WHERE id=p_section_id AND company_id=p_company_id AND active)
   THEN RAISE EXCEPTION 'Group must belong to this company'; END IF;
  IF p_mode NOT IN ('rfq','direct') OR p_mode IS NULL THEN RAISE EXCEPTION 'Choose RFQ or direct purchase order'; END IF;
- SELECT array_agg(DISTINCT id ORDER BY id) INTO sorted_ids FROM unnest(p_supplier_ids) AS ids(id);
+ SELECT array_agg(id ORDER BY first_position) INTO sorted_ids FROM (SELECT id,min(position) first_position FROM unnest(p_supplier_ids) WITH ORDINALITY AS ids(id,position) GROUP BY id) picked;
  IF coalesce(cardinality(sorted_ids),0)=0 OR cardinality(sorted_ids)>15 THEN RAISE EXCEPTION 'Select 1–15 suppliers for this group';END IF;
  IF p_mode='direct' AND cardinality(sorted_ids)<>1 THEN RAISE EXCEPTION 'Direct PO requires exactly one supplier';END IF;
  IF EXISTS(SELECT 1 FROM unnest(sorted_ids) chosen(id) WHERE NOT EXISTS(
