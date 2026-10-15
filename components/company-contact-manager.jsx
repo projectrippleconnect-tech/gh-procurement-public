@@ -9,6 +9,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
  const confirmDanger=useDangerConfirmation()
  const [contacts,setContacts]=useState([]),[search,setSearch]=useState('')
  const [draft,setDraft]=useState({name:'',phone:''}),[editId,setEditId]=useState('')
+ const [pasteVersion,setPasteVersion]=useState(0)
  const [busy,setBusy]=useState(false),[open,setOpen]=useState(false)
  const load=useCallback(async()=>{
   if(!company?.id)return
@@ -28,14 +29,14 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
  async function link(id){
   const r=await supabase.from('proc_companies').update({default_supplier_id:id||null,updated_at:new Date().toISOString()}).eq('id',company.id).select('id').single()
   if(r.error)throw r.error
-  setSearch('');setDraft({name:'',phone:''});setEditId('')
+  setSearch('');setDraft({name:'',phone:''});setEditId('');setPasteVersion(v=>v+1)
   await onChanged()
   flash(id?'Designated company contact saved.':'Company contact unlinked. Existing supplier and order history is preserved.')
  }
  function startEdit(){
   if(!current)return
   setDraft({name:current.name||'',phone:current.phone||current.whatsapp||''})
-  setEditId(current.id);setOpen(true)
+  setEditId(current.id);setOpen(true);setPasteVersion(v=>v+1)
  }
  async function saveDraft(){
   const name=draft.name.trim()
@@ -46,7 +47,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
    const r=await supabase.from('proc_suppliers').update({name,phone,whatsapp:phone}).eq('id',editId).eq('supplier_kind','company').select('id').single()
    if(r.error)throw r.error
    await load()
-   setDraft({name:'',phone:''});setEditId('');flash('Company contact name and number updated. Any other company using this supplier sees the update.')
+   setDraft({name:'',phone:''});setEditId('');setPasteVersion(v=>v+1);flash('Company contact name and number updated. Any other company using this supplier sees the update.')
    return
   }
   const existing=contacts.find(c=>toCompanyPhone(c.phone||c.whatsapp)===phone)
@@ -69,7 +70,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
    <div className="toolbar">
     {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>confirmDanger({title:'Remove designated contact',message:'Unlink '+(current?.name||'this contact')+' from '+company.name+'?',warning:'Supplier records and past orders remain untouched. Automatic company orders may need another designated contact.',confirmLabel:'Remove company link',onConfirm:()=>link(null)})}>Remove from company</button></>}
    </div>
-   <PasteContact disabled={busy} onApply={person=>setDraft(value=>({...value,name:person.name||value.name,phone:person.phone}))}/>
+   <PasteContact key={pasteVersion} disabled={busy} onApply={person=>setDraft(value=>({...value,name:person.name||value.name,phone:person.phone}))}/>
    <label className="field">Search saved company contacts
     <input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or number…"/>
    </label>
@@ -81,7 +82,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
    {editId&&<p className="muted tiny">Editing this supplier changes its details in existing supplier references too. Removing the company link does not delete the supplier.</p>}
    <div className="toolbar">
     <button type="button" className="btn primary" disabled={busy||!draft.name.trim()||!draft.phone.trim()} onClick={()=>perform(saveDraft)}>{busy?'Saving…':editId?'Save contact changes':'Save & assign contact'}</button>
-    <button type="button" className="btn small" disabled={busy} onClick={()=>{setDraft({name:'',phone:''});setEditId('')}}>Clear</button>
+    <button type="button" className="btn small" disabled={busy} onClick={()=>{setDraft({name:'',phone:''});setEditId('');setPasteVersion(v=>v+1)}}>Clear</button>
    </div>
   </div>}
  </section>

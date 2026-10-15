@@ -10,6 +10,7 @@ const empty={name:'',phone:''}
 // deliberately saved by the user enters the supplier directory.
 export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,onSaved,onCancel=()=>{},flash=()=>{},fail=()=>{}}){
  const [draft,setDraft]=useState(empty)
+ const [pasteVersion,setPasteVersion]=useState(0)
  const [saving,setSaving]=useState(false)
  useEffect(()=>{
   if(editingSupplier)setDraft({name:editingSupplier.name||'',phone:editingSupplier.phone||editingSupplier.whatsapp||''})
@@ -19,7 +20,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
 
  function addManually(){
   onCancel()
-  setDraft(empty)
+  setDraft(empty);setPasteVersion(v=>v+1)
  }
  async function saveContact(){
   if(saving)return
@@ -42,7 +43,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
     if(r.error)throw r.error
    }
    await onSaved(id,plan.action)
-   setDraft(empty)
+   setDraft(empty);setPasteVersion(v=>v+1)
    if(plan.action==='reuse')flash('Existing supplier linked to this group; the saved name was preserved. Edit that supplier if you need to rename it.')
    else if(plan.action==='update')flash('Supplier contact name and number updated and kept in the group.')
    else flash('Supplier contact saved and selected. Add another supplier or save the group route.')
@@ -50,7 +51,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
  }
  return <section className="section" aria-label="Add or edit group supplier contact">
   <div className="sectionhead"><strong>{editingSupplier?'Edit supplier contact':'Add supplier contact'}</strong></div>
-  <PasteContact disabled={saving} onApply={person=>setDraft(value=>({...value,name:person.name||value.name,phone:person.phone}))}/>
+  <PasteContact key={String(editingSupplier?.id||'new')+':'+pasteVersion} disabled={saving} onApply={person=>setDraft(value=>({...value,name:person.name||value.name,phone:person.phone}))}/>
   <div className="formgrid section">
    <label className="field">Supplier / contact name
     <input className="input" autoComplete="off" maxLength={160} value={draft.name} onChange={e=>setDraft(v=>({...v,name:e.target.value}))} placeholder="Supplier contact name"/>
