@@ -1,9 +1,8 @@
 'use client'
 import {useState} from 'react'
-import {companyApi} from './company-controls'
 
 /** Preview/approval runs as the logged-in Super Admin, never as service_role. */
-export function ReviewedSheetSync({company,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
+export function ReviewedSheetSync({company,api,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
  const [busy,setBusy]=useState(false)
  const [preview,setPreview]=useState(null)
  if(!canManage||(company?.sheet_id===null||company?.sheet_id===undefined))return null
@@ -11,7 +10,7 @@ export function ReviewedSheetSync({company,canManage=false,flash=()=>{},fail=()=
   if(busy)return
   setBusy(true)
   try{
-   const result=await companyApi('reviewed-sync',{companyId:company.id,action,...(action==='apply'?{fingerprint:preview?.fingerprint}:{})})
+   const result=await api('reviewed-sync',{companyId:company.id,action,...(action==='apply'?{fingerprint:preview?.fingerprint}:{})})
    if(action==='apply'){
     setPreview(null)
     await onChanged()
