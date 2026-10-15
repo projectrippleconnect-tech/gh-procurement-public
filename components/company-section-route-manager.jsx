@@ -3,7 +3,7 @@ import {useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {companyApi} from './company-controls'
 import {sectionPaths} from '@/lib/company-section-tree.mjs'
-import {toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {GroupSupplierContactEditor} from './group-supplier-contact-editor'
 import {defaultSectionRoute,nearestSectionRoute,validateSectionRoute} from '@/lib/company-section-routing.mjs'
 import {useDangerConfirmation} from './danger-confirmation'
 
@@ -13,7 +13,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
  const [editing,setEditing]=useState(''),[draft,setDraft]=useState(initial),[search,setSearch]=useState('')
- const [supplierSearch,setSupplierSearch]=useState(''),[newSupplier,setNewSupplier]=useState({name:'',phone:''})
+ const [supplierSearch,setSupplierSearch]=useState(''),[editContactId,setEditContactId]=useState('')
  const [busy,setBusy]=useState(false)
  const admin=(profile?.role_key||profile?.role)==='admin'&&can('company_lists.manage')
  const paths=useMemo(()=>sectionPaths(sections),[sections])
@@ -48,7 +48,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setDraft(existing?{mode:existing.route_mode,auto_send:existing.auto_send,supplier_ids:ids}:
    {mode:defaultSectionRoute(ids.length||1).mode,auto_send:true,supplier_ids:[]})
   setSupplierSearch('')
-  setNewSupplier({name:'',phone:''})
+  setEditContactId('')
  }
  const run=async callback=>{
   if(busy)return
@@ -75,23 +75,21 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setEditing('')
   flash('Custom group route cleared. The parent or company fallback now applies.')
  }
- async function addSupplier(){
-  const name=newSupplier.name.trim()
-  const phone=toCompanyPhone(newSupplier.phone)
-  if(!name||!phone)throw new Error('Enter the supplier name and a valid +94 number.')
-  const match=suppliers.find(s=>toCompanyPhone(s.phone||s.whatsapp)===phone)
-  if(match){
-   setDraft(v=>({...v,supplier_ids:uniq([...v.supplier_ids,match.id])}))
-   flash('Existing supplier contact selected; duplicate not created.')
-  }else{
-   const r=await supabase.from('proc_suppliers').insert({supplier_code:'CO-'+crypto.randomUUID().slice(0,8).toUpperCase(),
-    name,phone,whatsapp:phone,supplier_kind:'company',active:true}).select('id').single()
-   if(r.error)throw r.error
-   await load()
-   setDraft(v=>({...v,supplier_ids:uniq([...v.supplier_ids,r.data.id])}))
-   flash('Company supplier contact added. Save the group route to link it.')
-  }
-  setNewSupplier({name:'',phone:''})
+ async function contactSaved(id){
+  // Save the supplier independently, but only save the group assignment on Save group route.
+  await load()
+  setDraft(v=>{
+   const ids=uniq([...v.supplier_ids,id])
+   return {...v,supplier_ids:ids,mode:ids.length>1?'rfq':v.mode,auto_send:ids.length>1?false:v.auto_send}
+  })
+  setEditContactId('')
+ }
+ function toggleSupplier(id,checked){
+  setDraft(v=>{
+   const ids=checked?uniq([...v.supplier_ids,id]):v.supplier_ids.filter(x=>x!==id)
+   return {...v,supplier_ids:ids,mode:ids.length>1?'rfq':v.mode,auto_send:ids.length>1?false:v.auto_send}
+  })
+  if(!checked&&editContactId===id)setEditContactId('')
  }
  async function prepare(s,rule){
   if(rule.route_mode==='rfq'){
@@ -148,17 +146,25 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
       </label>
       <div className="formgrid section" style={{maxHeight:250,overflowY:'auto'}}>
        {suppliers.filter(s=>(s.name+' '+(s.phone||'')).toLowerCase().includes(supplierSearch.toLowerCase())).slice(0,70).map(person=><label key={person.id} className="checkline">
-        <input type="checkbox" checked={draft.supplier_ids.includes(person.id)} onChange={e=>setDraft(v=>{
-         const ids=e.target.checked?uniq([...v.supplier_ids,person.id]):v.supplier_ids.filter(id=>id!==person.id)
-         return {...v,supplier_ids:ids,mode:ids.length>1?'rfq':v.mode}
-        })}/>
+        <input type="checkbox" checked={draft.supplier_ids.includes(person.id)} onChange={e=>toggleSupplier(person.id,e.target.checked)}/>
         {person.name} · {person.phone||person.whatsapp||'No number'}
        </label>)}
       </div>
-      <details className="section"><summary>+ Add new company supplier contact</summary><div className="formgrid section">
-       <label className="field">Supplier name<input className="input" value={newSupplier.name} onChange={e=>setNewSupplier(v=>({...v,name:e.target.value}))}/></label>
-       <label className="field">Phone / WhatsApp<input className="input" type="tel" value={newSupplier.phone} placeholder="+94771234567" onChange={e=>setNewSupplier(v=>({...v,phone:e.target.value}))}/></label>
-       </div><button className="btn small" disabled={busy} onClick={()=>run(addSupplier)}>Add &amp; select supplier</button></details>
+      {draft.supplier_ids.length>0&&<div className="section" aria-label="Selected group suppliers">
+       <strong>Selected suppliers ({draft.supplier_ids.length})</strong>
+       {draft.supplier_ids.map((id,index)=>{
+        const person=suppliers.find(s=>s.id===id)
+        return <div key={id} className="company-document-row">
+         <span><strong>Supplier {index+1}:</strong> {person?.name||'Contact unavailable'} · {person?.phone||person?.whatsapp||'No number'}</span>
+         <div className="toolbar" style={{flexWrap:'wrap'}}>
+          <button type="button" className="btn small" disabled={busy||!person} onClick={()=>setEditContactId(id)}>Edit</button>
+          <button type="button" className="btn small" disabled={busy} onClick={()=>toggleSupplier(id,false)}>Remove</button>
+         </div>
+        </div>
+       })}
+      </div>}
+      <GroupSupplierContactEditor key={editing} suppliers={suppliers} editingSupplier={suppliers.find(s=>s.id===editContactId)||null}
+       onCancel={()=>setEditContactId('')} onSaved={contactSaved} flash={flash} fail={fail}/>
       <p className="muted tiny">Selected: {draft.supplier_ids.length}. Direct POs require exactly one supplier. RFQs keep quotation prices separate and require approval before a PO is made.</p>
       <div className="toolbar section"><button className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(save)}>{busy?'Saving…':'Save group route'}</button>
        {own&&<button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
