@@ -67,7 +67,7 @@ DECLARE co uuid:='00000000-0000-4000-8000-000000000101';
  r jsonb; denied boolean;
 BEGIN
  SELECT public.proc_company_save_section_route(co,root,'direct',true,ARRAY[one]) INTO r;
- ASSERT (SELECT auto_approve FROM public.proc_companies WHERE id=co),'Explicit auto-send route must enable admin-configured automatic approval';
+ ASSERT (SELECT group_auto_approve AND NOT auto_approve FROM public.proc_companies WHERE id=co),'Group auto-send must not silently enable company-wide automatic approval';
  ASSERT private.proc_company_effective_route(co,item_child)->>'mode'='direct','Child failed to inherit direct PO';
  ASSERT private.proc_company_effective_route(co,item_child)->>'route_section_id'=root::text,'Inherited route did not identify parent';
 
