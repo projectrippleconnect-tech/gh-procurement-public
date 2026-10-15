@@ -6,7 +6,7 @@ test('a native Android picker with zero results provides a fallback without disc
  const result=contactPickerOutcome({selection:[]})
  assert.equal(result.ok,false)
  assert.equal(result.code,'empty')
- assert.match(result.message,/Import \.vcf/)
+ assert.match(result.message,/Import a \.vcf file/)
 })
 test('back, cancellation and OS picker failures do not appear as validation errors',()=>{
  assert.equal(contactPickerOutcome({error:{name:'AbortError'}}).code,'cancelled')
