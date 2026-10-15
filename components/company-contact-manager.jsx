@@ -1,9 +1,11 @@
 'use client'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {useDangerConfirmation} from './danger-confirmation'
 import {choicesFromPicker,parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
 
 export function CompanyContactManager({company,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
+ const confirmDanger=useDangerConfirmation()
  const [contacts,setContacts]=useState([]),[search,setSearch]=useState(''),[fileSearch,setFileSearch]=useState('')
  const [imported,setImported]=useState([]),[draft,setDraft]=useState({name:'',phone:''}),[editId,setEditId]=useState('')
  const [busy,setBusy]=useState(false),[open,setOpen]=useState(false)
@@ -94,7 +96,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
     <button type="button" className="btn small" disabled={busy} onClick={()=>perform(pickFromPhone)}>Pick from phone</button>
     <button type="button" className="btn small" disabled={busy} onClick={()=>fileRef.current?.click()}>Import .vcf</button>
     <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import phone contact file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';perform(()=>importVcf(file))}}/>
-    {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>perform(()=>link(null))}>Remove from company</button></>}
+    {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>confirmDanger({title:'Remove designated contact',message:'Unlink '+(current?.name||'this contact')+' from '+company.name+'?',warning:'Supplier records and past orders remain untouched. Automatic company orders may need another designated contact.',confirmLabel:'Remove company link',onConfirm:()=>link(null)})}>Remove from company</button></>}
    </div>
    <p className="muted tiny">Phone picker opens your device contact search when supported. Otherwise import a shared .vcf contact or enter the number. Only the contact you save is stored.</p>
    <label className="field">Search saved company contacts
