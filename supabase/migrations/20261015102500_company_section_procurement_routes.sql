@@ -65,6 +65,17 @@ END $$;
 REVOKE ALL ON FUNCTION public.proc_company_save_section_route(uuid,uuid,text,boolean,uuid[]) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.proc_company_save_section_route(uuid,uuid,text,boolean,uuid[]) TO authenticated;
 
+CREATE OR REPLACE FUNCTION public.proc_company_clear_section_route(p_company_id uuid,p_section_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $
+BEGIN
+ PERFORM private.proc_assert_access();
+ IF NOT private.proc_is_role(ARRAY['admin']) OR NOT private.proc_has_permission('company_lists.manage') THEN
+  RAISE EXCEPTION 'Only company administrators may remove group routing'; END IF;
+ DELETE FROM public.proc_company_section_routes WHERE company_id=p_company_id AND section_id=p_section_id;
+END $;
+REVOKE ALL ON FUNCTION public.proc_company_clear_section_route(uuid,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.proc_company_clear_section_route(uuid,uuid) TO authenticated;
+
 -- The nearest configured ancestor wins. Child groups can override parent routes.
 -- Existing unconfigured groups retain their company-wide and brand-specific rules.
 CREATE OR REPLACE FUNCTION private.proc_company_effective_route(p_company_id uuid,p_item_id uuid)
@@ -191,7 +202,7 @@ begin
  select * into c from public.proc_companies where id=q.company_id and active;
  select * into po from public.proc_purchase_orders where id=q.po_id and company_id=c.id and quantity_only and status='approved';
  if po.id is null then raise exception 'Company order is not eligible for automatic sending';end if;
- if exists(select 1 from public.proc_po_lines l where l.po_id=po.id and (private.proc_company_effective_route(c.id,l.item_id)->>'mode'<>'direct' or coalesce((private.proc_company_effective_route(c.id,l.item_id)->>'auto_send')::boolean,false)=false or (private.proc_company_effective_route(c.id,l.item_id)->'supplier_ids'->>0)::uuid is distinct from po.supplier_id)) then raise exception 'Company order route or recipient has changed; review queued order before sending';end if;
+ if exists(select 1 from public.proc_po_lines l cross join lateral private.proc_company_effective_route(c.id,l.item_id) route_info(route) where l.po_id=po.id and (route_info.route->>'mode'<>'direct' or coalesce((route_info.route->>'auto_send')::boolean,false)=false or (route_info.route->'supplier_ids'->>0)::uuid is distinct from po.supplier_id)) then raise exception 'Company order route or recipient has changed; review queued order before sending';end if;
  -- Stock staff can process orders only when admin configured automatic approval.
  if not private.proc_has_permission('company_lists.manage') and not(c.auto_approve and private.proc_has_permission('stock.count.enter')) then raise exception 'Admin-approved sending required';end if;
  select * into s from public.proc_suppliers where id=po.supplier_id and active and supplier_kind='company';
