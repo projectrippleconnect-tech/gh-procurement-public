@@ -42,6 +42,11 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
+      - name: Verify web contact picker recovery with simulated contacts
+        env:
+          GH_UI_CONTACT_PICKER: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: npm run test:ui
       - name: Verify settings search and Super Admin capture controls
         env:
           GH_UI_SETTINGS_SEARCH: '1'
