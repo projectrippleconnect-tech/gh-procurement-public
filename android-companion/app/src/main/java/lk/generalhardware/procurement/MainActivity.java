@@ -211,6 +211,14 @@ public final class MainActivity extends Activity {
             }
         });
         webView.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Let today's live website use its existing contact-picker button
+                // before the separate web bridge update is approved for Railway.
+                // Never inject into an external page.
+                if (isTrusted(url) && isTrusted(view.getUrl()))
+                    view.evaluateJavascript(NativeContactShim.script(), null);
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (isTrusted(uri.toString())) return false;
