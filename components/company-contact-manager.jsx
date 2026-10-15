@@ -27,7 +27,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
   try{await action()}catch(error){fail(error)}finally{setBusy(false)}
  }
  async function link(id){
-  const r=await supabase.from('proc_companies').update({default_supplier_id:id||null,updated_at:new Date().toISOString()}).eq('id',company.id)
+  const r=await supabase.from('proc_companies').update({default_supplier_id:id||null,updated_at:new Date().toISOString()}).eq('id',company.id).select('id').single()
   if(r.error)throw r.error
   setSearch('');setDraft({name:'',phone:''});setEditId('');setImported([])
   await onChanged()
