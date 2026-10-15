@@ -29,7 +29,7 @@ export function PasteContact({disabled=false,onApply}){
  }
  return <div className="section" aria-label="Paste contact">
   <label className="field">Paste contact text
-   <textarea ref={input} className="input" rows={2} maxLength={4000} disabled={disabled||reading} value={text} placeholder="Contact name and number, or just the number" onChange={e=>{setText(e.target.value);setChoices([]);setMessage('')}} onPaste={e=>{
+   <textarea aria-label="Paste contact text" ref={input} className="input" rows={2} maxLength={4000} disabled={disabled||reading} value={text} placeholder="Contact name and number, or just the number" onChange={e=>{setText(e.target.value);setChoices([]);setMessage('')}} onPaste={e=>{
     const value=e.clipboardData.getData('text/plain');e.preventDefault();extract(value)
    }}/>
   </label>
