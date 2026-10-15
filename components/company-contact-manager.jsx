@@ -4,6 +4,7 @@ import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation} from './danger-confirmation'
 import {parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
 import {contactPickerOutcome} from '@/lib/contact-picker-outcome.mjs'
+import {nativePhoneContactsAvailable,pickNativePhoneContact} from '@/lib/native-phone-contact-picker.mjs'
 
 export function CompanyContactManager({company,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
  const confirmDanger=useDangerConfirmation()
@@ -45,18 +46,21 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
  }
  async function pickFromPhone(){
   setPhonePickerMessage('')
-  if(!navigator.contacts?.select){
-   setPhonePickerMessage('This browser does not support the phone contact picker. Use Import .vcf or add the contact manually.')
+  const native=nativePhoneContactsAvailable()
+  if(!native&&!navigator.contacts?.select){
+   setPhonePickerMessage('Chrome cannot display local contacts on this device. Direct contacts are available in the GH Procurement Android app.')
    return
   }
   try{
-   // The Android/Chrome native search is outside the web app's control.
-   // Do not clear the draft or show a disruptive validation toast on dismiss.
-   const selected=contactPickerOutcome({selection:await navigator.contacts.select(['name','tel'],{multiple:false})})
+   const selection=native?await pickNativePhoneContact():await navigator.contacts.select(['name','tel'],{multiple:false})
+   const selected=contactPickerOutcome({selection})
    if(!selected.ok){setPhonePickerMessage(selected.message);return}
    if(selected.contacts.length===1)selectCandidate(selected.contacts[0])
    else{setImported(selected.contacts);setFileSearch('');setOpen(true)}
-  }catch(error){setPhonePickerMessage(contactPickerOutcome({error}).message)}
+  }catch(error){
+   if(native&&error?.name!=='AbortError')setPhonePickerMessage(error?.message||'The Android contact list could not open.')
+   else setPhonePickerMessage(contactPickerOutcome({error}).message)
+  }
  }
  async function importVcf(file){
   if(!file)return
@@ -102,7 +106,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
     <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import phone contact file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';perform(()=>importVcf(file))}}/>
     {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>confirmDanger({title:'Remove designated contact',message:'Unlink '+(current?.name||'this contact')+' from '+company.name+'?',warning:'Supplier records and past orders remain untouched. Automatic company orders may need another designated contact.',confirmLabel:'Remove company link',onConfirm:()=>link(null)})}>Remove from company</button></>}
    </div>
-   <p className="muted tiny">The Android/Chrome contact picker can close or display “No contacts found” even if the phone has contacts. Your entered details will stay here. You can import one contact or a larger .vcf address-book export and search it locally.</p>
+   <p className="muted tiny">{nativePhoneContactsAvailable()?'Pick from phone opens GH Procurement’s searchable Android contact list; choose any locally stored supplier and save it without syncing accounts.':'Chrome’s phone picker is malfunctioning on some devices. To pick unsynced local contacts directly, use GH Procurement’s Android app; enter contacts manually in the browser.'}</p>
    {phonePickerMessage&&<div role="status" className="section"><p className="muted tiny">{phonePickerMessage}</p><button type="button" className="btn small" onClick={()=>fileRef.current?.click()}>Import a contact (.vcf)</button></div>}
    <details className="section"><summary>Phone picker not showing contacts? Import from your phone</summary>
     <p className="muted tiny">In your phone's Contacts app, choose the supplier and select Share / Export as vCard (.vcf). Save the file under Downloads or Files. Return to GH Procurement, tap Import .vcf, choose that file, search and select the person, edit their name or number, and save. The address-book file stays on your phone.</p>

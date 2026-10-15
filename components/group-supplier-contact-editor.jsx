@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
 import {contactPickerOutcome} from '@/lib/contact-picker-outcome.mjs'
+import {nativePhoneContactsAvailable,pickNativePhoneContact} from '@/lib/native-phone-contact-picker.mjs'
 import {planGroupSupplierSave} from '@/lib/group-supplier-contact-plan.mjs'
 
 const empty={name:'',phone:''}
@@ -34,18 +35,20 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
   // Run directly from a user click; awaiting any browser check first can consume
   // the transient activation Chrome requires for its native contact picker.
   setPhonePickerMessage('')
-  if(!navigator.contacts?.select){
-   setPhonePickerMessage('This browser cannot display phone contacts. Use Import .vcf or enter the contact manually.')
+  const native=nativePhoneContactsAvailable()
+  if(!native&&!navigator.contacts?.select){
+   setPhonePickerMessage('Chrome cannot open your phone contacts on this device. Direct local-phone contact selection is available in the GH Procurement Android app.')
    return
   }
   try{
-   const result=contactPickerOutcome({selection:await navigator.contacts.select(['name','tel'],{multiple:false})})
+   const selection=native?await pickNativePhoneContact():await navigator.contacts.select(['name','tel'],{multiple:false})
+   const result=contactPickerOutcome({selection})
    if(!result.ok){setPhonePickerMessage(result.message);return}
    if(result.contacts.length===1){setCandidate(result.contacts[0]);flash('Contact selected. Check its name and number, then tap Save contact.')}
    else{setImported(result.contacts);setImportSearch('');flash('Choose which number to save.')}
   }catch(error){
-   const result=contactPickerOutcome({error})
-   setPhonePickerMessage(result.message)
+   if(native&&error?.name!=='AbortError')setPhonePickerMessage(error?.message||'The Android contact list could not open.')
+   else setPhonePickerMessage(contactPickerOutcome({error}).message)
   }
  }
  async function importContacts(file){
@@ -95,7 +98,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
    <button type="button" className="btn small" disabled={saving||loadingFile} onClick={addManually}>Enter manually</button>
    <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import supplier phone contacts" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';importContacts(file)}}/>
   </div>
-  <p className="muted tiny">The phone picker is controlled by Android. If it closes while searching or says “No contacts found,” use Import .vcf below. Only contacts you explicitly select and save are stored in GH Procurement.</p>
+  <p className="muted tiny">{nativePhoneContactsAvailable()?'Pick from phone opens GH Procurement’s native searchable Android contacts list. Only the supplier you choose is returned.':'On Chrome, the phone contacts picker depends on Android and may be empty. For reliable local contacts without syncing accounts, use the GH Procurement Android app. Manual entry remains available.'}</p>
   {phonePickerMessage&&<div role="status" className="section"><p className="muted tiny">{phonePickerMessage}</p><button type="button" className="btn small" onClick={()=>fileRef.current?.click()}>Import a saved contact (.vcf)</button></div>}
   <details className="section"><summary>Phone contacts empty? How to import reliably</summary>
    <p className="muted tiny">Open your phone’s Contacts app, select the supplier, and choose Share contact / Export contact as a vCard (.vcf). Save it to your phone's Files or Downloads. Return here, tap Import .vcf, select the saved file, search the name, then edit and save the supplier. You can also export multiple contacts as one .vcf, then search locally. No address book is uploaded.</p>

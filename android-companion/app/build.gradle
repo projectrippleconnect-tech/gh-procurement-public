@@ -6,8 +6,8 @@ android {
         applicationId 'lk.generalhardware.procurement'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '0.2.0-secure-test'
+        versionCode 3
+        versionName '0.3.0-local-contacts-test'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

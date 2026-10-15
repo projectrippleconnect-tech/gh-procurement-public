@@ -6,6 +6,8 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.Context;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -44,6 +46,10 @@ public final class MainActivity extends Activity {
     private static final int MAX_BASE64 = 8 * 1024 * 1024;
     private static final int FILE_REQUEST = 110;
     private static final int LOCATION_REQUEST = 111;
+    private static final int CONTACTS_REQUEST = 112;
+    private String contactSelectionRequest;
+    private boolean contactDiagnostic;
+    private NativeContactsDialog nativeContactsDialog;
     private android.webkit.GeolocationPermissions.Callback pendingLocation;
     private String pendingLocationOrigin;
     private WebView webView;
@@ -137,13 +143,28 @@ public final class MainActivity extends Activity {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         Button testShare = new Button(this);
-        testShare.setText("TEST WHATSAPP (MY NUMBER)");
+        testShare.setText("TEST WHATSAPP");
         testShare.setAllCaps(false);
-        column.addView(testShare, new LinearLayout.LayoutParams(
+        Button testContacts = new Button(this);
+        testContacts.setText("TEST CONTACTS");
+        testContacts.setAllCaps(false);
+        LinearLayout tests = new LinearLayout(this);
+        tests.setOrientation(LinearLayout.HORIZONTAL);
+        tests.addView(testShare, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        tests.addView(testContacts, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        column.addView(tests, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         column.addView(root, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         testShare.setOnClickListener(v -> runShareDiagnostic());
+        testContacts.setOnClickListener(v -> {
+            if (contactSelectionRequest != null) {
+                Toast.makeText(this, "Finish the current contact selection first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            contactDiagnostic = true;
+            beginLocalContactSearch("ghc_native_test");
+        });
         setContentView(column);
 
         WebSettings settings = webView.getSettings();
@@ -190,6 +211,14 @@ public final class MainActivity extends Activity {
             }
         });
         webView.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Let today's live website use its existing contact-picker button
+                // before the separate web bridge update is approved for Railway.
+                // Never inject into an external page.
+                if (isTrusted(url) && isTrusted(view.getUrl()))
+                    view.evaluateJavascript(NativeContactShim.script(), null);
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (isTrusted(uri.toString())) return false;
@@ -208,6 +237,11 @@ public final class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == CONTACTS_REQUEST && contactSelectionRequest != null) {
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED)
+                showLocalContactSearch();
+            else completeLocalContact("permission_denied", "", "");
+        }
         if (requestCode == LOCATION_REQUEST && pendingLocation != null) {
             boolean allowed = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
                 == android.content.pm.PackageManager.PERMISSION_GRANTED;
@@ -278,7 +312,80 @@ public final class MainActivity extends Activity {
             }).show();
     }
 
+    /**
+     * The permission belongs to this APK, not Chrome. A native search reads
+     * contacts locally and only returns the single explicitly selected entry.
+     */
+    private void beginLocalContactSearch(String requestId) {
+        if (webView == null || !isTrusted(webView.getUrl())
+                || requestId == null || !requestId.matches("[A-Za-z0-9_-]{8,100}")) return;
+        if (contactSelectionRequest != null) {
+            // Ignore overlapping requests instead of sending results to the wrong input.
+            return;
+        }
+        contactSelectionRequest = requestId;
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED)
+            showLocalContactSearch();
+        else requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST);
+    }
+
+    private void showLocalContactSearch() {
+        if (contactSelectionRequest == null || isFinishing() || webView == null
+                || !isTrusted(webView.getUrl())) {
+            completeLocalContact("unavailable", "", "");
+            return;
+        }
+        nativeContactsDialog = new NativeContactsDialog(this, new NativeContactsDialog.Callback() {
+            @Override public void onPicked(String name, String phone) {
+                completeLocalContact("selected", name, phone);
+            }
+            @Override public void onClosed(String reason) {
+                completeLocalContact(reason, "", "");
+            }
+        });
+        nativeContactsDialog.show();
+    }
+
+    private void completeLocalContact(String status, String name, String phone) {
+        String requestId = contactSelectionRequest;
+        if (requestId == null) return;
+        contactSelectionRequest = null;
+        nativeContactsDialog = null;
+        if (contactDiagnostic) {
+            contactDiagnostic = false;
+            if ("selected".equals(status)) Toast.makeText(this,
+                "Phone contact chosen: " + name + " (" + phone + ")", Toast.LENGTH_LONG).show();
+            else if ("permission_denied".equals(status)) Toast.makeText(this,
+                "Allow Contacts permission for GH Procurement in Android Settings.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (webView == null || !isTrusted(webView.getUrl()) || isFinishing()) return;
+        try {
+            org.json.JSONObject result = new org.json.JSONObject();
+            result.put("requestId", requestId);
+            result.put("status", status);
+            if ("selected".equals(status)) {
+                result.put("name", name == null ? "" : name);
+                result.put("phone", phone == null ? "" : phone);
+            }
+            // evaluateJavascript targets the main frame of our trusted first-party page.
+            webView.evaluateJavascript(
+                "(function(){window.dispatchEvent(new CustomEvent('gh-procurement-native-contact',"
+                + "{detail:" + result.toString() + "}));})();", null);
+        } catch (Exception ignored) {
+            // Nothing in the address book is uploaded on a failed response.
+        }
+    }
+
     final class SupplierShareBridge {
+        /**
+         * The JS call only opens a user-operated native contact list; it does not
+         * enumerate contacts to the page. Permission is requested only on click.
+         * Android's native search is independent of Chrome's broken picker.
+         */
+        @JavascriptInterface public void pickLocalPhoneContact(String requestId) {
+            runOnUiThread(() -> beginLocalContactSearch(requestId));
+        }
         /** No client-supplied boolean can disable capture protection. The native
          * layer independently verifies the current JWT with the backend. */
         @JavascriptInterface public void refreshCapturePolicy(String token) {
@@ -362,6 +469,8 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         protectCapture();
+        contactSelectionRequest = null;
+        if (nativeContactsDialog != null) { nativeContactsDialog.dismiss(); nativeContactsDialog = null; }
         if (pendingFiles != null) { pendingFiles.onReceiveValue(null); pendingFiles = null; }
         if (webView != null) { webView.removeJavascriptInterface("GHProcurementAndroid"); webView.destroy(); webView = null; }
         super.onDestroy();
