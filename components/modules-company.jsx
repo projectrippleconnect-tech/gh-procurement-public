@@ -14,6 +14,7 @@ import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
+import {CompanyContactManager} from './company-contact-manager'
 import {reorderFor} from '@/lib/company-items.mjs'
 import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
 import {CompanySectionManager} from './company-section-manager'
@@ -239,6 +240,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
+  {companyId&&<CompanyContactManager company={currentCompany} canManage={canManage&&(profile.role_key||profile.role)==='admin'} flash={flash} fail={fail} onChanged={loadCompanies}/>}
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>

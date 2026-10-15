@@ -1,4 +1,6 @@
 import {companyAccess,companyBody,companyReply,sheetsToken,sheetsRequest} from '@/lib/company-server'
+// @ts-ignore Small safeguard with Node contract tests.
+import {companyImportCollisionGuard} from '@/lib/reviewed-company-import-guard.mjs'
 // @ts-ignore Shared worksheet parser is covered by node tests.
 import {parseCompanySheet,validateCompanyImport} from '@/lib/company-items.mjs'
 // @ts-ignore Tested in the source-specific sheet parser and reconciliation tests.
@@ -40,8 +42,21 @@ export async function POST(request:Request){
      else rows=parseCompanySheet({title,sheetId,values:values.values||[]})
      validateCompanyImport(rows)
      let importTitle=title.replace(/ · App$/,'');const owner=sheet.developerMetadata?.find((m:{metadataKey:string})=>m.metadataKey==='gh_company_id')?.metadataValue;if(owner){const found=await db.from('proc_companies').select('name').eq('id',owner).maybeSingle();if(found.error)throw found.error;if(found.data)importTitle=found.data.name}
+     const linked=await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()
+     if(linked.error)throw linked.error
+     const existingCompanyId=owner||linked.data?.id
+     if(existingCompanyId){
+      const old=await db.from('proc_company_list_items').select('source_key')
+       .eq('company_id',existingCompanyId).limit(1000)
+      if(old.error)throw old.error
+      if((old.data||[]).length>=1000)throw new Error('Existing company list exceeds the safe import limit.')
+      const guard=companyImportCollisionGuard((old.data||[]).map((x:{source_key:string|null})=>x.source_key),rows)
+      if(guard.blocked)throw new Error(
+       guard.unknownCount+' new or renamed source identities detected. Use Reviewed Google Sheet preview and match existing items before importing any additions.'
+      )
+     }
      const r=await db.rpc('proc_company_import_sheet',{p_title:importTitle,p_sheet_id:sheetId,p_rows:rows});if(r.error)throw r.error;imported+=r.data.imported
-     const targetCompany=owner||(await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()).data?.id
+     const targetCompany=existingCompanyId||(await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()).data?.id
      if(targetCompany){
       if(owner&&rows.some((item:{section_path?:string})=>item.section_path)){
        const mapped=await db.rpc('proc_company_import_section_paths',{p_company_id:targetCompany,p_rows:rows.filter((item:{section_path?:string})=>item.section_path).map((item:{source_key:string;section_path:string})=>({source_key:item.source_key,section_path:item.section_path}))})
