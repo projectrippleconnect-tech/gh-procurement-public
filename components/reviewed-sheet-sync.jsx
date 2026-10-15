@@ -5,19 +5,20 @@ import {useEffect,useState} from 'react'
 export function ReviewedSheetSync({company,api,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
  const [busy,setBusy]=useState(false)
  const [preview,setPreview]=useState(null)
- useEffect(()=>setPreview(null),[company?.id])
+ const [ackLegacy,setAckLegacy]=useState(false)
+ useEffect(()=>{setPreview(null);setAckLegacy(false)},[company?.id])
  if(!canManage||(company?.sheet_id===null||company?.sheet_id===undefined))return null
  async function run(action){
   if(busy)return
   setBusy(true)
   try{
-   const result=await api('reviewed-sync',{companyId:company.id,action,...(action==='apply'?{fingerprint:preview?.fingerprint}:{})})
+   const result=await api('reviewed-sync',{companyId:company.id,action,...(action==='apply'?{fingerprint:preview?.fingerprint,ackLegacy}:{})})
    if(action==='apply'){
     setPreview(null)
     await onChanged()
     flash(result.message)
     if(result.errors?.length)fail(new Error(result.errors[0]))
-   }else setPreview(result)
+   }else {setPreview(result);setAckLegacy(false)}
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  return <details className="section"><summary>Reviewed Google Sheet — safe naming & category sync</summary>
