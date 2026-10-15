@@ -51,7 +51,7 @@ export function CompanyControls({company,rows,can,flash,fail,onChanged}){
   setFile(null);await load();flash('Attachment, discounts and remarks saved.')
  }
  async function openDocument(d){const r=await supabase.storage.from('gh-procurement').createSignedUrl(d.storage_path,300);if(r.error)throw r.error;window.open(r.data.signedUrl,'_blank','noopener,noreferrer')}
- return <details className="card pad section"><summary>Company settings, groups, contacts &amp; attachments</summary><ReviewedSheetSync company={company} canManage={admin} flash={flash} fail={fail} onChanged={onChanged}/>{admin&&<><div className="formgrid section">
+ return <details className="card pad section"><summary>Company settings, groups, contacts &amp; attachments</summary><ReviewedSheetSync company={company} api={companyApi} canManage={admin} flash={flash} fail={fail} onChanged={onChanged}/>{admin&&<><div className="formgrid section">
   <label className="field">Company name<input className="input" value={form.name||''} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></label>
   <label className="field">Company supplier contact<ModernSelect className="select" value={form.default_supplier_id||''} onChange={e=>setForm(f=>({...f,default_supplier_id:e.target.value}))}><option value="">Select company contact</option>{contacts.map(s=><option key={s.id} value={s.id}>{s.name} · {s.whatsapp||s.phone}</option>)}</ModernSelect></label>
   <label className="field">Ordering route<ModernSelect className="select" value={form.order_route||'quotation'} onChange={e=>setForm(f=>({...f,order_route:e.target.value}))}><option value="quotation">Normal quotation and comparison</option><option value="direct">Direct quantity-only PO</option></ModernSelect></label>
