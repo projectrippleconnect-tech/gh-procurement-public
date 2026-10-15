@@ -56,7 +56,7 @@ export async function POST(request:Request){
       )
      }
      const r=await db.rpc('proc_company_import_sheet',{p_title:importTitle,p_sheet_id:sheetId,p_rows:rows});if(r.error)throw r.error;imported+=r.data.imported
-     const targetCompany=existingCompanyId
+     const targetCompany=existingCompanyId||(await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()).data?.id
      if(targetCompany){
       if(owner&&rows.some((item:{section_path?:string})=>item.section_path)){
        const mapped=await db.rpc('proc_company_import_section_paths',{p_company_id:targetCompany,p_rows:rows.filter((item:{section_path?:string})=>item.section_path).map((item:{source_key:string;section_path:string})=>({source_key:item.source_key,section_path:item.section_path}))})
