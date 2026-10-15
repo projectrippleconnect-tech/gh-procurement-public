@@ -25,7 +25,7 @@ export function ReviewedCompanyHierarchy({companyId,onChanged=()=>{},flash=()=>{
  }
  return <details className="section">
   <summary>Reviewed product grouping — all company lists</summary>
-  <p className="muted tiny">Group existing products into colored, collapsible company → category → subcategory sections. Reuses existing sections, including Panel Sheets ceiling branches and Kelvin/Orange ranges, and preserves item IDs, maximum stock, current stock drafts, source keys and history.</p>
+  <p className="muted tiny">Group existing products into colored, collapsible company → category → subcategory sections. Reuses existing sections, including Panel Sheets ceiling branches and Kevilton/Orange ranges, and preserves item IDs, maximum stock, current stock drafts, source keys and history.</p>
   <button type="button" className="btn section" disabled={busy} onClick={()=>run(true)}>
    {busy?'Checking hierarchy…':'Preview reviewed groupings'}
   </button>
