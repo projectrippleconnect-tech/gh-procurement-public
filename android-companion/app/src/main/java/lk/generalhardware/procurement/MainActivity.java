@@ -48,6 +48,7 @@ public final class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 111;
     private static final int CONTACTS_REQUEST = 112;
     private String contactSelectionRequest;
+    private boolean contactDiagnostic;
     private NativeContactsDialog nativeContactsDialog;
     private android.webkit.GeolocationPermissions.Callback pendingLocation;
     private String pendingLocationOrigin;
@@ -142,13 +143,28 @@ public final class MainActivity extends Activity {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         Button testShare = new Button(this);
-        testShare.setText("TEST WHATSAPP (MY NUMBER)");
+        testShare.setText("TEST WHATSAPP");
         testShare.setAllCaps(false);
-        column.addView(testShare, new LinearLayout.LayoutParams(
+        Button testContacts = new Button(this);
+        testContacts.setText("TEST CONTACTS");
+        testContacts.setAllCaps(false);
+        LinearLayout tests = new LinearLayout(this);
+        tests.setOrientation(LinearLayout.HORIZONTAL);
+        tests.addView(testShare, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        tests.addView(testContacts, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        column.addView(tests, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         column.addView(root, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         testShare.setOnClickListener(v -> runShareDiagnostic());
+        testContacts.setOnClickListener(v -> {
+            if (contactSelectionRequest != null) {
+                Toast.makeText(this, "Finish the current contact selection first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            contactDiagnostic = true;
+            beginLocalContactSearch("ghc_native_test");
+        });
         setContentView(column);
 
         WebSettings settings = webView.getSettings();
@@ -327,6 +343,14 @@ public final class MainActivity extends Activity {
         if (requestId == null) return;
         contactSelectionRequest = null;
         nativeContactsDialog = null;
+        if (contactDiagnostic) {
+            contactDiagnostic = false;
+            if ("selected".equals(status)) Toast.makeText(this,
+                "Phone contact chosen: " + name + " (" + phone + ")", Toast.LENGTH_LONG).show();
+            else if ("permission_denied".equals(status)) Toast.makeText(this,
+                "Allow Contacts permission for GH Procurement in Android Settings.", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (webView == null || !isTrusted(webView.getUrl()) || isFinishing()) return;
         try {
             org.json.JSONObject result = new org.json.JSONObject();
