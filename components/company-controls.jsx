@@ -13,7 +13,6 @@ export async function companyApi(action,payload={}){
 }
 export function CompanyControls({company,rows,can,flash,fail,onChanged}){
  const admin=can('company_lists.manage'),canDocuments=admin||can('procurement.rfq.manage'),[form,setForm]=useState({}),[contacts,setContacts]=useState([]),[brandContacts,setBrandContacts]=useState({}),[documents,setDocuments]=useState([]),[queue,setQueue]=useState([]),[busy,setBusy]=useState(false)
- [group,setGroup]=useState({from_field:'subgroup',from:'',category:'',main_group:'',subgroup:''})
  const[doc,setDoc]=useState({kind:'quotation',discount_percent:'0',discount_amount:'0',remarks:'',send_with_order:false,supplier_id:'',item_id:'',quote_id:'',po_id:''}),[file,setFile]=useState(null),[quotes,setQuotes]=useState([]),[orders,setOrders]=useState([])
  async function load(){
   if(!canDocuments||!company?.id)return
