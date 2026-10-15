@@ -1,7 +1,8 @@
 'use client'
 import {useEffect,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {choicesFromPicker,parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {contactPickerOutcome} from '@/lib/contact-picker-outcome.mjs'
 import {planGroupSupplierSave} from '@/lib/group-supplier-contact-plan.mjs'
 
 const empty={name:'',phone:''}
@@ -12,6 +13,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
  const [draft,setDraft]=useState(empty)
  const [imported,setImported]=useState([]),[importSearch,setImportSearch]=useState('')
  const [saving,setSaving]=useState(false),[loadingFile,setLoadingFile]=useState(false)
+ const [phonePickerMessage,setPhonePickerMessage]=useState('')
  const fileRef=useRef(null)
  useEffect(()=>{
   if(editingSupplier)setDraft({name:editingSupplier.name||'',phone:editingSupplier.phone||editingSupplier.whatsapp||''})
@@ -29,26 +31,32 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
   setDraft(empty)
  }
  async function pickPhoneContact(){
+  // Run directly from a user click; awaiting any browser check first can consume
+  // the transient activation Chrome requires for its native contact picker.
+  setPhonePickerMessage('')
   if(!navigator.contacts?.select){
-   flash('Direct phone contact picking is unavailable in this browser. Export a contact as .vcf and use Import contacts, or enter it manually.')
+   setPhonePickerMessage('This browser cannot display phone contacts. Use Import .vcf or enter the contact manually.')
    return
   }
   try{
-   const contacts=choicesFromPicker(await navigator.contacts.select(['name','tel'],{multiple:false}))
-   if(!contacts.length)throw new Error('No valid Sri Lankan phone number was selected.')
-   if(contacts.length===1){setCandidate(contacts[0]);flash('Contact selected. Edit its name if needed, then tap Save contact.')}
-   else{setImported(contacts);setImportSearch('');flash('Choose which phone number to save from the selected contact.')}
-  }catch(error){if(error?.name!=='AbortError')fail(error)}
+   const result=contactPickerOutcome({selection:await navigator.contacts.select(['name','tel'],{multiple:false})})
+   if(!result.ok){setPhonePickerMessage(result.message);return}
+   if(result.contacts.length===1){setCandidate(result.contacts[0]);flash('Contact selected. Check its name and number, then tap Save contact.')}
+   else{setImported(result.contacts);setImportSearch('');flash('Choose which number to save.')}
+  }catch(error){
+   const result=contactPickerOutcome({error})
+   setPhonePickerMessage(result.message)
+  }
  }
  async function importContacts(file){
   if(!file)return
   setLoadingFile(true)
   try{
-   if(file.size>2*1024*1024)throw new Error('Choose a .vcf file smaller than 2 MB.')
+   if(file.size>10*1024*1024)throw new Error('Choose a .vcf file smaller than 10 MB. You can also export a single contact.')
    if(!/\.vcf$/i.test(file.name))throw new Error('Import a .vcf contact file exported from your phone.')
-   const contacts=parseCompanyVcards(await file.text())
+   const contacts=parseCompanyVcards(await file.text(),{maxCards:10000})
    if(!contacts.length)throw new Error('The file contains no valid Sri Lankan contact numbers.')
-   setImported(contacts);setImportSearch('')
+   setImported(contacts);setImportSearch('');setPhonePickerMessage('')
    flash(contacts.length+' contact option(s) found. Pick one, edit its name and save it. The file stays on your device.')
   }catch(error){fail(error)}finally{setLoadingFile(false)}
  }
@@ -73,7 +81,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
     if(r.error)throw r.error
    }
    await onSaved(id,plan.action)
-   setDraft(empty)
+   setDraft(empty);setPhonePickerMessage('')
    if(plan.action==='reuse')flash('Existing supplier linked to this group; the saved name was preserved. Edit that supplier if you need to rename it.')
    else if(plan.action==='update')flash('Supplier contact name and number updated and kept in the group.')
    else flash('Supplier contact saved and selected. Add another supplier or save the group route.')
@@ -87,7 +95,12 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
    <button type="button" className="btn small" disabled={saving||loadingFile} onClick={addManually}>Enter manually</button>
    <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import supplier phone contacts" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';importContacts(file)}}/>
   </div>
-  <p className="muted tiny">Choose or import a contact, correct its name or number, then save. Only the contact you save is stored. Browsers without a phone picker can use a .vcf export or manual entry.</p>
+  <p className="muted tiny">The phone picker is controlled by Android. If it closes while searching or says “No contacts found,” use Import .vcf below. Only contacts you explicitly select and save are stored in GH Procurement.</p>
+  {phonePickerMessage&&<div role="status" className="section"><p className="muted tiny">{phonePickerMessage}</p><button type="button" className="btn small" onClick={()=>fileRef.current?.click()}>Import a saved contact (.vcf)</button></div>}
+  <details className="section"><summary>Phone contacts empty? How to import reliably</summary>
+   <p className="muted tiny">Open your phone’s Contacts app, select the supplier, and choose Share contact / Export contact as a vCard (.vcf). Save it to your phone's Files or Downloads. Return here, tap Import .vcf, select the saved file, search the name, then edit and save the supplier. You can also export multiple contacts as one .vcf, then search locally. No address book is uploaded.</p>
+   <p className="muted tiny">If Chrome shows no contacts, check that the person is visible in your phone’s Contacts app and that Chrome has access to Contacts in Android App Permissions, where that option is available. The browser may not see contacts from every account or work profile.</p>
+  </details>
   {imported.length>0&&<div className="section">
    <label className="field">Search imported contacts
     <input type="search" className="input" value={importSearch} onChange={e=>setImportSearch(e.target.value)} placeholder="Find contact by name or number…"/>
