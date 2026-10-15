@@ -147,7 +147,7 @@ BEGIN
  LOOP
   v_parent:=NULL;
   FOREACH v_name IN ARRAY r.section_path LOOP
-   SELECT count(*),min(s.id) INTO v_count,v_id
+   SELECT count(*),min(s.id::text)::uuid INTO v_count,v_id
    FROM public.proc_company_sections s
    WHERE s.company_id=r.company_id AND s.active
     AND s.parent_id IS NOT DISTINCT FROM v_parent
