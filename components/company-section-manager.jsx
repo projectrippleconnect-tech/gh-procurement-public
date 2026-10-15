@@ -3,9 +3,10 @@ import {useMemo,useState,useEffect} from 'react'
 import {supabase} from '@/lib/supabase'
 import {sectionPaths,validSectionParent} from '@/lib/company-section-tree.mjs'
 import {companyApi} from './company-controls'
+import {ReviewedCompanyHierarchy} from './reviewed-company-hierarchy'
 
 const formDefault={name:'',parent_id:'',color:'',sort_order:0}
-export function CompanySectionManager({company,sections=[],rows=[],onChanged,flash,fail}){
+export function CompanySectionManager({company,sections=[],rows=[],onChanged,flash,fail,superAdmin=false}){
  const[form,setForm]=useState(formDefault),[editId,setEditId]=useState(''),[selected,setSelected]=useState({}),[target,setTarget]=useState(''),[search,setSearch]=useState(''),[busy,setBusy]=useState(false)
  useEffect(()=>{setForm(formDefault);setEditId('');setSelected({});setTarget('');setSearch('')},[company?.id])
  const paths=useMemo(()=>sectionPaths(sections),[sections])
@@ -50,6 +51,7 @@ export function CompanySectionManager({company,sections=[],rows=[],onChanged,fla
  return <details className="company-section-manager section">
   <summary>Manage sections & nested categories</summary>
   <p className="muted tiny">Sections belong only to {company?.name||'the selected company'}. Add unlimited subsections, move whole branches, color headers, and move selected stock rows without changing shared item names or historical counts.</p>
+  {superAdmin&&<ReviewedCompanyHierarchy companyId={company?.id} onChanged={onChanged} flash={flash} fail={fail}/>}
   {String(company?.name||'').trim().toUpperCase()==='PANEL SHEETS'&&<div className="section">
    <button type="button" className="btn primary" disabled={busy} onClick={()=>run(async()=>{
     const result=await companyApi('sheets',{action:'sync_ceiling_sections',companyId:company.id})

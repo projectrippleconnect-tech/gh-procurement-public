@@ -271,7 +271,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   <CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
   {canManage&&<button className="btn small bad" onClick={archiveCompanyList}>Remove company list</button>}
   </div></details>}
-  {canManage&&companyId&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows}/>}
+  {canManage&&companyId&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows} superAdmin={(profile.role_key||profile.role)==='admin'}/>}
   {companyId&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
   {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
    <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>
