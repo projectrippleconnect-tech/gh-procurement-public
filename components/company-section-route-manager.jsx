@@ -4,7 +4,7 @@ import {supabase} from '@/lib/supabase'
 import {companyApi} from './company-controls'
 import {sectionPaths} from '@/lib/company-section-tree.mjs'
 import {GroupSupplierContactEditor} from './group-supplier-contact-editor'
-import {defaultSectionRoute,nearestSectionRoute,validateSectionRoute} from '@/lib/company-section-routing.mjs'
+import {defaultSectionRoute,nearestSectionRoute,validateSectionRoute,sectionRouteCoverage} from '@/lib/company-section-routing.mjs'
 import {useDangerConfirmation} from './danger-confirmation'
 
 const initial={mode:'direct',auto_send:true,supplier_ids:[]}
@@ -20,6 +20,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  const groups=useMemo(()=>[...sections].filter(s=>s.active!==false&&(paths.get(s.id)||s.name).toLowerCase().includes(search.trim().toLowerCase()))
   .sort((a,b)=>(paths.get(a.id)||a.name).localeCompare(paths.get(b.id)||b.name,undefined,{numeric:true})),[sections,paths,search])
  const routeIndex=useMemo(()=>new Map(routes.map(r=>[r.section_id,r])),[routes])
+ const coverage=useMemo(()=>new Map(sections.filter(s=>s.active!==false).map(s=>[s.id,sectionRouteCoverage(s.id,sections,rows,routes)])),[sections,rows,routes])
  const members=useMemo(()=>new Map(routes.map(r=>[r.id,routeSuppliers.filter(v=>v.route_id===r.id).sort((a,b)=>a.sort_order-b.sort_order).map(v=>v.supplier_id)])),[routes,routeSuppliers])
  async function load(){
   if(!company?.id)return
@@ -119,23 +120,26 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
    {groups.map(s=>{
     const own=routeIndex.get(s.id),inherited=nearestSectionRoute(s,sections,routes),rule=own||inherited?.rule
     const selectedNames=rule?(members.get(rule.id)||[]).map(id=>suppliers.find(v=>v.id===id)?.name||'Unavailable contact'):[]
-    const count=rows.filter(r=>r.section_id===s.id).length
+    const scope=coverage.get(s.id)||{directItems:0,totalItems:0,coveredItems:0,overriddenItems:0,descendantSections:0}
     return <div key={s.id} className="company-section-directory-row" style={{display:'block'}}>
      <div className="toolbar" style={{justifyContent:'space-between',alignItems:'center'}}>
-      <div><strong>{paths.get(s.id)||s.name}</strong><div className="muted tiny">{count} item(s) directly in this section · {rule?(rule.route_mode==='rfq'?'RFQ':'Direct PO')+(inherited?.inherited?' · inherited':''):'Company fallback route'}{rule?.route_mode==='direct'&&rule.auto_send?' · Auto-send':''}</div>
+      <div><strong>{paths.get(s.id)||s.name}</strong>
+       <div className="muted tiny"><strong>{scope.totalItems} item(s){scope.descendantSections>0?' including nested subgroups':''}</strong>{scope.descendantSections>0?' · '+scope.directItems+' directly assigned':''} · {rule?(rule.route_mode==='rfq'?'RFQ':'Direct PO')+(inherited?.inherited?' · inherited':''):'Company fallback route'}{rule?.route_mode==='direct'&&rule.auto_send?' · Auto-send':''}</div>
+       {scope.descendantSections>0&&<div className="muted tiny">{scope.coveredItems} item(s) covered when routed here · {scope.descendantSections} nested subgroup(s){scope.overriddenItems>0?' · '+scope.overriddenItems+' item(s) use child-specific overrides':''}</div>
        {selectedNames.length>0&&<div className="muted tiny">{selectedNames.join(' · ')}</div>}</div>
       <button className="btn small" type="button" onClick={()=>editing===s.id?setEditing(''):openEditor(s)}>{editing===s.id?'Close':'Configure'}</button>
      </div>
      {own&&editing!==s.id&&<div className="toolbar section">
       <button type="button" className="btn small" disabled={busy||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({
        title:own.route_mode==='rfq'?'Prepare group RFQ':'Create group purchase order',
-       message:'Use approved outstanding requirements in '+(paths.get(s.id)||s.name)+'?',
+       message:'Use approved outstanding requirements from '+(paths.get(s.id)||s.name)+' and its inheriting subgroups ('+scope.coveredItems+' catalogue items in scope)?',
        warning:own.route_mode==='rfq'?'This prepares the RFQ; supplier messages are sent from the RFQ screen.':'Approved orders may be sent automatically if enabled. Check the supplier and quantities.',
        confirmLabel:own.route_mode==='rfq'?'Prepare RFQ':'Create PO',
        onConfirm:()=>run(()=>prepare(s,own))
       })}>{own.route_mode==='rfq'?'Prepare RFQ for approved shortages':'Create direct PO for approved shortages'}</button>
      </div>}
      {editing===s.id&&<div className="section">
+      <p className="muted tiny"><strong>Scope: {scope.coveredItems} item(s)</strong> in {paths.get(s.id)||s.name}{scope.descendantSections>0?' and its nested subgroups':''}. {scope.overriddenItems>0?scope.overriddenItems+' item(s) are excluded because their child group has its own routing rule.':'Child groups inherit this route unless you override them individually.'} Only approved outstanding shortages are included when an RFQ or PO is actually prepared.</p>
       <div className="formgrid">
        <label className="checkline"><input type="radio" name={'route-'+s.id} checked={draft.mode==='direct'} onChange={()=>setDraft(v=>({...v,mode:'direct',auto_send:true}))}/>Send direct purchase order (one supplier)</label>
        <label className="checkline"><input type="radio" name={'route-'+s.id} checked={draft.mode==='rfq'} onChange={()=>setDraft(v=>({...v,mode:'rfq',auto_send:false}))}/>Request quotation / RFQ (one or more suppliers)</label>
