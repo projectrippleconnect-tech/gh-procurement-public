@@ -1,5 +1,18 @@
 # GH Procurement Android companion (experimental)
 
+## Direct phone contacts (new in v0.3 test)
+
+This APK now provides a **native searchable phone-contact list** for GH Procurement suppliers. It does not use Chrome's failing `navigator.contacts` picker, Google Contacts account sync, VCF files, or a Google service account.
+
+1. Install the test APK on an Android phone and open it.
+2. Tap **TEST CONTACTS** in the slim bar at the top. On the first run, allow **Contacts** for GH Procurement. Search for a local contact by name or number, tap one, and confirm the app shows the chosen name and number. This independent test requires **no changes to the live website**.
+3. Once the corresponding web interface changes are reviewed, validated and intentionally deployed to Railway, sign in *inside this APK* and open **Company Lists → Group suppliers** or **Designated company contact**. Tap **Pick from phone**. The Android app displays its own search and returns **only your selected contact** to the editable name/number form. Tap Save contact and then Save group route where applicable.
+4. Ordinary Chrome at the Railway URL will continue to use Chrome's browser picker. Android cannot grant a normal webpage direct access to the local phonebook when that picker fails. **The native behavior requires using the APK.**
+
+Privacy: `READ_CONTACTS` permission is requested **only on tapping the native contact selection**. Matching contact results never leave the phone. The selected name/number is supplied to the GH Procurement form, and it is saved to the database **only after the user taps Save**. The app neither exports the address book nor requests a Google Contacts sign-in. Only contacts exposed by Android's contacts provider to this app are searchable; isolated work-profile/SIM contacts may depend on device configuration.
+
+This is an **unsigned-for-production, debug test APK**, not an installed Google Play app. The owner must verify contact selection on their OnePlus/Android device before a release build or Play Store publishing. Existing security/screenshot policies remain enforced in the native wrapper.
+
 An Android WebView wrapper for the GH Procurement Railway deployment. It uses the saved supplier phone number, the actual RFQ PNG, and the full RFQ text to attempt to open the **specific supplier's WhatsApp image-send preview** without the usual contact picker.
 
 **WhatsApp's recipient `jid` extra is undocumented and may be ignored on some versions.** Sending to the wrong recipient must never happen: verify the phone number and image in WhatsApp before tapping Send. The app does not send silently, use unofficial WhatsApp Web automation, or require an extra WhatsApp number.
@@ -31,5 +44,5 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`.
 - The WebView loads only `https://gh-procurement-production.up.railway.app` within the app. Other links open external apps.
 - The native JavaScript bridge verifies the top-level URL is trusted before accepting a request.
 - Images are stored temporarily inside the app's private cache and exposed to WhatsApp with read-only content URI permissions.
-- No contact, external storage or accessibility permission; no passwords or WhatsApp session data accessed.
+- `READ_CONTACTS` is requested only for the native pick/search action. The native app reads contact choices locally; only one user-selected contact enters the web form. No external-storage or accessibility permission and no access to passwords or WhatsApp session data.
 - **Test build only.** Before production release, perform Android device testing and security review; the debug APK is not a Play Store release.
