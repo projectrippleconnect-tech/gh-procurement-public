@@ -22,13 +22,14 @@ export function ReviewedSheetSync({company,api,canManage=false,flash=()=>{},fail
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  return <details className="section"><summary>Reviewed Google Sheet — safe naming & category sync</summary>
-  <p className="muted tiny">Preview matches existing item IDs by their original source keys. Source keys that changed are held for review, never treated as new items. Maximum stock, stock counts, order history and purchase records are unchanged.</p>
+  <p className="muted tiny">Preview matches existing item IDs by source keys, or by verified legacy ordering plus stock and item attributes. Uncertain matches are excluded. Maximum stock, stock counts, order history and purchase records are unchanged.</p>
   <button className="btn section" disabled={busy} onClick={()=>run('preview')}>{busy?'Checking source and app records…':'Preview reviewed catalogue'}</button>
   {preview&&<div className="card pad section">
-   <p><strong>{preview.stats?.changes||0}</strong> safe changes · <strong>{preview.stats?.unmatched||0}</strong> require manual matching · <strong>{preview.stats?.noReviewedName||0}</strong> without a reviewed name.</p>
+   <p><strong>{preview.stats?.changes||0}</strong> proposed changes · <strong>{preview.stats?.sourceKeyMatches||0}</strong> original-key matches · <strong>{preview.stats?.verifiedLegacyMatches||0}</strong> verified legacy matches · <strong>{preview.stats?.unmatched||0}</strong> manual review.</p>
    {preview.unmatchedSample?.length>0&&<p className="muted tiny">Unmatched source records were excluded. Nothing will be created or deleted.</p>}
-   {(preview.previewSample||[]).slice(0,8).map(row=><p key={row.id} className="muted tiny">{row.from} → <strong>{row.to}</strong>{row.category&&<span> · {row.category}</span>}</p>)}
-   {preview.stats?.changes>0&&<button className="btn primary section" disabled={busy} onClick={()=>run('apply')}>Apply up to 25 verified changes</button>}
+   {(preview.previewSample||[]).slice(0,8).map(row=><p key={row.id} className="muted tiny">{row.from} → <strong>{row.to}</strong>{row.category&&<span> · {row.category}</span>}{row.matchMethod==='verified_legacy'&&<span> · Verified legacy identity</span>}</p>)}
+   {preview.stats?.verifiedLegacyMatches>0&&<label className="checkline section"><input type="checkbox" checked={ackLegacy} onChange={e=>setAckLegacy(e.target.checked)}/>I have checked the proposed legacy matches and their existing item identities.</label>}
+   {preview.stats?.changes>0&&<button className="btn primary section" disabled={busy||(preview.stats?.verifiedLegacyMatches>0&&!ackLegacy)} onClick={()=>run('apply')}>Apply up to 25 verified changes</button>}
   </div>}
  </details>
 }
