@@ -8,7 +8,7 @@ import {useDangerConfirmation} from './danger-confirmation'
 
 const initial={mode:'direct',auto_send:true,supplier_ids:[]}
 const uniq=ids=>[...new Set(ids.filter(Boolean))]
-export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate}){
+export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{}}){
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
  const [editing,setEditing]=useState(''),[draft,setDraft]=useState(initial),[search,setSearch]=useState('')
@@ -22,15 +22,22 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  const members=useMemo(()=>new Map(routes.map(r=>[r.id,routeSuppliers.filter(v=>v.route_id===r.id).sort((a,b)=>a.sort_order-b.sort_order).map(v=>v.supplier_id)])),[routes,routeSuppliers])
  async function load(){
   if(!company?.id)return
-  const results=await Promise.all([
+  const [rules,contacts]=await Promise.all([
    supabase.from('proc_company_section_routes').select('*').eq('company_id',company.id),
-   supabase.from('proc_company_section_route_suppliers').select('route_id,supplier_id,sort_order'),
    supabase.from('proc_suppliers').select('id,name,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name')
   ])
-  for(const r of results)if(r.error)throw r.error
-  setRoutes(results[0].data||[])
-  setRouteSuppliers(results[1].data||[])
-  setSuppliers(results[2].data||[])
+  if(rules.error)throw rules.error
+  if(contacts.error)throw contacts.error
+  const ids=(rules.data||[]).map(v=>v.id)
+  const links=[]
+  for(let i=0;i<ids.length;i+=100){
+   const result=await supabase.from('proc_company_section_route_suppliers').select('route_id,supplier_id,sort_order').in('route_id',ids.slice(i,i+100)).limit(1500)
+   if(result.error)throw result.error
+   links.push(...result.data||[])
+  }
+  setRoutes(rules.data||[])
+  setRouteSuppliers(links)
+  setSuppliers(contacts.data||[])
  }
  useEffect(()=>{load().catch(fail);setEditing('');setDraft(initial);setSearch('')},[company?.id])
  const findRule=section=>{
@@ -67,8 +74,16 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
    p_auto_send:draft.mode==='direct'&&draft.auto_send,p_supplier_ids:ids
   })
   if(r.error)throw r.error
-  await load();setEditing('')
+  await load();await onChanged();setEditing('')
   flash(draft.mode==='direct'?(draft.auto_send?'Direct PO with automatic sending configured.':'Direct PO route saved without automatic sending.'):'RFQ route saved for '+ids.length+' supplier(s).')
+ }
+ async function removeOverride(section){
+  const r=await supabase.rpc('proc_company_clear_section_route',{p_company_id:company.id,p_section_id:section.id})
+  if(r.error)throw r.error
+  await load()
+  await onChanged()
+  setEditing('')
+  flash('Custom group route cleared. The parent or company fallback now applies.')
  }
  async function addSupplier(){
   const name=newSupplier.name.trim()
@@ -155,7 +170,13 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
        <label className="field">Phone / WhatsApp<input className="input" type="tel" value={newSupplier.phone} placeholder="+94771234567" onChange={e=>setNewSupplier(v=>({...v,phone:e.target.value}))}/></label>
        </div><button className="btn small" disabled={busy} onClick={()=>run(addSupplier)}>Add &amp; select supplier</button></details>
       <p className="muted tiny">Selected: {draft.supplier_ids.length}. Direct POs require exactly one supplier. RFQs keep quotation prices separate and require approval before a PO is made.</p>
-      <button className="btn primary section" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(save)}>{busy?'Saving…':'Save group route'}</button>
+      <div className="toolbar section"><button className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(save)}>{busy?'Saving…':'Save group route'}</button>
+       {own&&<button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
+        title:'Remove group routing override',message:'Remove the custom route for '+(paths.get(s.id)||s.name)+'?',
+        warning:'Existing POs and RFQs are retained. Future stock submissions will use the parent or company fallback. Queued unsent direct orders are checked again before sending.',
+        confirmLabel:'Remove override',onConfirm:()=>run(()=>removeOverride(s))
+       })}>Use inherited / company default</button>}
+      </div>
      </div>}
     </div>
    })}
