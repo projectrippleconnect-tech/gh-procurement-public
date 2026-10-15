@@ -4,6 +4,7 @@ import {supabase} from '@/lib/supabase'
 import {companyApi} from './company-controls'
 import {sectionPaths} from '@/lib/company-section-tree.mjs'
 import {toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {defaultSectionRoute,nearestSectionRoute,validateSectionRoute} from '@/lib/company-section-routing.mjs'
 import {useDangerConfirmation} from './danger-confirmation'
 
 const initial={mode:'direct',auto_send:true,supplier_ids:[]}
@@ -40,23 +41,12 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setSuppliers(contacts.data||[])
  }
  useEffect(()=>{load().catch(fail);setEditing('');setDraft(initial);setSearch('')},[company?.id])
- const findRule=section=>{
-  let here=section
-  const seen=new Set()
-  while(here&&!seen.has(here.id)){
-   seen.add(here.id)
-   const configured=routeIndex.get(here.id)
-   if(configured)return{rule:configured,inherited:here.id!==section.id}
-   here=sections.find(s=>s.id===here.parent_id)
-  }
-  return null
- }
  const openEditor=s=>{
   const existing=routeIndex.get(s.id)
   const ids=existing?members.get(existing.id)||[]:[]
   setEditing(s.id)
   setDraft(existing?{mode:existing.route_mode,auto_send:existing.auto_send,supplier_ids:ids}:
-   {mode:ids.length>1?'rfq':'direct',auto_send:true,supplier_ids:[]})
+   {mode:defaultSectionRoute(ids.length||1).mode,auto_send:true,supplier_ids:[]})
   setSupplierSearch('')
   setNewSupplier({name:'',phone:''})
  }
@@ -66,9 +56,9 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   try{await callback()}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function save(){
-  const ids=uniq(draft.supplier_ids)
-  if(!ids.length)throw new Error('Choose at least one supplier for the group.')
-  if(draft.mode==='direct'&&ids.length!==1)throw new Error('Direct purchase orders can have only one designated supplier. Select RFQ for multiple suppliers.')
+  const check=validateSectionRoute({mode:draft.mode,supplierIds:draft.supplier_ids,autoSend:draft.auto_send})
+  if(!check.valid)throw new Error(check.reason)
+  const ids=check.supplierIds
   const r=await supabase.rpc('proc_company_save_section_route',{
    p_company_id:company.id,p_section_id:editing,p_mode:draft.mode,
    p_auto_send:draft.mode==='direct'&&draft.auto_send,p_supplier_ids:ids
@@ -129,7 +119,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   <label className="field section">Find item group<input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Alkathene, PVC, ceiling fittings…"/></label>
   <div className="company-section-directory section">
    {groups.map(s=>{
-    const own=routeIndex.get(s.id),inherited=findRule(s),rule=own||inherited?.rule
+    const own=routeIndex.get(s.id),inherited=nearestSectionRoute(s,sections,routes),rule=own||inherited?.rule
     const selectedNames=rule?(members.get(rule.id)||[]).map(id=>suppliers.find(v=>v.id===id)?.name||'Unavailable contact'):[]
     const count=rows.filter(r=>r.section_id===s.id).length
     return <div key={s.id} className="company-section-directory-row" style={{display:'block'}}>
