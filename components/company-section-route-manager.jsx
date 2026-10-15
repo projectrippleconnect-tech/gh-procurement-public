@@ -31,8 +31,8 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   if(contacts.error)throw contacts.error
   const ids=(rules.data||[]).map(v=>v.id)
   const links=[]
-  for(let i=0;i<ids.length;i+=100){
-   const result=await supabase.from('proc_company_section_route_suppliers').select('route_id,supplier_id,sort_order').in('route_id',ids.slice(i,i+100)).limit(1500)
+  for(let i=0;i<ids.length;i+=40){
+   const result=await supabase.from('proc_company_section_route_suppliers').select('route_id,supplier_id,sort_order').in('route_id',ids.slice(i,i+40)).limit(1000)
    if(result.error)throw result.error
    links.push(...result.data||[])
   }
