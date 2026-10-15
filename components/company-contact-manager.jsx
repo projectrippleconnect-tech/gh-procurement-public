@@ -2,13 +2,15 @@
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation} from './danger-confirmation'
-import {choicesFromPicker,parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {contactPickerOutcome} from '@/lib/contact-picker-outcome.mjs'
 
 export function CompanyContactManager({company,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
  const confirmDanger=useDangerConfirmation()
  const [contacts,setContacts]=useState([]),[search,setSearch]=useState(''),[fileSearch,setFileSearch]=useState('')
  const [imported,setImported]=useState([]),[draft,setDraft]=useState({name:'',phone:''}),[editId,setEditId]=useState('')
  const [busy,setBusy]=useState(false),[open,setOpen]=useState(false)
+ const [phonePickerMessage,setPhonePickerMessage]=useState('')
  const fileRef=useRef(null)
  const load=useCallback(async()=>{
   if(!company?.id)return
@@ -42,25 +44,27 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
   setDraft({name:person.name,phone:person.phone});setEditId('');setOpen(true);setImported([])
  }
  async function pickFromPhone(){
+  setPhonePickerMessage('')
   if(!navigator.contacts?.select){
-   flash('This browser does not support phone contacts. Use Import .vcf or add the contact manually.')
+   setPhonePickerMessage('This browser does not support the phone contact picker. Use Import .vcf or add the contact manually.')
    return
   }
   try{
-   // The native picker supplies its own search; only the selected name and number are returned.
-   const chosen=choicesFromPicker(await navigator.contacts.select(['name','tel'],{multiple:false}))
-   if(!chosen.length)throw new Error('No valid Sri Lankan phone number was selected.')
-   if(chosen.length===1)selectCandidate(chosen[0])
-   else{setImported(chosen);setFileSearch('');setOpen(true)}
-  }catch(error){if(error?.name!=='AbortError')fail(error)}
+   // The Android/Chrome native search is outside the web app's control.
+   // Do not clear the draft or show a disruptive validation toast on dismiss.
+   const selected=contactPickerOutcome({selection:await navigator.contacts.select(['name','tel'],{multiple:false})})
+   if(!selected.ok){setPhonePickerMessage(selected.message);return}
+   if(selected.contacts.length===1)selectCandidate(selected.contacts[0])
+   else{setImported(selected.contacts);setFileSearch('');setOpen(true)}
+  }catch(error){setPhonePickerMessage(contactPickerOutcome({error}).message)}
  }
  async function importVcf(file){
   if(!file)return
-  if(file.size>2*1024*1024)throw new Error('Select a .vcf contacts file smaller than 2 MB.')
+  if(file.size>10*1024*1024)throw new Error('Select a .vcf contacts file smaller than 10 MB, or export a single contact.')
   if(!/\.vcf$/i.test(file.name))throw new Error('Only .vcf contact files are supported.')
-  const parsed=parseCompanyVcards(await file.text())
+  const parsed=parseCompanyVcards(await file.text(),{maxCards:10000})
   if(!parsed.length)throw new Error('The file has no valid Sri Lankan phone numbers.')
-  setImported(parsed);setFileSearch('');setOpen(true)
+  setImported(parsed);setFileSearch('');setOpen(true);setPhonePickerMessage('')
   flash(parsed.length+' contact number(s) available. Search and choose one to save; the file is not uploaded.')
  }
  async function saveDraft(){
@@ -98,7 +102,12 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
     <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import phone contact file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';perform(()=>importVcf(file))}}/>
     {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>confirmDanger({title:'Remove designated contact',message:'Unlink '+(current?.name||'this contact')+' from '+company.name+'?',warning:'Supplier records and past orders remain untouched. Automatic company orders may need another designated contact.',confirmLabel:'Remove company link',onConfirm:()=>link(null)})}>Remove from company</button></>}
    </div>
-   <p className="muted tiny">Phone picker opens your device contact search when supported. Otherwise import a shared .vcf contact or enter the number. Only the contact you save is stored.</p>
+   <p className="muted tiny">The Android/Chrome contact picker can close or display “No contacts found” even if the phone has contacts. Your entered details will stay here. You can import one contact or a larger .vcf address-book export and search it locally.</p>
+   {phonePickerMessage&&<div role="status" className="section"><p className="muted tiny">{phonePickerMessage}</p><button type="button" className="btn small" onClick={()=>fileRef.current?.click()}>Import a contact (.vcf)</button></div>}
+   <details className="section"><summary>Phone picker not showing contacts? Import from your phone</summary>
+    <p className="muted tiny">In your phone's Contacts app, choose the supplier and select Share / Export as vCard (.vcf). Save the file under Downloads or Files. Return to GH Procurement, tap Import .vcf, choose that file, search and select the person, edit their name or number, and save. The address-book file stays on your phone.</p>
+    <p className="muted tiny">If Chrome's picker is empty, check Contacts app visibility and Chrome's Android Contacts permission, where offered. Only phone contacts explicitly selected or saved by you are added to this company.</p>
+   </details>
    <label className="field">Search saved company contacts
     <input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or number…"/>
    </label>

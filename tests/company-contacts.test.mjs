@@ -39,3 +39,9 @@ test('reads grouped Apple-style contact fields',()=>{
  const v='BEGIN:VCARD\nFN:Operations\nitem1.TEL;TYPE=CELL:0771234567\nEND:VCARD'
  assert.deepEqual(parseCompanyVcards(v),[{name:'Operations',phone:'+94771234567'}])
 })
+
+
+test('Android picker cancellation and malformed contacts do not crash supplier selection',()=>{
+ assert.deepEqual(choicesFromPicker(null),[])
+ assert.deepEqual(choicesFromPicker([null,{}, {name:'Store Contact',tel:'0771234567'}]),[{name:'Store Contact',phone:'+94771234567'}])
+})
