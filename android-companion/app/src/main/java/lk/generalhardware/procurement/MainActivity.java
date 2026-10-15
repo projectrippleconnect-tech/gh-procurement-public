@@ -6,6 +6,8 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.Context;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -44,6 +46,9 @@ public final class MainActivity extends Activity {
     private static final int MAX_BASE64 = 8 * 1024 * 1024;
     private static final int FILE_REQUEST = 110;
     private static final int LOCATION_REQUEST = 111;
+    private static final int CONTACTS_REQUEST = 112;
+    private String contactSelectionRequest;
+    private NativeContactsDialog nativeContactsDialog;
     private android.webkit.GeolocationPermissions.Callback pendingLocation;
     private String pendingLocationOrigin;
     private WebView webView;
@@ -208,6 +213,11 @@ public final class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == CONTACTS_REQUEST && contactSelectionRequest != null) {
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED)
+                showLocalContactSearch();
+            else completeLocalContact("permission_denied", "", "");
+        }
         if (requestCode == LOCATION_REQUEST && pendingLocation != null) {
             boolean allowed = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
                 == android.content.pm.PackageManager.PERMISSION_GRANTED;
@@ -278,7 +288,72 @@ public final class MainActivity extends Activity {
             }).show();
     }
 
+    /**
+     * The permission belongs to this APK, not Chrome. A native search reads
+     * contacts locally and only returns the single explicitly selected entry.
+     */
+    private void beginLocalContactSearch(String requestId) {
+        if (webView == null || !isTrusted(webView.getUrl())
+                || requestId == null || !requestId.matches("[A-Za-z0-9_-]{8,100}")) return;
+        if (contactSelectionRequest != null) {
+            // Ignore overlapping requests instead of sending results to the wrong input.
+            return;
+        }
+        contactSelectionRequest = requestId;
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED)
+            showLocalContactSearch();
+        else requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST);
+    }
+
+    private void showLocalContactSearch() {
+        if (contactSelectionRequest == null || isFinishing() || webView == null
+                || !isTrusted(webView.getUrl())) {
+            completeLocalContact("unavailable", "", "");
+            return;
+        }
+        nativeContactsDialog = new NativeContactsDialog(this, new NativeContactsDialog.Callback() {
+            @Override public void onPicked(String name, String phone) {
+                completeLocalContact("selected", name, phone);
+            }
+            @Override public void onClosed(String reason) {
+                completeLocalContact(reason, "", "");
+            }
+        });
+        nativeContactsDialog.show();
+    }
+
+    private void completeLocalContact(String status, String name, String phone) {
+        String requestId = contactSelectionRequest;
+        if (requestId == null) return;
+        contactSelectionRequest = null;
+        nativeContactsDialog = null;
+        if (webView == null || !isTrusted(webView.getUrl()) || isFinishing()) return;
+        try {
+            org.json.JSONObject result = new org.json.JSONObject();
+            result.put("requestId", requestId);
+            result.put("status", status);
+            if ("selected".equals(status)) {
+                result.put("name", name == null ? "" : name);
+                result.put("phone", phone == null ? "" : phone);
+            }
+            // evaluateJavascript targets the main frame of our trusted first-party page.
+            webView.evaluateJavascript(
+                "(function(){window.dispatchEvent(new CustomEvent('gh-procurement-native-contact',"
+                + "{detail:" + result.toString() + "}));})();", null);
+        } catch (Exception ignored) {
+            // Nothing in the address book is uploaded on a failed response.
+        }
+    }
+
     final class SupplierShareBridge {
+        /**
+         * The JS call only opens a user-operated native contact list; it does not
+         * enumerate contacts to the page. Permission is requested only on click.
+         * Android's native search is independent of Chrome's broken picker.
+         */
+        @JavascriptInterface public void pickLocalPhoneContact(String requestId) {
+            runOnUiThread(() -> beginLocalContactSearch(requestId));
+        }
         /** No client-supplied boolean can disable capture protection. The native
          * layer independently verifies the current JWT with the backend. */
         @JavascriptInterface public void refreshCapturePolicy(String token) {
@@ -362,6 +437,8 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         protectCapture();
+        contactSelectionRequest = null;
+        if (nativeContactsDialog != null) { nativeContactsDialog.dismiss(); nativeContactsDialog = null; }
         if (pendingFiles != null) { pendingFiles.onReceiveValue(null); pendingFiles = null; }
         if (webView != null) { webView.removeJavascriptInterface("GHProcurementAndroid"); webView.destroy(); webView = null; }
         super.onDestroy();
