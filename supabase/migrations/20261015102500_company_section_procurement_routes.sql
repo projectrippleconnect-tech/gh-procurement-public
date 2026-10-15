@@ -66,13 +66,13 @@ REVOKE ALL ON FUNCTION public.proc_company_save_section_route(uuid,uuid,text,boo
 GRANT EXECUTE ON FUNCTION public.proc_company_save_section_route(uuid,uuid,text,boolean,uuid[]) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.proc_company_clear_section_route(p_company_id uuid,p_section_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 BEGIN
  PERFORM private.proc_assert_access();
  IF NOT private.proc_is_role(ARRAY['admin']) OR NOT private.proc_has_permission('company_lists.manage') THEN
   RAISE EXCEPTION 'Only company administrators may remove group routing'; END IF;
  DELETE FROM public.proc_company_section_routes WHERE company_id=p_company_id AND section_id=p_section_id;
-END $;
+END $$;
 REVOKE ALL ON FUNCTION public.proc_company_clear_section_route(uuid,uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.proc_company_clear_section_route(uuid,uuid) TO authenticated;
 
