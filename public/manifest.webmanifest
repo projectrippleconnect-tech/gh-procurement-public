@@ -21,25 +21,5 @@
       "type": "image/png",
       "purpose": "any"
     }
-  ],
-  "share_target": {
-    "action": "/share/contact/receive",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "title",
-      "text": "text",
-      "files": [
-        {
-          "name": "contact",
-          "accept": [
-            "text/vcard",
-            "text/x-vcard",
-            "text/directory",
-            ".vcf"
-          ]
-        }
-      ]
-    }
-  }
+  ]
 }
