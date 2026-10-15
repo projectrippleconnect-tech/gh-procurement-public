@@ -13,7 +13,7 @@ export function CompanySheetsConnection({api,companyId,connection,onStatus,flash
   setLoading(true)
   api('sheets/connection',{action:'status'}).then(r=>{if(current)onStatus(r)}).catch(e=>{if(current)fail(e)}).finally(()=>{if(current)setLoading(false)})
   return()=>{current=false}
- },[api,onStatus,fail])
+ },[api])
  const ready=connection?.configured===true,verified=connection?.verified===true
  const missing=connection?.configured===false
  const run=async action=>{
@@ -33,7 +33,9 @@ export function CompanySheetsConnection({api,companyId,connection,onStatus,flash
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  function copyEmail(){
-  if(connection?.serviceAccountEmail)navigator.clipboard?.writeText(connection.serviceAccountEmail).then(()=>flash('Service-account email copied.')).catch(()=>flash('Select the email shown and copy it.'))
+  if(!connection?.serviceAccountEmail)return
+  if(!navigator.clipboard?.writeText){flash('Select the email shown and copy it.');return}
+  navigator.clipboard.writeText(connection.serviceAccountEmail).then(()=>flash('Service-account email copied.')).catch(()=>flash('Select the email shown and copy it.'))
  }
  return <details className="section" open={missing?true:undefined} aria-label="Google Sheets connection setup">
   <summary>Google Sheets connection {loading?'· Checking…':connection?.status==='connected'?'· Connected':missing?'· Setup needed':ready?'· Ready to test':''}</summary>
