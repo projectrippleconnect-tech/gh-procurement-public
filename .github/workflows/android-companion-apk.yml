@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - feature/android-direct-supplier-share-20261009
+      - feature/direct-android-local-contacts-20261015
     paths:
       - 'android-companion/**'
       - '.github/workflows/android-companion-apk.yml'
