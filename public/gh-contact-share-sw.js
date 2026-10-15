@@ -1,7 +1,6 @@
-/* GH Procurement's installable web-app share target.
- * Native Contacts → Share → GH Procurement is supported on Android Chrome
- * without Google account sync or an external APK.
- * Only the explicitly shared contact is stored temporarily ON THIS DEVICE.
+/* GH Procurement PWA Android Share Target.
+ * Receive only a contact deliberately shared with this installed website.
+ * Keep it in this device's Cache API until the landing page retrieves it.
  */
 const CACHE='gh-procurement-contact-shares-v1';
 const PREFIX='/_gh_private_shared_contact/';
@@ -10,7 +9,7 @@ self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url);
- if(url.origin!==self.location.origin||url.pathname!=='/share/contact'||event.request.method!=='POST')return;
+ if(url.origin!==self.location.origin||url.pathname!=='/share/contact/receive'||event.request.method!=='POST')return;
  event.respondWith((async()=>{
   try{
    const form=await event.request.formData();
@@ -26,14 +25,20 @@ self.addEventListener('fetch',event=>{
    const payload={
     title:String(form.get('title')||'').slice(0,200),
     text:String(form.get('text')||'').slice(0,20000),
-    url:String(form.get('url')||'').slice(0,300),
-    cards:attachments
+    cards:attachments,
+    createdAt:Date.now()
    };
    if(!payload.cards.length&&!payload.title&&!payload.text)
     return Response.redirect('/share/contact?error=empty',303);
    const id=self.crypto.randomUUID().replaceAll('-','');
    const cache=await caches.open(CACHE);
-   await cache.put(new Request(PREFIX+id),new Response(JSON.stringify(payload),{
+   const entries=await cache.keys();
+   for(const key of entries){
+    const previous=await cache.match(key);
+    const earlier=previous&&await previous.json().catch(()=>null);
+    if(!earlier||Date.now()-earlier.createdAt>900000)await cache.delete(key);
+   }
+   await cache.put(new Request(new URL(PREFIX+id,self.location.origin)),new Response(JSON.stringify(payload),{
     headers:{'Content-Type':'application/json','Cache-Control':'no-store'}
    }));
    return Response.redirect('/share/contact?share='+id,303);
