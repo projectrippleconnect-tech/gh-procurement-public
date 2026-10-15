@@ -172,17 +172,26 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   setBusy(true)
   try{
    if(action==='approve'){
-    const source=await supabase.from('proc_requirements').select('id,company_id,company:proc_companies(id,order_route,auto_send)').in('id',ids)
+    const source=await supabase.from('proc_requirements').select('id,company_id').in('id',ids)
     if(source.error)throw source.error
-    const direct=(source.data||[]).filter(r=>r.company?.order_route==='direct')
-    const companies=[...new Set(direct.map(r=>r.company_id))]
+    const companies=[...new Set((source.data||[]).map(r=>r.company_id).filter(Boolean))]
+    const direct=[]
     for(const companyId of companies){
-     const result=await supabase.rpc('proc_company_approve_direct',{p_company_id:companyId,p_ids:direct.filter(r=>r.company_id===companyId).map(r=>r.id)})
+     const companyIds=(source.data||[]).filter(r=>r.company_id===companyId).map(r=>r.id)
+     const candidates=await supabase.rpc('proc_company_direct_candidate_ids',{p_company_id:companyId,p_ids:companyIds})
+     if(candidates.error)throw candidates.error
+     const directIds=candidates.data||[]
+     if(!directIds.length)continue
+     const result=await supabase.rpc('proc_company_approve_direct',{p_company_id:companyId,p_ids:directIds})
      if(result.error)throw result.error
-     if(direct.find(r=>r.company_id===companyId)?.company?.auto_send){try{const sent=await companyApi('orders',{companyId});flash(sent.message)}catch(e){fail(e)}}
+     direct.push(...directIds)
+     if((result.data||[]).some(po=>po.auto_send)){
+      try{const sent=await companyApi('orders',{companyId});flash(sent.message)}
+      catch(e){fail(new Error('PO created but WhatsApp dispatch needs attention: '+e.message))}
+     }
     }
-    ids=ids.filter(id=>!direct.some(r=>r.id===id))
-    if(!ids.length){setSelected(new Set());await load();flash('Company quantities approved and purchase orders created.');if(isActiveView('requirements'))navigate('po');return}
+    ids=ids.filter(id=>!direct.includes(id))
+    if(!ids.length){setSelected(new Set());await load();flash('Direct company requirements converted to purchase orders.');if(isActiveView('requirements'))navigate('po');return}
    }
    const r=await supabase.rpc('proc_review_requirements',{p_requirement_ids:ids,p_action:action,p_selected:action==='approve',p_reason:reason})
   if(r.error)return fail(r.error)
