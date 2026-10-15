@@ -34,3 +34,8 @@ test('rejects bulk files and deduplicates chosen phone numbers',()=>{
  assert.throws(()=>parseCompanyVcards('BEGIN:VCARD\nEND:VCARD\nBEGIN:VCARD\nEND:VCARD',{maxCards:1}),/too large/)
  assert.deepEqual(uniqueChoices([{name:'A',phone:'0771234567'},{name:'B',phone:'+94771234567'}]),[{name:'A',phone:'+94771234567'}])
 })
+
+test('reads grouped Apple-style contact fields',()=>{
+ const v='BEGIN:VCARD\nFN:Operations\nitem1.TEL;TYPE=CELL:0771234567\nEND:VCARD'
+ assert.deepEqual(parseCompanyVcards(v),[{name:'Operations',phone:'+94771234567'}])
+})
