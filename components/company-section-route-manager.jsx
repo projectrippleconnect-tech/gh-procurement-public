@@ -125,7 +125,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
      <div className="toolbar" style={{justifyContent:'space-between',alignItems:'center'}}>
       <div><strong>{paths.get(s.id)||s.name}</strong>
        <div className="muted tiny"><strong>{scope.totalItems} item(s){scope.descendantSections>0?' including nested subgroups':''}</strong>{scope.descendantSections>0?' · '+scope.directItems+' directly assigned':''} · {rule?(rule.route_mode==='rfq'?'RFQ':'Direct PO')+(inherited?.inherited?' · inherited':''):'Company fallback route'}{rule?.route_mode==='direct'&&rule.auto_send?' · Auto-send':''}</div>
-       {scope.descendantSections>0&&<div className="muted tiny">{scope.coveredItems} item(s) covered when routed here · {scope.descendantSections} nested subgroup(s){scope.overriddenItems>0?' · '+scope.overriddenItems+' item(s) use child-specific overrides':''}</div>
+       {scope.descendantSections>0&&<div className="muted tiny">{scope.coveredItems} item(s) covered when routed here · {scope.descendantSections} nested subgroup(s){scope.overriddenItems>0?' · '+scope.overriddenItems+' item(s) use child-specific overrides':''}</div>}
        {selectedNames.length>0&&<div className="muted tiny">{selectedNames.join(' · ')}</div>}</div>
       <button className="btn small" type="button" onClick={()=>editing===s.id?setEditing(''):openEditor(s)}>{editing===s.id?'Close':'Configure'}</button>
      </div>
