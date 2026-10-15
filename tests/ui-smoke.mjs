@@ -463,6 +463,54 @@ try{
    console.log('PASS Super Admin, location permission, geofence, working-hours lock and active-session expiry at '+width+'px')
    await context.close();continue
   }
+  if(process.env.GH_UI_CONTACT_PICKER==='1'){
+   await page.evaluate(()=>{
+    window.ghContactMode='empty';window.ghContactRequests=[]
+    Object.defineProperty(navigator,'contacts',{configurable:true,value:{
+     getProperties:async()=>['name','tel'],
+     select:(fields,options)=>{
+      window.ghContactRequests.push({fields,options,active:navigator.userActivation.isActive})
+      if(window.ghContactMode==='denied')return Promise.reject(new DOMException('Denied','NotAllowedError'))
+      if(window.ghContactMode==='cancel')return Promise.reject(new DOMException('Dismissed','AbortError'))
+      if(window.ghContactMode==='empty')return Promise.resolve([])
+      if(window.ghContactMode==='multiple')return Promise.resolve([{name:['Sales'],tel:['0771234567','0112345678']}])
+      return Promise.resolve([{tel:['0771234567']}])
+     }
+    }})
+   })
+   await navigate('CL Company Lists')
+   const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
+   await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
+   const name=manager.getByPlaceholder('Company contact name',{exact:true})
+   const phone=manager.getByPlaceholder('+94771234567',{exact:true})
+   await name.fill('Unsaved supplier');await phone.fill('0779876543')
+   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
+   await manager.getByRole('status').getByText(/browser shared no contact/).waitFor()
+   assert.equal(await name.inputValue(),'Unsaved supplier');assert.equal(await phone.inputValue(),'0779876543')
+   assert.equal(await manager.getByRole('button',{name:/vcf/i}).count(),0)
+   await page.evaluate(()=>window.ghContactMode='denied')
+   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
+   await manager.getByRole('status').getByText(/did not allow/).waitFor()
+   await page.evaluate(()=>window.ghContactMode='cancel')
+   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
+   await manager.getByRole('status').getByText(/No contact was shared/).waitFor()
+   assert.equal(await phone.inputValue(),'0779876543')
+   await page.evaluate(()=>window.ghContactMode='multiple')
+   await manager.getByRole('button',{name:'Pick from phone',exact:true}).click()
+   await manager.getByRole('button',{name:'Choose',exact:true}).nth(1).click()
+   assert.equal(await phone.inputValue(),'+94112345678')
+   await page.evaluate(()=>window.ghContactMode='selected')
+   await manager.getByRole('button',{name:'Pick phone number only',exact:true}).click()
+   await page.waitForFunction(()=>document.querySelector('input[placeholder="+94771234567"]')?.value==='+94771234567')
+   assert.equal(await phone.inputValue(),'+94771234567')
+   const calls=await page.evaluate(()=>window.ghContactRequests)
+   assert.ok(calls.every(c=>c.active),'Every picker request retains the user click activation')
+   assert.deepEqual(calls.at(-1).fields,['tel'])
+   assert.ok(calls.every(c=>c.options.multiple===false))
+   assert.deepEqual(errors,[])
+   console.log('PASS web contact draft preservation, permission recovery, cancellation, multiple numbers and tel-only retry at '+width+'px (simulated browser contact provider)')
+   await context.close();continue
+  }
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
    await navigate('✓ Stock Entry')
    const stockHeader=page.locator('section:not([hidden]) .stock-work-header')

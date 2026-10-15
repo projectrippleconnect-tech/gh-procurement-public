@@ -6,12 +6,13 @@ test('a native Android picker with zero results provides a fallback without disc
  const result=contactPickerOutcome({selection:[]})
  assert.equal(result.ok,false)
  assert.equal(result.code,'empty')
- assert.match(result.message,/Import a \.vcf file/)
+ assert.match(result.message,/Pick phone number only/)
+ assert.doesNotMatch(result.message,/vcf/i)
 })
 test('back, cancellation and OS picker failures do not appear as validation errors',()=>{
  assert.equal(contactPickerOutcome({error:{name:'AbortError'}}).code,'cancelled')
- assert.equal(contactPickerOutcome({error:{name:'NotAllowedError'}}).code,'cancelled')
- assert.equal(contactPickerOutcome({error:{name:'InvalidStateError'}}).code,'unavailable')
+ assert.equal(contactPickerOutcome({error:{name:'NotAllowedError'}}).code,'denied')
+ assert.equal(contactPickerOutcome({error:{name:'InvalidStateError'}}).code,'busy')
  assert.equal(contactPickerOutcome({error:{name:'SecurityError'}}).code,'blocked')
 })
 test('only the contacts explicitly selected by the user are prepared for import',()=>{
@@ -21,5 +22,5 @@ test('only the contacts explicitly selected by the user are prepared for import'
 })
 test('null and malformed picker results do not crash the contact form',()=>{
  assert.equal(contactPickerOutcome({selection:null}).code,'empty')
- assert.equal(contactPickerOutcome({selection:[{name:'Supplier B',tel:[]}]}).code,'empty')
+ assert.equal(contactPickerOutcome({selection:[{name:'Supplier B',tel:[]}]}).code,'no_number')
 })
