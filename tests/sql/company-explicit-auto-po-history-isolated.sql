@@ -98,3 +98,28 @@ BEGIN
  ASSERT (SELECT count(*)=1 FROM public.proc_company_dispatch_queue WHERE po_id=(result_v->'purchase_orders'->0->>'id')::uuid),'Retry duplicated the PO queue';
  ASSERT auth.uid()=worker,'Automation failed to restore the stock handler identity';
 END $$;
+
+ALTER TABLE public.proc_purchase_orders ADD COLUMN created_at timestamptz DEFAULT now();
+\ir ../../supabase/migrations/20261016063449_company_direct_po_history.sql
+DO $$
+DECLARE po uuid;actor uuid:='00000000-0000-4000-8000-000000000002';matched integer;blocked boolean:=false;
+BEGIN
+ PERFORM set_config('request.jwt.claim.sub',actor::text,true);
+ SELECT id INTO po FROM public.proc_purchase_orders WHERE quantity_only ORDER BY id LIMIT 1;
+ UPDATE public.proc_company_dispatch_queue SET status='accepted' WHERE po_id=po;
+ SELECT count(*) INTO matched FROM public.proc_company_direct_po_history(200) h WHERE h.po_id=po AND h.item_count>0 AND h.sent_count=1;
+ ASSERT matched=1,'Direct company PO missing from history or accepted dispatch audit';
+ ASSERT NOT has_function_privilege('anon','public.proc_company_direct_po_history(integer)','EXECUTE'),'Anonymous direct PO history access';
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',true);
+ BEGIN PERFORM public.proc_company_direct_po_history(1);EXCEPTION WHEN OTHERS THEN blocked:=true;END;
+ ASSERT blocked,'Unauthorized profile must not read direct PO history';
+END $$;
+DO $$
+DECLARE co uuid:='00000000-0000-4000-8000-000000000101';quoted uuid:=gen_random_uuid();normal uuid:=gen_random_uuid();req uuid;
+BEGIN
+ INSERT INTO public.proc_purchase_orders(id,po_no,quantity_only) VALUES(quoted,'PO-COMPANY-QUOTED',false),(normal,'PO-GENERAL',false);
+ SELECT id INTO req FROM public.proc_requirements WHERE company_id=co LIMIT 1;
+ INSERT INTO public.proc_po_lines(po_id,requirement_id,qty) VALUES(quoted,req,1);
+ ASSERT (SELECT public.proc_po_is_company(p) FROM public.proc_purchase_orders p WHERE id=quoted),'Company quotation PO misclassified as general';
+ ASSERT NOT (SELECT public.proc_po_is_company(p) FROM public.proc_purchase_orders p WHERE id=normal),'General PO misclassified as company';
+END $$;

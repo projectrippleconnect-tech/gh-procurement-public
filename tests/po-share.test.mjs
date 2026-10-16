@@ -28,3 +28,13 @@ test('quantity-only company orders never disclose invented zero prices and retai
  const model=purchaseOrderShareModel({...args,po,lines,selection})
  assert.equal(model.total,null);assert.ok(!model.columns.some(c=>['unit_price','line_total','tax_percent','discount_percent'].includes(c.key)));assert.match(model.rows[0][0],/Blue.*Model A/)
 })
+
+test('direct company PO exports identify RFQ bypass and unit rates even when financial fields are hidden',()=>{
+ const po={...args.po,company_id:'company-test',quantity_only:true};
+ const m=purchaseOrderShareModel({...args,po});
+ const rate=m.columns.findIndex(c=>c.key==='unit_price');
+ assert.equal(m.columns[rate].label,'Unit Rate');assert.equal(m.rows[0][rate],'Direct PO');
+ assert.equal(m.total,null);assert.ok(m.meta.some(([k,v])=>v==='Direct PO — RFQ bypassed'));
+ assert.doesNotMatch(buildPurchaseOrderText({...args,po}),/235|705/);
+ assert.match(buildPurchaseOrderText({...args,po}),/Unit Rate: Direct PO/);
+})
