@@ -37,7 +37,7 @@ begin
  delete from public.proc_stock_balances b where b.item_id=admin_data_management.item_id;
  insert into public.proc_suppliers(id,supplier_code,name) values(supplier_id,'RESET-SUP-'||supplier_id,'Reset test supplier');
  insert into public.proc_requirements(id,requirement_no,item_id,location_id,required_qty,adjusted_qty,ordered_qty,status,approval_status,created_by,source_type) values(req_id,'RESET-REQ-'||req_id,item_id,loc,10,10,10,'ordered','approved',admin_id,'manual');
- insert into public.proc_purchase_orders(id,po_no,supplier_id,status,subtotal,total,created_by) values(po_id,po_no,supplier_id,'sent',100,100,admin_id);
+ insert into public.proc_purchase_orders(id,po_no,supplier_id,status,subtotal,total,created_by) values(po_id,po_no,supplier_id,'sent',100,100,admin_id) returning proc_purchase_orders.po_no into po_no;
  insert into public.proc_po_lines(po_id,requirement_id,item_id,qty,unit_price) values(po_id,req_id,item_id,10,10);
  denied:=false;
  begin perform public.proc_admin_delete_item_v1(item_id,item_code);exception when others then denied:=true;end;

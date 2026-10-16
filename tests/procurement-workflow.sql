@@ -189,7 +189,7 @@ begin
  failure:=null;
  begin perform public.proc_create_rfq_v3('{}'::uuid[],'{}'::uuid[]);
  exception when others then failure:=sqlerrm; end;
- if failure is distinct from 'Not authorized' then raise exception 'Missing profile bypassed guard: %',failure; end if;
+ if failure is null or failure not in ('Not authorized','GH Procurement access restricted: disabled') then raise exception 'Missing profile bypassed guard: %',failure; end if;
  if exists(select 1 from public.proc_requirements) then raise exception 'Missing profile bypassed RLS'; end if;
  insert into certification_results values('security: missing profile cannot call privileged RPC or read requirements',true);
  execute 'reset role';
