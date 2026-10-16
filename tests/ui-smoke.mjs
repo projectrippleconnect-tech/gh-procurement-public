@@ -165,6 +165,8 @@ try{
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
    else if(name==='proc_company_sections'&&process.env.GH_UI_GROUP_SEND==='1')data=[groupSection]
    else if(name==='proc_company_section_routes'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[groupRoute]:[]
+   else if(name==='proc_company_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1')data=groupContactIds.map((id,idx)=>({company_id:'company-fixture',section_id:groupSection.id,supplier_id:id,sort_order:idx+1}))
+   else if(name==='proc_company_save_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1'){const b=req.postDataJSON();groupContactIds=b.p_supplier_ids;data={supplier_count:groupContactIds.length}}
    else if(name==='proc_company_section_route_suppliers'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[{route_id:groupRoute.id,supplier_id:supplier.id,sort_order:1}]:[]
    else if(name==='proc_company_save_route_v2'&&process.env.GH_UI_GROUP_SEND==='1'){
     const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send,document_template:b.p_template};data={id:groupRoute.id}
@@ -506,7 +508,8 @@ try{
    await routing.getByRole('button',{name:'Resume unsent RFQ images',exact:true}).click()
    await routing.getByText(/Existing attempt retained/).waitFor()
    assert.equal(rfqGatewayRequests.length,1,'Resume does not send an accepted image twice')
-   const companyRoute=routing.locator('.company-section-directory-row').filter({has:page.getByText('Entire company · default contacts',{exact:true})})
+   await routing.getByLabel('Advanced: show optional company-wide fallback',{exact:true}).check()
+   const companyRoute=routing.locator('.company-section-directory-row').filter({has:page.getByText('Advanced · fallback for unassigned groups',{exact:true})})
    await companyRoute.getByRole('button',{name:'Configure',exact:true}).click()
    await companyRoute.getByLabel('Send direct purchase order (one supplier)',{exact:true}).check()
    await companyRoute.getByLabel('Automatically create, approve and send PO images after stock submission',{exact:true}).check()
