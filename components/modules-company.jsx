@@ -224,9 +224,14 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   setBusy(true)
   try{
    const p=counted.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
-   const saved=await companyApi('submit',{companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()});const x={data:saved}
-   localStorage.removeItem(draftKey);setEntry({});setSufficient({});startedAt.current=null
+   const submissionKey=draftKey+'-submission'
+   let submissionId=localStorage.getItem(submissionKey)
+   if(!submissionId){submissionId=crypto.randomUUID();localStorage.setItem(submissionKey,submissionId)}
+   const saved=await companyApi('submit',{submissionId,companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()});const x={data:saved}
+   localStorage.removeItem(submissionKey);localStorage.removeItem(draftKey);setEntry({});setSufficient({});startedAt.current=null
    flash(x.data.count_no+' submitted. '+(x.data.requirements_created||0)+' new shortage(s).');await loadRows();if(saved.dispatch){if(saved.dispatch.ok)flash(saved.dispatch.message);else fail(new Error(saved.dispatch.error+' Stock submission was saved; the order remains queued.'))}
+   if(saved.rfqDispatch){if(saved.rfqDispatch.ok)flash(saved.rfqDispatch.message);else fail(new Error(saved.rfqDispatch.error+' Stock submission was saved; RFQs remain queued.'))}
+   if(saved.automation_errors?.length)fail(new Error('Stock saved. Automatic requests need attention: '+saved.automation_errors.map(e=>e.error).join('; ')))
   }catch(e){fail(e)}finally{setBusy(false)}
  }
 

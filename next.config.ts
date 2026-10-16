@@ -14,7 +14,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  outputFileTracingIncludes: {'/api/company-items/orders':['./assets/fonts/**/*']},
+  outputFileTracingIncludes: {'/api/company-items/orders':['./assets/fonts/**/*'],'/api/company-items/rfqs':['./assets/fonts/**/*']},
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
   },

@@ -4,7 +4,7 @@ import {supabase} from '@/lib/supabase'
 import {PasteContact} from './paste-contact'
 import {planGroupSupplierSave} from '@/lib/group-supplier-contact-plan.mjs'
 
-const empty={name:'',phone:''}
+const empty={name:'',contact_person:'',phone:''}
 
 // Pasted contact text remains client-side. Only the contact
 // deliberately saved by the user enters the supplier directory.
@@ -13,7 +13,7 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
  const [pasteVersion,setPasteVersion]=useState(0)
  const [saving,setSaving]=useState(false)
  useEffect(()=>{
-  if(editingSupplier)setDraft({name:editingSupplier.name||'',phone:editingSupplier.phone||editingSupplier.whatsapp||''})
+  if(editingSupplier)setDraft({name:editingSupplier.name||'',contact_person:editingSupplier.contact_person||'',phone:editingSupplier.phone||editingSupplier.whatsapp||''})
  },[editingSupplier?.id])
  const plan=planGroupSupplierSave({name:draft.name,phone:draft.phone,editingId:editingSupplier?.id||'',suppliers})
  const existing=plan.action==='reuse'?suppliers.find(s=>s.id===plan.id):null
@@ -31,14 +31,14 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
    if(plan.action==='create'){
     const r=await supabase.from('proc_suppliers').insert({
      supplier_code:'CO-'+crypto.randomUUID().slice(0,8).toUpperCase(),
-     name:plan.name,phone:plan.phone,whatsapp:plan.phone,supplier_kind:'company',active:true
+     name:plan.name,contact_person:draft.contact_person.trim(),phone:plan.phone,whatsapp:plan.phone,supplier_kind:'company',active:true
     }).select('id').single()
     if(r.error)throw r.error
     id=r.data.id
    }else if(plan.action==='update'){
     // Supplier identity is unchanged; associated POs/RFQs and group links remain intact.
     const r=await supabase.from('proc_suppliers').update({
-     name:plan.name,phone:plan.phone,whatsapp:plan.phone
+     name:plan.name,contact_person:draft.contact_person.trim(),phone:plan.phone,whatsapp:plan.phone
     }).eq('id',plan.id).eq('supplier_kind','company').select('id').single()
     if(r.error)throw r.error
    }
@@ -53,9 +53,10 @@ export function GroupSupplierContactEditor({suppliers=[],editingSupplier=null,on
   <div className="sectionhead"><strong>{editingSupplier?'Edit supplier contact':'Add supplier contact'}</strong></div>
   <PasteContact key={String(editingSupplier?.id||'new')+':'+pasteVersion} disabled={saving} onApply={person=>setDraft(value=>({...value,name:person.name||value.name,phone:person.phone}))}/>
   <div className="formgrid section">
-   <label className="field">Supplier / contact name
-    <input className="input" autoComplete="off" maxLength={160} value={draft.name} onChange={e=>setDraft(v=>({...v,name:e.target.value}))} placeholder="Supplier contact name"/>
+   <label className="field">Supplier / company name
+    <input className="input" autoComplete="off" maxLength={160} value={draft.name} onChange={e=>setDraft(v=>({...v,name:e.target.value}))} placeholder="Supplier or business name"/>
    </label>
+   <label className="field">Contact person (optional)<input className="input" maxLength={160} value={draft.contact_person} onChange={e=>setDraft(v=>({...v,contact_person:e.target.value}))} placeholder="Sales representative name"/></label>
    <label className="field">Phone / WhatsApp
     <input className="input" type="tel" inputMode="tel" autoComplete="off" value={draft.phone} onChange={e=>setDraft(v=>({...v,phone:e.target.value}))} placeholder="+94771234567"/>
    </label>

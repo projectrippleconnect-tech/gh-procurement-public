@@ -1,1 +1,1 @@
-export function companyOrderImages(job: {po_no:string;company:string;supplier:string;lines:{description:string;brand?:string;size?:string;colour?:string;variation?:string;uom:string;qty:number;remarks?:string}[]}): Promise<Buffer[]>;
+export function companyOrderImages(job: {po_no:string;kind?:string;template?:object;rfq_no?:string;company:string;supplier:string;lines:{description:string;brand?:string;size?:string;colour?:string;variation?:string;uom:string;qty:number;remarks?:string}[]}): Promise<Buffer[]>;
