@@ -125,8 +125,8 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 
 /* Mobile usability + in-place feedback */
 .app-toast-stack{position:fixed;top:76px;right:14px;z-index:260;width:min(390px,calc(100vw - 28px));display:grid;gap:8px;pointer-events:none}
-.app-toast{pointer-events:auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;box-shadow:0 14px 38px rgba(0,0,0,.34);backdrop-filter:blur(16px);font-size:13px;font-weight:750}
-.app-toast b{font-size:16px}.app-toast button{border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer;padding:0 2px}
+.app-toast{pointer-events:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;box-shadow:0 14px 38px rgba(0,0,0,.34);backdrop-filter:blur(16px);font-size:13px;font-weight:750}
+.app-toast b{font-size:16px}.app-toast button{pointer-events:auto;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer;padding:0 2px}
 .success-toast{background:rgba(18,48,30,.96);border:1px solid #29563a;color:#c2ffd4}
 .error-toast{background:rgba(54,23,32,.97);border:1px solid #6a2b3d;color:#ffd0d7}
 .item-master-title{display:grid;gap:6px;min-width:220px}.item-master-title strong{font-size:14px}
