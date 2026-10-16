@@ -127,7 +127,7 @@ try{
    if(body.supplierId===newSupplier.id)return route.fulfill({status:422,json:{ok:false,error:'Fixture definite rejection'}})
    return route.fulfill({json:{ok:true,status:'accepted',messageId:'fixture-message'}})
   })
-  let groupRoute=null,groupRouteSaves=[],groupPreparations=0,groupContactIds=[]
+  let groupRoute=null,groupRouteSaves=[],groupPreparations=0,groupContactIds=[],groupNoShortages=false
   const groupSection={id:'00000000-0000-4000-8000-000000000090',company_id:'company-fixture',name:'ALCATHINE HOSE',active:true,parent_id:null}
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('console',m=>{if(m.type()==='error'&&/ReferenceError|TypeError|Minified React error/.test(m.text()))errors.push(m.text())})
@@ -171,7 +171,11 @@ try{
    else if(name==='proc_company_save_route_v2'&&process.env.GH_UI_GROUP_SEND==='1'){
     const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send,document_template:b.p_template};data={id:groupRoute.id}
    }
-   else if(name==='proc_company_prepare_route_rfq'&&process.env.GH_UI_GROUP_SEND==='1'){groupPreparations++;data={rfq_id:rfq.id,rfq_no:rfq.rfq_no,document_template:groupRoute.document_template}}
+   else if(name==='proc_company_prepare_route_rfq'&&process.env.GH_UI_GROUP_SEND==='1'){
+    groupPreparations++
+    if(groupNoShortages){await route.fulfill({status:400,json:{code:'P0001',message:'No approved unquoted shortages remain for this group'}});return}
+    data={rfq_id:rfq.id,rfq_no:rfq.rfq_no,document_template:groupRoute.document_template}
+   }
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
@@ -498,7 +502,7 @@ try{
    assert.equal(await category.getByLabel('Automatically create and send RFQ images after stock submission',{exact:true}).isChecked(),true)
    await category.locator('summary').filter({hasText:'Outgoing image'}).click()
    assert.equal(await category.getByLabel('Business heading',{exact:true}).inputValue(),'General Ceramics')
-   await category.getByRole('button',{name:'Save route & send WhatsApp image',exact:true}).click()
+   await category.getByRole('button',{name:'Save & send RFQ now',exact:true}).click()
    const confirm=page.getByRole('alertdialog',{name:'Save route and send WhatsApp image',exact:true})
    await confirm.getByRole('button',{name:'Save route & send image',exact:true}).click()
    await confirm.waitFor({state:'hidden'})
@@ -508,6 +512,20 @@ try{
    await routing.getByRole('button',{name:'Resume unsent RFQ images',exact:true}).click()
    await routing.getByText(/Existing attempt retained/).waitFor()
    assert.equal(rfqGatewayRequests.length,1,'Resume does not send an accepted image twice')
+   // Regression: saving a route with no approved/unquoted requirements must not show
+   // a red error or incorrectly claim a supplier message was sent.
+   groupNoShortages=true
+   await category.getByRole('button',{name:'Configure',exact:true}).click()
+   await category.getByRole('button',{name:'Save & send RFQ now',exact:true}).click()
+   const noStockConfirm=page.getByRole('alertdialog',{name:'Save route and send WhatsApp image',exact:true})
+   await noStockConfirm.getByRole('button',{name:'Save route & send image',exact:true}).click()
+   await noStockConfirm.waitFor({state:'hidden'})
+   const explanation=category.getByRole('status',{name:'RFQ or PO sending status'})
+   await explanation.getByText(/RFQ not sent — your supplier settings were saved/).waitFor()
+   assert.match(await explanation.innerText(),/Check Stock Entry/)
+   assert.equal(await page.locator('.error-toast').count(),0,'No eligible shortages is informative, not a fatal red toast')
+   assert.equal(rfqGatewayRequests.length,1,'No supplier WhatsApp messages sent when no approved shortages')
+   assert.equal(groupPreparations,2,'RFQ eligibility checked on the server')
    await routing.getByLabel('Advanced: show optional company-wide fallback',{exact:true}).check()
    const companyRoute=routing.locator('.company-section-directory-row').filter({has:page.getByText('Advanced · fallback for unassigned groups',{exact:true})})
    await companyRoute.getByRole('button',{name:'Configure',exact:true}).click()

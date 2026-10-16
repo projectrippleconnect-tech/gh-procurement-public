@@ -784,3 +784,9 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .company-section-editor{padding:8px}
  .company-section-directory-row>.btn{flex-shrink:0}
 }
+
+/* Supplier routing: keep status and actions readable above the mobile navigation. */
+.group-route-feedback{margin:12px 0;border-left:4px solid var(--info);background:rgba(36,86,122,.18);line-height:1.45;overflow-wrap:anywhere}
+.group-routing-actions{gap:10px;padding-bottom:12px}
+.group-routing-actions button{min-width:0;white-space:normal;line-height:1.3;text-align:center}
+@media(max-width:760px){.group-routing-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.group-routing-actions button:nth-child(3){grid-column:1/-1}.group-routing-actions button:last-child:nth-child(4){grid-column:1/-1}}

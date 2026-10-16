@@ -21,7 +21,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  const routeSections=useMemo(()=>[{id:companyScope,name:'Advanced · fallback for unassigned groups',active:true,parent_id:null},...sections.map(s=>({...s,parent_id:s.parent_id||companyScope}))],[sections])
  const [editing,setEditing]=useState(''),[draft,setDraft]=useState(initial),[search,setSearch]=useState('')
  const [supplierSearch,setSupplierSearch]=useState(''),[editContactId,setEditContactId]=useState('')
- const [busy,setBusy]=useState(false),[sendResults,setSendResults]=useState([]),[pendingRfq,setPendingRfq]=useState(null),[routeNotice,setRouteNotice]=useState('')
+ const [busy,setBusy]=useState(false),[sendResults,setSendResults]=useState([]),[pendingRfq,setPendingRfq]=useState(null),[routeNotice,setRouteNotice]=useState(''),[dispatchNotice,setDispatchNotice]=useState(null)
  const running=useRef(false)
  const admin=(profile?.role_key||profile?.role)==='admin'&&can('company_lists.manage')
  const paths=useMemo(()=>sectionPaths(sections),[sections])
@@ -63,7 +63,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setSuppliers(contacts.data||[])
   setGroupContactLinks(pool.data||[])
  }
- useEffect(()=>{load().catch(fail);setEditing('');setDraft(initial);setSearch('');setPendingRfq(null);setSendResults([]);setRouteNotice('');setShowFallback(false);setGroupIds([])},[company?.id])
+ useEffect(()=>{load().catch(fail);setEditing('');setDraft(initial);setSearch('');setPendingRfq(null);setSendResults([]);setRouteNotice('');setDispatchNotice(null);setShowFallback(false);setGroupIds([])},[company?.id])
  const openEditor=s=>{
   const existing=routeIndex.get(s.id)||nearestSectionRoute(s,routeSections,routes)?.rule
   const ids=existing?members.get(existing.id)||[]:[]
@@ -71,6 +71,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setGroupIds(uniq([...assigned,...ids]))
   setPoolDirty(false)
   setEditing(s.id)
+  setDispatchNotice(null)
   setTemplate(routeTemplate(existing?.document_template||{},existing?.route_mode||'rfq'))
   setDraft(existing?{mode:existing.route_mode,auto_send:existing.auto_send,supplier_ids:ids}:
    {...initial})
@@ -83,6 +84,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   try{await callback()}catch(e){fail(e)}finally{running.current=false;setBusy(false)}
  }
  async function save(close=true){
+  setDispatchNotice(null)
   const check=validateSectionRoute({mode:draft.mode,supplierIds:draft.supplier_ids,autoSend:draft.auto_send})
   if(draft.supplier_ids.some(id=>!groupIds.includes(id)))throw new Error('Select assigned group contacts for sending.')
   if(!check.valid)throw new Error(check.reason)
@@ -129,14 +131,26 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   await save(false)
   if(mode==='rfq'){
    const r=await supabase.rpc('proc_company_prepare_route_rfq',{p_company_id:company.id,p_section_id:sectionId,p_due_date:null})
-   if(r.error)throw new Error('Route saved. '+r.error.message)
+   if(r.error){
+    if(/No approved unquoted shortages remain for this group/i.test(r.error.message||'')){
+     setDispatchNotice({groupId:editing,text:'RFQ not sent — your supplier settings were saved. This group has no approved shortage waiting for a quotation. Check Stock Entry, approve new shortages in Review, or open an existing RFQ before trying again.'})
+     return
+    }
+    throw new Error('Route saved, but RFQ preparation failed: '+r.error.message)
+   }
    setPendingRfq(r.data)
    setRouteNotice('Route saved. RFQ '+r.data.rfq_no+' prepared; sending images…')
    await sendRfq(r.data)
    setRouteNotice('Route saved. RFQ '+r.data.rfq_no+' — see each supplier’s sending result below.')
   }else{
    const r=await supabase.rpc('proc_company_prepare_route_po',{p_company_id:company.id,p_section_id:sectionId})
-   if(r.error)throw new Error('Route saved. '+r.error.message)
+   if(r.error){
+    if(/No approved un-ordered shortages remain for this group/i.test(r.error.message||'')){
+     setDispatchNotice({groupId:editing,text:'PO not sent — your supplier settings were saved. There are no approved un-ordered shortages for this group. Check Stock Entry and Review, or look for an existing purchase order.'})
+     return
+    }
+    throw new Error('Route saved, but purchase-order preparation failed: '+r.error.message)
+   }
    setRouteNotice('Route saved. Direct PO prepared.')
    const sent=await companyApi('orders',{companyId:company.id,poIds:(r.data||[]).map(po=>po.id)})
    setSendResults((sent.outcomes||[]).map(outcome=>({...outcome,supplierId:outcome.id,message:outcome.error||'Image and caption accepted by WhatsApp.'})))
@@ -269,10 +283,11 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
        <div className="pillrow section">{[['no','Row number'],['uom','Unit of measure'],['rate','Blank unit-rate column'],['remarks','Item remarks']].map(([key,label])=><label key={key} className="choice-pill"><input type="checkbox" checked={template.fields[key]!==false} onChange={e=>setTemplate(v=>({...v,fields:{...v.fields,[key]:e.target.checked}}))}/>{label}</label>)}</div>
        <p className="muted tiny">Description and quantity are always included. Unit-rate blanks can be enabled or disabled; quantity-only POs do not invent prices. Use {'{company_name}, {supplier_name}, {rfq_number}, {po_number}'} in captions. Settings are saved with this route for all stock handlers.</p>
       </details>
-      <p className="muted tiny">Save group contacts keeps your list of Supplier 1, 2, 3 independently. Save group route also stores the chosen sending recipients. Automatic sending requires opting in; saving contacts by itself does not send anything.</p>
+      <p className="muted tiny">Saving contacts or a routing rule does not send WhatsApp messages. Sending now requires an <strong>approved shortage not already quoted or ordered</strong>. Automatic sending only runs when enabled.</p>
       <p className="muted tiny">Assigned contacts: {groupIds.length} · Sending recipients: {draft.supplier_ids.length}. Direct POs use one selected supplier; RFQs may use several.</p>
-      <div className="toolbar section">{editing!==companyScope&&<button className="btn small" disabled={busy||!groupIds.length} onClick={()=>run(()=>saveGroupContacts())}>Save group contacts</button>}<button className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(()=>save())}>{busy?'Working…':'Save group route'}</button>
-       <button type="button" className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&(!draft.auto_send||draft.supplier_ids.length!==1))||!can(draft.mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({title:'Save route and send WhatsApp image',message:'Save this group route and send '+(draft.mode==='rfq'?'a quotation request':'an approved quantity-only purchase order')+' to '+draft.supplier_ids.map(id=>suppliers.find(s=>s.id===id)?.name||'supplier').join(', ')+'?',warning:'Only approved outstanding shortages are included. Each supplier receives an image with a caption. RFQs still require quote review before any purchase order.',confirmLabel:'Save route & send image',onConfirm:()=>run(saveAndSend)})}>{busy?'Working…':'Save route & send WhatsApp image'}</button>
+      {dispatchNotice?.groupId===s.id&&<div className="notice group-route-feedback" role="status" aria-label="RFQ or PO sending status">{dispatchNotice.text}</div>}
+      <div className="toolbar section group-routing-actions">{editing!==companyScope&&<button className="btn small" disabled={busy||!groupIds.length} onClick={()=>run(()=>saveGroupContacts())}>Save group contacts</button>}<button className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(()=>save())}>{busy?'Working…':'Save group route'}</button>
+       <button type="button" className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&(!draft.auto_send||draft.supplier_ids.length!==1))||!can(draft.mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({title:'Save route and send WhatsApp image',message:'Save this group route and send '+(draft.mode==='rfq'?'a quotation request':'an approved quantity-only purchase order')+' to '+draft.supplier_ids.map(id=>suppliers.find(s=>s.id===id)?.name||'supplier').join(', ')+'?',warning:'Only approved outstanding shortages are included. Each supplier receives an image with a caption. RFQs still require quote review before any purchase order.',confirmLabel:'Save route & send image',onConfirm:()=>run(saveAndSend)})}>{busy?'Working…':draft.mode==='rfq'?'Save & send RFQ now':'Save & send PO now'}</button>
        {own&&<button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
         title:'Remove group routing override',message:'Remove the custom route for '+(paths.get(s.id)||s.name)+'?',
         warning:'Existing POs and RFQs are retained. Future stock submissions will use the parent or company fallback. Queued unsent direct orders are checked again before sending.',
