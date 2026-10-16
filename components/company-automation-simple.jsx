@@ -20,11 +20,10 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
  const routeMembers=rule?members.get(rule.id)||[]:[]
  async function load(){
   if(!company?.id)return
-  const [a,b,c,d]=await Promise.all([
+  const [a,b,c]=await Promise.all([
    supabase.from('proc_suppliers').select('id,name,contact_person,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name'),
    supabase.from('proc_company_section_routes').select('*').eq('company_id',company.id),
-   supabase.from('proc_company_group_contacts').select('section_id,supplier_id,sort_order').eq('company_id',company.id),
-   supabase.from('proc_company_section_route_suppliers').select('route_id,supplier_id,sort_order').in('route_id',routeIndex.size?[...routeIndex.values()].map(x=>x.id):['00000000-0000-4000-8000-000000000000'])
+   supabase.from('proc_company_group_contacts').select('section_id,supplier_id,sort_order').eq('company_id',company.id)
   ])
   if(a.error)throw a.error
   if(b.error)throw b.error
@@ -102,7 +101,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
    <button type="button" className="btn small section" onClick={()=>setExpanded(v=>!v)}>{expanded?'Hide supplier directory':'+ Add supplier from directory'}</button>
    {expanded&&<div className="section"><input className="input" type="search" aria-label="Search company supplier contacts" value={lookup} onChange={e=>setLookup(e.target.value)} placeholder="Name or +94 number"/>
     <div className="company-simple-directory">{suppliers.filter(s=>(s.name+' '+s.phone+' '+s.whatsapp).toLowerCase().includes(lookup.toLowerCase())).slice(0,60).map(s=><label className="checkline" key={s.id}><input type="checkbox" checked={assigned.includes(s.id)} onChange={e=>checkAssigned(s.id,e.target.checked)}/>{s.name} · {s.whatsapp||s.phone}</label>)}</div>
-    <GroupSupplierContactEditor suppliers={suppliers} editingSupplier={editing} onSaved={async id=>{await load();setAssigned(v=>uniq([...v,id]));setRecipients(v=>option==='direct'?(v.length?v:[id]):uniq([...v,id]));setEditing(null)}} onCancel={()=>setEditing(null)} flash={flash} fail={fail}/>
+    <GroupSupplierContactEditor suppliers={suppliers} editingSupplier={editing} onSaved={async id=>{const r=await supabase.from('proc_suppliers').select('id,name,contact_person,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name');if(r.error)throw r.error;setSuppliers(r.data||[]);setAssigned(v=>uniq([...v,id]));setRecipients(v=>option==='direct'?(v.length?v:[id]):uniq([...v,id]));setEditing(null)}} onCancel={()=>setEditing(null)} flash={flash} fail={fail}/>
    </div>}
   </div>
   <fieldset className="company-simple-options section"><legend>After stock submission</legend>
