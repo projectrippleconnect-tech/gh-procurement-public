@@ -3,6 +3,7 @@ import {companyOrderImages} from '@/lib/company-order-image.mjs'
 import {routeCaption} from '@/lib/company-route-template.mjs'
 import {extractWahaMessageId,normalizeSupplierChatId} from '@/lib/waha-rfq'
 import {createHash} from 'node:crypto'
+import {checkedRfqIds} from '@/lib/company-rfq-dispatch-scope.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -16,6 +17,8 @@ export async function POST(request:Request){
   if(!check.ok||(await check.json()).status!=='WORKING')throw new Error('WhatsApp is offline; RFQ images remain queued.')
   let query=db.from('proc_company_rfq_queue').select('id').in('status',['pending','failed']).order('created_at').limit(50)
   if(body.companyId)query=query.eq('company_id',body.companyId)
+  // Stock submissions provide RFQ IDs; they may never drain older company queues.
+  if(body.rfqIds!==undefined)query=query.in('rfq_id',checkedRfqIds(body.rfqIds))
   const {data:queue,error}=await query;if(error)throw error
   let accepted=0;const outcomes:object[]=[]
   for(const row of queue||[]){
