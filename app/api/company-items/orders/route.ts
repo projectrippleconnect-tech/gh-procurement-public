@@ -1,6 +1,7 @@
 import {companyAccess,companyBody,companyReply} from '@/lib/company-server'
 import {extractWahaMessageId,normalizeSupplierChatId} from '@/lib/waha-rfq'
 import {companyOrderImages} from '@/lib/company-order-image.mjs'
+import {routeCaption} from '@/lib/company-route-template.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -14,8 +15,8 @@ export async function POST(request:Request){
   let query=db.from('proc_company_dispatch_queue').select('id').in('status',['pending','failed']).order('created_at').limit(5)
   if(body.companyId)query=query.eq('company_id',body.companyId)
   if(body.poIds!==undefined){
-   if(!Array.isArray(body.poIds)||!body.poIds.length||body.poIds.length>15||body.poIds.some((id:unknown)=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))throw new Error('Select valid purchase orders.')
-   query=query.in('po_id',body.poIds).limit(15)
+   if(!Array.isArray(body.poIds)||!body.poIds.length||body.poIds.length>200||body.poIds.some((id:unknown)=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))throw new Error('Select valid purchase orders.')
+   query=query.in('po_id',body.poIds).limit(200)
   }
   const {data:queue,error}=await query;if(error)throw error
   let accepted=0;const outcomes:object[]=[]
@@ -28,7 +29,7 @@ export async function POST(request:Request){
     let response:Response|null=null
     for(let page=0;page<images.length;page++){
      contacted=true
-     response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:'PO-'+job.po_no+'-'+(page+1)+'.png',data:images[page].toString('base64')},caption:'General Hardware — PO '+job.po_no+' · '+(page+1)+'/'+images.length+'\nPlease confirm availability and delivery.'}),signal:AbortSignal.timeout(25000),cache:'no-store'})
+     response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:'PO-'+job.po_no+'-'+(page+1)+'.png',data:images[page].toString('base64')},caption:routeCaption(job)+'\nPage '+(page+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),cache:'no-store'})
      if(!response.ok)break
     }
     if(!response)throw new Error('No order image was generated.')

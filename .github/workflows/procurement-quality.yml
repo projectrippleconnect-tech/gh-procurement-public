@@ -42,7 +42,7 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
-      - name: Verify group route save and WhatsApp image sending
+      - name: Verify company/category auto sending settings and saved image templates
         env:
           GH_UI_GROUP_SEND: '1'
           GH_UI_WIDTHS: '320,390,768,1366'
@@ -161,6 +161,13 @@ jobs:
         run: |
           createdb -h 127.0.0.1 -U postgres isolated_company_routes
           psql -h 127.0.0.1 -U postgres -d isolated_company_routes -v ON_ERROR_STOP=1 -f tests/sql/company-group-routing-isolated.sql
+
+      - name: Verify stock-triggered RFQs, POs, templates and idempotent submission
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_stock_auto
+          psql -h 127.0.0.1 -U postgres -d isolated_company_stock_auto -v ON_ERROR_STOP=1 -f tests/sql/company-stock-auto-rfq-isolated.sql
 
       - name: Verify default screenshot protection and override authorization
         env:

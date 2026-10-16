@@ -166,10 +166,10 @@ try{
    else if(name==='proc_company_sections'&&process.env.GH_UI_GROUP_SEND==='1')data=[groupSection]
    else if(name==='proc_company_section_routes'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[groupRoute]:[]
    else if(name==='proc_company_section_route_suppliers'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[{route_id:groupRoute.id,supplier_id:supplier.id,sort_order:1}]:[]
-   else if(name==='proc_company_save_section_route'&&process.env.GH_UI_GROUP_SEND==='1'){
-    const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send};data={id:groupRoute.id}
+   else if(name==='proc_company_save_route_v2'&&process.env.GH_UI_GROUP_SEND==='1'){
+    const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send,document_template:b.p_template};data={id:groupRoute.id}
    }
-   else if(name==='proc_company_prepare_group_rfq'&&process.env.GH_UI_GROUP_SEND==='1'){groupPreparations++;data={rfq_id:rfq.id,rfq_no:rfq.rfq_no}}
+   else if(name==='proc_company_prepare_route_rfq'&&process.env.GH_UI_GROUP_SEND==='1'){groupPreparations++;data={rfq_id:rfq.id,rfq_no:rfq.rfq_no,document_template:groupRoute.document_template}}
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
@@ -475,27 +475,49 @@ try{
   if(process.env.GH_UI_GROUP_SEND==='1'){
    await navigate('CL Company Lists')
    const routing=page.getByLabel('Group supplier routing',{exact:true})
-   await routing.locator('summary').click()
-   await routing.getByRole('button',{name:'Configure',exact:true}).click()
-   await routing.getByLabel('Request quotation / RFQ (one or more suppliers)',{exact:true}).check()
-   await routing.locator('input[type="checkbox"]').first().check()
-   await routing.getByRole('button',{name:'Save group route',exact:true}).click()
-   await routing.getByRole('button',{name:'Configure',exact:true}).waitFor()
+   await routing.locator('summary').first().click()
+   const category=routing.locator('.company-section-directory-row').filter({has:page.getByText('ALCATHINE HOSE',{exact:true})})
+   await category.getByRole('button',{name:'Configure',exact:true}).click()
+   await category.getByLabel('Request quotation / RFQ (one or more suppliers)',{exact:true}).check()
+   await category.getByLabel('Automatically create and send RFQ images after stock submission',{exact:true}).check()
+   await category.locator('input[type="checkbox"]').nth(1).check()
+   await category.locator('summary').filter({hasText:'Outgoing image'}).click()
+   await category.getByLabel('Business heading',{exact:true}).fill('General Ceramics')
+   await category.getByLabel('Remarks / instructions',{exact:true}).fill('Deliver to No.77')
+   await category.getByLabel('Blank unit-rate column',{exact:true}).uncheck()
+   await category.getByRole('button',{name:'Save group route',exact:true}).click()
+   await category.getByRole('button',{name:'Configure',exact:true}).waitFor()
    assert.equal(groupRouteSaves.length,1);assert.equal(groupRouteSaves[0].p_section_id,groupSection.id)
-   assert.equal(rfqGatewayRequests.length,0,'Saving configuration alone never sends')
-   await routing.getByRole('button',{name:'Configure',exact:true}).click()
-   await routing.getByRole('button',{name:'Save route & send WhatsApp image',exact:true}).click()
+   assert.equal(groupRouteSaves[0].p_auto_send,true)
+   assert.equal(groupRouteSaves[0].p_template.name,'General Ceramics')
+   assert.equal(groupRouteSaves[0].p_template.fields.rate,false)
+   assert.equal(rfqGatewayRequests.length,0,'Saving automation settings alone never sends old shortages')
+   await category.getByRole('button',{name:'Configure',exact:true}).click()
+   assert.equal(await category.getByLabel('Automatically create and send RFQ images after stock submission',{exact:true}).isChecked(),true)
+   await category.locator('summary').filter({hasText:'Outgoing image'}).click()
+   assert.equal(await category.getByLabel('Business heading',{exact:true}).inputValue(),'General Ceramics')
+   await category.getByRole('button',{name:'Save route & send WhatsApp image',exact:true}).click()
    const confirm=page.getByRole('alertdialog',{name:'Save route and send WhatsApp image',exact:true})
    await confirm.getByRole('button',{name:'Save route & send image',exact:true}).click()
    await confirm.waitFor({state:'hidden'})
    await routing.getByLabel('Group WhatsApp sending results',{exact:true}).getByText(/Image and caption accepted/).waitFor()
    assert.equal(groupPreparations,1);assert.equal(rfqGatewayRequests.length,1)
+   assert.match(rfqGatewayRequests[0].caption,/General Ceramics/)
    await routing.getByRole('button',{name:'Resume unsent RFQ images',exact:true}).click()
    await routing.getByText(/Existing attempt retained/).waitFor()
    assert.equal(rfqGatewayRequests.length,1,'Resume does not send an accepted image twice')
+   const companyRoute=routing.locator('.company-section-directory-row').filter({has:page.getByText('Entire company · default contacts',{exact:true})})
+   await companyRoute.getByRole('button',{name:'Configure',exact:true}).click()
+   await companyRoute.getByLabel('Send direct purchase order (one supplier)',{exact:true}).check()
+   await companyRoute.getByLabel('Automatically create, approve and send PO images after stock submission',{exact:true}).check()
+   await companyRoute.locator('input[type="checkbox"]').nth(1).check()
+   await companyRoute.getByRole('button',{name:'Save group route',exact:true}).click()
+   await companyRoute.getByRole('button',{name:'Configure',exact:true}).waitFor()
+   assert.equal(groupRouteSaves.at(-1).p_section_id,null,'Entire company route uses a null category')
+   assert.equal(groupRouteSaves.at(-1).p_mode,'direct');assert.equal(groupRouteSaves.at(-1).p_auto_send,true)
    assert.deepEqual(errors,[])
    await page.screenshot({path:'test-results/'+width+'-group-route-send.png',fullPage:true})
-   console.log('PASS group route save, image + caption dispatch and duplicate-safe resume at '+width+'px')
+   console.log('PASS company/category auto RFQ/PO settings, saved templates, image dispatch and duplicate-safe resume at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_CONTACT_PASTE==='1'){

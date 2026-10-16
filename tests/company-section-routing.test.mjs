@@ -8,7 +8,7 @@ test('one designated supplier defaults to direct order and auto-send; multiple t
  assert.deepEqual(defaultSectionRoute(3),{mode:'rfq',autoSend:false})
 })
 test('RFQ supports one or more suppliers, and never auto-sends a PO',()=>{
- assert.deepEqual(validateSectionRoute({mode:'rfq',supplierIds:['s1','s2','s3'],autoSend:true}),{valid:true,mode:'rfq',supplierIds:['s1','s2','s3'],autoSend:false})
+ assert.deepEqual(validateSectionRoute({mode:'rfq',supplierIds:['s1','s2','s3'],autoSend:true}),{valid:true,mode:'rfq',supplierIds:['s1','s2','s3'],autoSend:true})
  assert.equal(validateSectionRoute({mode:'rfq',supplierIds:['s1'],autoSend:false}).valid,true)
 })
 test('direct routes reject multiple and missing supplier IDs',()=>{
