@@ -169,6 +169,13 @@ jobs:
           createdb -h 127.0.0.1 -U postgres isolated_company_stock_auto
           psql -h 127.0.0.1 -U postgres -d isolated_company_stock_auto -v ON_ERROR_STOP=1 -f tests/sql/company-stock-auto-rfq-isolated.sql
 
+      - name: Verify independent group supplier contacts and access permissions
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_group_contacts
+          psql -h 127.0.0.1 -U postgres -d isolated_group_contacts -v ON_ERROR_STOP=1 -f tests/sql/company-group-contact-pool-isolated.sql
+
       - name: Verify default screenshot protection and override authorization
         env:
           PGPASSWORD: fixture-only
