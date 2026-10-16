@@ -176,6 +176,13 @@ jobs:
           createdb -h 127.0.0.1 -U postgres isolated_group_contacts
           psql -h 127.0.0.1 -U postgres -d isolated_group_contacts -v ON_ERROR_STOP=1 -f tests/sql/company-group-contact-pool-isolated.sql
 
+      - name: Verify explicit company auto PO and separate RFQ history in isolated PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_explicit_direct
+          psql -h 127.0.0.1 -U postgres -d isolated_company_explicit_direct -v ON_ERROR_STOP=1 -f tests/sql/company-explicit-auto-po-history-isolated.sql
+
       - name: Verify default screenshot protection and override authorization
         env:
           PGPASSWORD: fixture-only
