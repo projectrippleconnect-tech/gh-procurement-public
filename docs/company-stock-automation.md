@@ -1,5 +1,11 @@
 # Company and category stock automation
 
+## Main-group contact assignment
+In Company Lists → Group supplier contacts · RFQ / PO, open a main section such as ALCATHINE and assign Supplier 1, Supplier 2, Supplier 3 by contact name and Sri Lankan WhatsApp number. These **assigned contacts** are stored separately from the supplier(s) selected for dispatch. Subgroups such as ALCATHINE HOSE inherit main-group contact lists unless the subgroup is explicitly given its own list. The former "Entire company" route remains available only under Advanced → optional company-wide fallback to preserve legacy routing; it is not required for normal group setup.
+
+The group contact list alone sends nothing. Choose one or several of the assigned contacts in the RFQ sending rule, or pick one designated PO supplier. The stored automatic-send rule uses only its selected contacts. Saving the contact pool alone does not alter prior routing or create stock counts, RFQs, POs, or WhatsApp messages. Group-specific stock routing remains governed by the previously approved route and automatic opt-in settings.
+
+
 Select Company Lists → company → Company / category contacts & automatic RFQ / PO. Configure the entire-company default or override a category/subcategory. Add/select suppliers by business name, optional contact person and +94 WhatsApp number.
 
 - RFQ: one or several suppliers. Optional automatic creation and sending after a stock handler submits a count. This requests prices; it does not award or order anything.
