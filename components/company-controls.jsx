@@ -10,7 +10,7 @@ import {defaultCompanyFields} from '@/lib/company-items.mjs'
 export async function companyApi(action,payload={}){
  const {data:{session}}=await supabase.auth.getSession()
  const r=await fetch('/api/company-items/'+action,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session?.access_token},body:JSON.stringify(payload)})
- const data=await r.json();if(!r.ok)throw new Error(data.error||'Company action failed');return data
+ const data=await r.json();if(!r.ok||data.ok===false)throw new Error(data.error||'Company action failed');return data
 }
 export function CompanyControls({company,rows,can,flash,fail,onChanged}){
  const admin=can('company_lists.manage'),canDocuments=admin||can('procurement.rfq.manage'),[form,setForm]=useState({}),[contacts,setContacts]=useState([]),[brandContacts,setBrandContacts]=useState({}),[documents,setDocuments]=useState([]),[queue,setQueue]=useState([]),[rfqQueue,setRfqQueue]=useState([]),[busy,setBusy]=useState(false)

@@ -188,6 +188,14 @@ jobs:
           createdb -h 127.0.0.1 -U postgres isolated_company_explicit_direct
           psql -h 127.0.0.1 -U postgres -d isolated_company_explicit_direct -v ON_ERROR_STOP=1 -f tests/sql/company-explicit-auto-po-history-isolated.sql
 
+      - name: Verify real stock recounts and pending-order protections
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_recounts
+          psql -h 127.0.0.1 -U postgres -d isolated_company_recounts -v ON_ERROR_STOP=1 -f tests/sql/company-recount-orders-isolated.sql
+          node tests/company-recount-concurrency.mjs isolated_company_recounts
+
       - name: Verify default screenshot protection and override authorization
         env:
           PGPASSWORD: fixture-only

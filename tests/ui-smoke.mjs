@@ -129,6 +129,14 @@ try{
    if(body.supplierId===newSupplier.id)return route.fulfill({status:422,json:{ok:false,error:'Fixture definite rejection'}})
    return route.fulfill({json:{ok:true,status:'accepted',messageId:'fixture-message'}})
   })
+  let companyCountAttempt=0
+  if(process.env.GH_UI_COMPANY_ITEMS==='1')await context.route(root+'/api/company-items/submit',async route=>{
+   const body=route.request().postDataJSON();companyCountAttempt++
+   const changed=companyCountAttempt>1
+   assert.equal(body.lines.length,1,'Only entered rows are submitted')
+   assert.equal(body.lines[0].current_stock,changed?0:1)
+   await route.fulfill({json:{ok:true,count_no:changed?'035':'034',requirements_created:0,purchase_orders:[],rfqs:[],stock_outcomes:[{description:item.description,current_stock:changed?0:1,shortage_qty:changed?20:19,committed_qty:19,uncovered_qty:changed?1:0,needs_review:changed,reason:changed?'Stock need changed while an order is outstanding. Additional purchasing needs manual review.':'Covered by existing purchase orders.',orders:[{id:po.id,number:'001',status:'sent',qty:19}],rfqs:[]}]}})
+  })
   let groupRoute=null,groupRouteSaves=[],groupPreparations=0,groupContactIds=[],groupNoShortages=false
   const groupSection={id:'00000000-0000-4000-8000-000000000090',company_id:'company-fixture',name:'ALCATHINE HOSE',active:true,parent_id:null}
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
@@ -728,6 +736,21 @@ try{
    assert.equal(await view.getByRole('checkbox',{name:'movement',exact:true}).count(),0,'Movement is absent from Company Items')
    assert.equal(await view.getByRole('checkbox',{name:'variation',exact:true}).count(),0,'Company-specific layout toggles were removed')
    assert.equal(await grid.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Company stock table remains within the viewport')
+   // Real submission wording distinguishes physical shortages from new requirement records.
+   await current.fill('1')
+   await view.getByRole('button',{name:'Submit Count',exact:true}).click()
+   await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+   const result=view.getByRole('region',{name:'Company stock submission result',exact:true})
+   await result.getByText(/Existing purchase orders cover 1 shortage item/).waitFor()
+   assert.equal(await current.inputValue(),'','A saved count clears only the submitted draft')
+   await current.fill('0')
+   await view.getByRole('button',{name:'Submit Count',exact:true}).click()
+   await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+   await result.getByText(/1 item\(s\) need review/).waitFor()
+   await result.locator('summary').click()
+   await result.getByText(/Stock shortage: 20.*In existing POs: 19.*Uncovered: 1/).waitFor()
+   assert.equal(await result.getByText(/0 new shortage/).count(),0)
+   assert.equal(companyCountAttempt,2)
    await page.screenshot({path:'test-results/company-items-'+width+'.png',fullPage:true})
    assert.deepEqual(errors,[])
    console.log('PASS company stock tab, compact rows, sufficient stock, full company PDF and field customization at '+width+'px')
