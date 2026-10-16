@@ -682,6 +682,7 @@ try{
    await chooseOption(view.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
    assert.equal(await grid.locator('tbody tr.company-stock-item-row').count(),1)
    await view.getByRole('button',{name:'Clear filters',exact:true}).click()
+   await grid.locator('tbody tr.company-stock-item-row').nth(1).waitFor()
    assert.equal(await grid.locator('tbody tr.company-stock-item-row').count(),2)
    assert.equal(await view.getByLabel('Company movement',{exact:true}).count(),0,'Company lists have no movement filter')
    assert.equal(await view.locator('.company-item-meta').first().getByText(/Movement/i).count(),0,'Compact item metadata excludes movement')
