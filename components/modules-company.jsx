@@ -19,6 +19,8 @@ import {reorderFor} from '@/lib/company-items.mjs'
 import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
 import {CompanySectionManager} from './company-section-manager'
 import {CompanySectionRouteManager} from './company-section-route-manager'
+import {CompanySubmissionResult} from './company-submission-result'
+import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
 import {CompanyAutomationSimple} from './company-automation-simple'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
@@ -98,6 +100,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[refreshing,setRefreshing]=useState(false),[search,setSearch]=useState('')
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sectionFilter,setSectionFilter]=useState(''),[collapsedSections,setCollapsedSections]=useState({}),[sufficient,setSufficient]=useState({}),[sections,setSections]=useState([])
+ const[submissionResult,setSubmissionResult]=useState(null)
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
@@ -228,10 +231,10 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    const submissionKey=draftKey+'-submission'
    let submissionId=localStorage.getItem(submissionKey)
    if(!submissionId){submissionId=crypto.randomUUID();localStorage.setItem(submissionKey,submissionId)}
-   const saved=await companyApi('submit',{submissionId,companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()});const x={data:saved}
+   const saved=await companyApi('submit',{submissionId,companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()})
    localStorage.removeItem(submissionKey);localStorage.removeItem(draftKey);setEntry({});setSufficient({});startedAt.current=null
-   flash(x.data.count_no+' submitted. '+(x.data.requirements_created||0)+' new shortage(s).');await loadRows();if(saved.dispatch){if(saved.dispatch.ok)flash(saved.dispatch.message);else fail(new Error(saved.dispatch.error+' Stock submission was saved; the order remains queued.'))}
-   if(saved.rfqDispatch){if(saved.rfqDispatch.ok)flash(saved.rfqDispatch.message);else fail(new Error(saved.rfqDispatch.error+' Stock submission was saved; RFQs remain queued.'))}
+   setSubmissionResult({...saved,company_id:companyId});flash(companySubmissionMessage(saved));await loadRows();if(saved.dispatch){if(!saved.dispatch.ok)fail(new Error(saved.dispatch.error+' Stock saved. Review the order sending status before retrying.'))}
+   if(saved.rfqDispatch){if(!saved.rfqDispatch.ok)fail(new Error(saved.rfqDispatch.error+' Stock saved. Review RFQ sending status before retrying.'))}
    if(saved.automation_errors?.length)fail(new Error('Stock saved. Automatic requests need attention: '+saved.automation_errors.map(e=>e.error).join('; ')))
   }catch(e){fail(e)}finally{setBusy(false)}
  }
@@ -247,6 +250,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
+  <CompanySubmissionResult result={submissionResult?.company_id===companyId?submissionResult:null} navigate={navigate}/>
   {canManage&&companyId&&<CompanyAutomationSimple key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
   {canManage&&companyId&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
     <CompanyContactManager company={currentCompany} canManage={canManage&&(profile.role_key||profile.role)==='admin'} flash={flash} fail={fail} onChanged={loadCompanies}/>

@@ -19,7 +19,7 @@ export async function POST(request:Request){
    query=query.in('po_id',body.poIds).limit(200)
   }
   const {data:queue,error}=await query;if(error)throw error
-  let accepted=0;const outcomes:object[]=[]
+  let accepted=0;const outcomes:Array<{id:string;status?:string;error?:string|null}>=[]
   for(const row of queue||[]){
    const {data:job,error:claimError}=await db.rpc('proc_company_claim_send',{p_id:row.id});if(claimError){outcomes.push({id:row.id,error:claimError.message});continue}if(!job)continue
    let status='failed',messageId=null,lastError:string|null=null,contacted=false
@@ -47,6 +47,8 @@ export async function POST(request:Request){
    const {error:finishError}=await db.rpc('proc_company_finish_send',{p_id:row.id,p_status:status,p_message_id:messageId,p_error:lastError})
    outcomes.push({id:row.id,status,error:finishError?'Audit update failed; do not resend.':lastError})
   }
-  return companyReply({ok:true,message:accepted+' company purchase order(s) accepted by WhatsApp. Review pending or failed outcomes in Company settings.',outcomes})
+  const attention=outcomes.some(v=>v.status!=='accepted'||v.error)
+  const message=(accepted?accepted+' company purchase order(s) accepted by WhatsApp.':'No new WhatsApp message sent. Check the recorded PO sending status.')+(attention?' Some orders need review; check the sending outcomes.':'')
+  return companyReply({ok:!attention,accepted,message,...(attention?{error:message}:{}),outcomes})
  }catch(e){return companyReply({ok:false,error:e instanceof Error?e.message:'Automatic company orders failed.'},400)}
 }
