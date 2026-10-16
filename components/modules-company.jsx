@@ -247,7 +247,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
-  {canManage&&companyId&&<CompanyAutomationSimple company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
+  {canManage&&companyId&&<CompanyAutomationSimple key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
   {canManage&&companyId&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
     <CompanyContactManager company={currentCompany} canManage={canManage&&(profile.role_key||profile.role)==='admin'} flash={flash} fail={fail} onChanged={loadCompanies}/>
     <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>

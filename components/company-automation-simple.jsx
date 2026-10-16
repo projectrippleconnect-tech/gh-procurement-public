@@ -2,15 +2,17 @@
 import {useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {GroupSupplierContactEditor} from './group-supplier-contact-editor'
-import {nearestSectionRoute} from '@/lib/company-section-routing.mjs'
+import {switchRouteTemplate} from '@/lib/company-route-template.mjs'
+import {nearestSectionRoute,companyAutomationScope} from '@/lib/company-section-routing.mjs'
 
 const uniq=ids=>[...new Set(ids.filter(Boolean))]
 const scopeName=(id,sections)=>id==='company'?'Entire company list':sections.find(s=>s.id===id)?.name||'Group'
 export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash,fail}){
  const [suppliers,setSuppliers]=useState([]),[routes,setRoutes]=useState([]),[links,setLinks]=useState([]),[pool,setPool]=useState([])
- const [scope,setScope]=useState('company'),[assigned,setAssigned]=useState([]),[recipients,setRecipients]=useState([]),[option,setOption]=useState('manual')
+ const [selectedScope,setScope]=useState(null),[assigned,setAssigned]=useState([]),[recipients,setRecipients]=useState([]),[option,setOption]=useState('manual')
  const [busy,setBusy]=useState(false),[lookup,setLookup]=useState(''),[expanded,setExpanded]=useState(false),[editing,setEditing]=useState(null),[refresh,setRefresh]=useState(0)
- const [notice,setNotice]=useState('')
+ const [notice,setNotice]=useState(''),[loaded,setLoaded]=useState(false)
+ const scope=selectedScope??companyAutomationScope(company,sections,routes,pool)
  const routeIndex=useMemo(()=>new Map(routes.map(v=>[v.section_id||'company',v])),[routes])
  const members=useMemo(()=>new Map(routes.map(r=>[r.id,links.filter(x=>x.route_id===r.id).sort((a,b)=>a.sort_order-b.sort_order).map(x=>x.supplier_id)])),[routes,links])
  const poolIndex=useMemo(()=>new Map(sections.map(s=>[s.id,pool.filter(x=>x.section_id===s.id).sort((a,b)=>a.sort_order-b.sort_order).map(x=>x.supplier_id)]).filter(([,ids])=>ids.length)),[sections,pool])
@@ -18,7 +20,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
  const inherited=group?nearestSectionRoute(group,[{id:'company',parent_id:null},...sections.map(x=>({...x,parent_id:x.parent_id||'company'}))],routes.map(x=>({...x,section_id:x.section_id||'company'}))):null
  const rule=routeIndex.get(scope)||inherited?.rule
  const routeMembers=rule?members.get(rule.id)||[]:[]
- async function load(){
+ async function load(isCurrent){
   if(!company?.id)return
   const [a,b,c]=await Promise.all([
    supabase.from('proc_suppliers').select('id,name,contact_person,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name'),
@@ -32,9 +34,10 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
   const ids=(b.data||[]).map(x=>x.id)
   const rr=ids.length?await supabase.from('proc_company_section_route_suppliers').select('route_id,supplier_id,sort_order').in('route_id',ids):{data:[],error:null}
   if(rr.error)throw rr.error
-  setSuppliers(a.data||[]);setRoutes(b.data||[]);setPool(c.data||[]);setLinks(rr.data||[])
+  if(!isCurrent())return
+  setSuppliers(a.data||[]);setRoutes(b.data||[]);setPool(c.data||[]);setLinks(rr.data||[]);setLoaded(true)
  }
- useEffect(()=>{load().catch(fail)},[company?.id,refresh])
+ useEffect(()=>{let current=true;load(()=>current).catch(e=>{if(current)fail(e)});return()=>{current=false}},[company?.id,refresh])
  useEffect(()=>{
   let ids=[]
   if(scope==='company')ids=rule?routeMembers:[company.default_supplier_id].filter(Boolean)
@@ -77,7 +80,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
    }
    const r=await supabase.rpc('proc_company_save_route_v2',{
     p_company_id:company.id,p_section_id:scope==='company'?null:scope,
-    p_mode:option==='direct'?'direct':'rfq',p_auto_send:option!=='manual',p_supplier_ids:to,p_template:rule?.document_template||{}
+    p_mode:option==='direct'?'direct':'rfq',p_auto_send:option!=='manual',p_supplier_ids:to,p_template:switchRouteTemplate(rule?.document_template||{},rule?.route_mode||'rfq',option==='direct'?'direct':'rfq')
    })
    if(r.error)throw r.error
    setNotice('Saved. '+(option==='manual'?'Stock shortages will wait for review.':option==='rfq'?'New shortages will create and send RFQ images after stock submission.':'New shortages will create, approve and send the PO image to the designated supplier after stock submission.'))
@@ -86,6 +89,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  if(!company?.id||!can('company_lists.manage'))return null
+ if(!loaded)return <p className="muted tiny" role="status">Loading company supplier settings…</p>
  return <details className="card pad section company-simple-automation" aria-label="Company supplier automation">
   <summary>Company suppliers &amp; automation</summary>
   <p className="muted tiny">1. Assign supplier contacts. 2. Choose automatic RFQ or direct PO. The same Stock Entry Submit action starts the configured process. Saving settings never sends old shortages.</p>
@@ -96,6 +100,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
    </select>
   </label>
   <p className="muted tiny">Configured for: <strong>{scopeName(scope,sections)}</strong>{inherited?.inherited?' · currently inherits its parent settings':''}. Individual categories can override the company default.</p>
+  {selectedScope===null&&scope!=='company'&&<p className="muted tiny">Opened the existing supplier settings for this company’s only active category.</p>}
   <div className="section"><strong>Supplier contacts ({assigned.length})</strong>
    <div className="company-simple-supplier-list">{assigned.map((id,index)=>{const s=suppliers.find(x=>x.id===id);return <label key={id} className="checkline"><input type="checkbox" checked onChange={()=>checkAssigned(id,false)}/>Supplier {index+1}: {s?.name||'Unavailable'} · {s?.whatsapp||s?.phone||'No number'}</label>})}</div>
    <button type="button" className="btn small section" onClick={()=>setExpanded(v=>!v)}>{expanded?'Hide supplier directory':'+ Add supplier from directory'}</button>
@@ -108,6 +113,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
    <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='manual'} onChange={()=>switchMode('manual')}/>Manual — keep shortages for review</label>
    <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='rfq'} onChange={()=>switchMode('rfq')}/>Auto RFQ — send PNG to selected suppliers</label>
    <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='direct'} disabled={assigned.length!==1&&option!=='direct'} onChange={()=>switchMode('direct')}/>Auto direct PO — approve and send PNG to the sole supplier</label>
+   {!assigned.length&&<p className="muted tiny">Add a supplier from the directory to enable automatic sending. Direct PO needs exactly one assigned supplier.</p>}
    {assigned.length>1&&<p className="muted tiny">Direct PO automation requires one assigned supplier. Use RFQ for multiple suppliers.</p>}
   </fieldset>
   {option!=='manual'&&<div className="section"><strong>{option==='direct'?'Designated PO supplier':'RFQ recipients'}</strong>

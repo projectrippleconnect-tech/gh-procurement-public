@@ -523,7 +523,24 @@ try{
    assert.equal(groupRouteSaves[0].p_mode,'direct');assert.equal(groupRouteSaves[0].p_auto_send,true)
    assert.equal(groupRouteSaves[0].p_supplier_ids.length,1)
    assert.equal(rfqGatewayRequests.length,0,'Simple settings save does not dispatch old requirements')
-   groupRoute=null;groupRouteSaves=[]
+   // Existing suppliers belong to the sole category, not the empty company default.
+   groupRoute={...groupRoute,section_id:groupSection.id,route_mode:'rfq',auto_send:true,document_template:{title:'REQUEST FOR QUOTATION'}}
+   groupContactIds=[supplier.id]
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
+   await simple.locator('summary').first().click()
+   assert.equal(await simple.locator('select').first().inputValue(),groupSection.id)
+   await simple.getByText('Supplier contacts (1)',{exact:true}).waitFor()
+   const modes=simple.locator('.company-simple-options > label')
+   const firstMode=await modes.nth(0).boundingBox(),secondMode=await modes.nth(1).boundingBox()
+   assert.ok(secondMode.y>=firstMode.y+firstMode.height,'Automation options occupy separate rows on mobile')
+   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
+   await Promise.all([page.waitForResponse(r=>r.url().endsWith('/rpc/proc_company_save_route_v2')&&r.request().method()==='POST'),simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()])
+   assert.equal(groupRouteSaves.at(-1).p_mode,'direct')
+   assert.equal(groupRouteSaves.at(-1).p_section_id,groupSection.id)
+   assert.equal(groupRouteSaves.at(-1).p_auto_send,true)
+   assert.equal(groupRouteSaves.at(-1).p_template.title,'PURCHASE ORDER')
+   assert.equal(rfqGatewayRequests.length,0,'Selecting direct PO does not send old shortages')
+   groupRoute=null;groupRouteSaves=[];groupContactIds=[]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
    await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
    const routing=page.getByLabel('Group supplier routing',{exact:true})
