@@ -204,7 +204,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
     const isSubgroup=s.id!==companyScope&&!!sections.find(v=>v.id===s.id)?.parent_id
     return <div key={s.id} className="company-section-directory-row" style={{display:'block',marginLeft:isSubgroup?'18px':0,borderLeft:isSubgroup?'3px solid var(--line, #496475)':undefined,paddingLeft:isSubgroup?'12px':undefined}}>
      <div className="toolbar" style={{justifyContent:'space-between',alignItems:'center'}}>
-      <div><strong>{s.id===companyScope?s.name:isSubgroup?'↳ '+s.name:s.name}</strong>
+      <div>{isSubgroup&&<span aria-hidden="true">↳ </span>}<strong>{s.name}</strong>
        <div className="muted tiny"><strong>{scope.totalItems} item(s){scope.descendantSections>0?' including nested subgroups':''}</strong>{scope.descendantSections>0?' · '+scope.directItems+' directly assigned':''} · {rule?(rule.route_mode==='rfq'?'RFQ':'Direct PO')+(inherited?.inherited?' · inherited':'') :s.id===companyScope?'Fallback not configured':'No group send rule'}{rule?.auto_send?' · Auto-send':''}</div>
        {scope.descendantSections>0&&<div className="muted tiny">{scope.coveredItems} item(s) covered when routed here · {scope.descendantSections} nested subgroup(s){scope.overriddenItems>0?' · '+scope.overriddenItems+' item(s) use child-specific overrides':''}</div>}
        {selectedNames.length>0&&<div className="muted tiny">{'Group contacts: '+selectedNames.join(' · ')}</div>}</div>
