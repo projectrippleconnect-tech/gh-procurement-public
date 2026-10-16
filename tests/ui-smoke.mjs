@@ -127,6 +127,8 @@ try{
    if(body.supplierId===newSupplier.id)return route.fulfill({status:422,json:{ok:false,error:'Fixture definite rejection'}})
    return route.fulfill({json:{ok:true,status:'accepted',messageId:'fixture-message'}})
   })
+  let groupRoute=null,groupRouteSaves=[],groupPreparations=0
+  const groupSection={id:'00000000-0000-4000-8000-000000000090',company_id:'company-fixture',name:'ALCATHINE HOSE',active:true,parent_id:null}
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('console',m=>{if(m.type()==='error'&&/ReferenceError|TypeError|Minified React error/.test(m.text()))errors.push(m.text())})
   page.on('pageerror',e=>errors.push(e.message))
@@ -161,6 +163,13 @@ try{
    else if(name==='proc_admin_record_preview_v1'){const b=req.postDataJSON();data={label:b.p_table==='proc_rfqs'?rfq.rfq_no:b.p_table==='proc_suppliers'?supplier.supplier_code:po.po_no,counts:{[b.p_table]:1},token:'fixture-record-token'}}
    else if(['proc_admin_delete_record_v1','proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
+   else if(name==='proc_company_sections'&&process.env.GH_UI_GROUP_SEND==='1')data=[groupSection]
+   else if(name==='proc_company_section_routes'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[groupRoute]:[]
+   else if(name==='proc_company_section_route_suppliers'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[{route_id:groupRoute.id,supplier_id:supplier.id,sort_order:1}]:[]
+   else if(name==='proc_company_save_section_route'&&process.env.GH_UI_GROUP_SEND==='1'){
+    const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send};data={id:groupRoute.id}
+   }
+   else if(name==='proc_company_prepare_group_rfq'&&process.env.GH_UI_GROUP_SEND==='1'){groupPreparations++;data={rfq_id:rfq.id,rfq_no:rfq.rfq_no}}
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
@@ -200,7 +209,7 @@ try{
    else if(name==='proc_mark_rfq_supplier_sent_v1'){invitations=invitations.map(i=>({...i,status:'sent'}));rfqStatus='sent';data=true}
    else if(name==='proc_rfqs')data=[{...rfq,status:rfqStatus}]
    else if(name==='proc_suppliers'){if(req.method()==='POST'){const payload=req.postDataJSON();assert.equal(payload.whatsapp,'+94771234567');data={...payload,id:'quick-created-supplier'};directory=[...directory,data]}else data=directory}
-   else if(name==='proc_rfq_suppliers')data=invitations
+   else if(name==='proc_rfq_suppliers')data=process.env.GH_UI_GROUP_SEND==='1'?invitations.map(inv=>({...inv,supplier})):invitations
    else if(name==='proc_add_rfq_supplier_v1'){
     assert.deepEqual(req.postDataJSON(),{p_rfq_id:rfq.id,p_supplier_id:newSupplier.id,p_scope_override_reason:null})
     if(addFailure){await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture invitation failure'})});return}
@@ -461,6 +470,32 @@ try{
    assert.equal(await page.locator('.app').count(),0,'Server lease expiry locks an open workspace')
    assert.deepEqual(errors,[])
    console.log('PASS Super Admin, location permission, geofence, working-hours lock and active-session expiry at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_GROUP_SEND==='1'){
+   await navigate('CL Company Lists')
+   const routing=page.getByLabel('Group supplier routing',{exact:true})
+   await routing.locator('summary').click()
+   await routing.getByRole('button',{name:'Configure',exact:true}).click()
+   await routing.getByLabel('Request quotation / RFQ (one or more suppliers)',{exact:true}).check()
+   await routing.locator('input[type="checkbox"]').first().check()
+   await routing.getByRole('button',{name:'Save group route',exact:true}).click()
+   await routing.getByRole('button',{name:'Configure',exact:true}).waitFor()
+   assert.equal(groupRouteSaves.length,1);assert.equal(groupRouteSaves[0].p_section_id,groupSection.id)
+   assert.equal(rfqGatewayRequests.length,0,'Saving configuration alone never sends')
+   await routing.getByRole('button',{name:'Configure',exact:true}).click()
+   await routing.getByRole('button',{name:'Save route & send WhatsApp image',exact:true}).click()
+   const confirm=page.getByRole('alertdialog',{name:'Save route and send WhatsApp image',exact:true})
+   await confirm.getByRole('button',{name:'Save route & send image',exact:true}).click()
+   await confirm.waitFor({state:'hidden'})
+   await routing.getByLabel('Group WhatsApp sending results',{exact:true}).getByText(/Image and caption accepted/).waitFor()
+   assert.equal(groupPreparations,1);assert.equal(rfqGatewayRequests.length,1)
+   await routing.getByRole('button',{name:'Resume unsent RFQ images',exact:true}).click()
+   await routing.getByText(/Existing attempt retained/).waitFor()
+   assert.equal(rfqGatewayRequests.length,1,'Resume does not send an accepted image twice')
+   assert.deepEqual(errors,[])
+   await page.screenshot({path:'test-results/'+width+'-group-route-send.png',fullPage:true})
+   console.log('PASS group route save, image + caption dispatch and duplicate-safe resume at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_CONTACT_PASTE==='1'){

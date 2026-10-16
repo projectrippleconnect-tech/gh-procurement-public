@@ -1,7 +1,6 @@
 import {companyAccess,companyBody,companyReply} from '@/lib/company-server'
 import {extractWahaMessageId,normalizeSupplierChatId} from '@/lib/waha-rfq'
-import {jsPDF} from 'jspdf'
-import {autoTable} from 'jspdf-autotable'
+import {companyOrderImages} from '@/lib/company-order-image.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -14,6 +13,10 @@ export async function POST(request:Request){
   if(!check.ok||(await check.json()).status!=='WORKING')throw new Error('WhatsApp is offline. Company orders remain queued.')
   let query=db.from('proc_company_dispatch_queue').select('id').in('status',['pending','failed']).order('created_at').limit(5)
   if(body.companyId)query=query.eq('company_id',body.companyId)
+  if(body.poIds!==undefined){
+   if(!Array.isArray(body.poIds)||!body.poIds.length||body.poIds.length>15||body.poIds.some((id:unknown)=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))throw new Error('Select valid purchase orders.')
+   query=query.in('po_id',body.poIds).limit(15)
+  }
   const {data:queue,error}=await query;if(error)throw error
   let accepted=0;const outcomes:object[]=[]
   for(const row of queue||[]){
@@ -21,11 +24,16 @@ export async function POST(request:Request){
    let status='failed',messageId=null,lastError:string|null=null,contacted=false
    try{
     const chatId=normalizeSupplierChatId(job.phone)
-    const doc=new jsPDF();doc.setFontSize(16);doc.text('GENERAL HARDWARE — PURCHASE ORDER',14,18);doc.setFontSize(10);doc.text(['PO: '+job.po_no,'Company: '+job.company,'Supplier: '+job.supplier,'Quantity-only order · Please confirm availability and delivery.'],14,28)
-    autoTable(doc,{startY:52,head:[['No','Description / variation','UOM','Quantity','Remarks']],body:job.lines.map((l:{description:string;brand:string;size:string;colour:string;variation:string;uom:string;qty:number;remarks:string},i:number)=>[i+1,[l.description,l.brand,l.size,l.colour,l.variation].filter(Boolean).join(' · '),l.uom,l.qty,l.remarks||'']),styles:{fontSize:9},didDrawPage:()=>{doc.setFontSize(8);doc.text('Stocks Checked By     Stocks Verified By     Order Approved By     Date',14,285)}})
-    contacted=true
-    const response=await fetch(url.origin+'/api/sendFile',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'application/pdf',filename:'PO-'+job.po_no+'.pdf',data:Buffer.from(doc.output('arraybuffer')).toString('base64')},caption:'General Hardware — PO '+job.po_no+'\nPlease confirm availability and delivery.'}),signal:AbortSignal.timeout(25000),cache:'no-store'})
-    status=response.ok?'accepted':response.status>=500?'unknown':'failed'
+    const images=await companyOrderImages(job)
+    let response:Response|null=null
+    for(let page=0;page<images.length;page++){
+     contacted=true
+     response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:'PO-'+job.po_no+'-'+(page+1)+'.png',data:images[page].toString('base64')},caption:'General Hardware — PO '+job.po_no+' · '+(page+1)+'/'+images.length+'\nPlease confirm availability and delivery.'}),signal:AbortSignal.timeout(25000),cache:'no-store'})
+     if(!response.ok)break
+    }
+    if(!response)throw new Error('No order image was generated.')
+    // Once a page has been accepted, a later rejection is uncertain as a whole.
+    status=response.ok?'accepted':images.length>1||response.status>=500?'unknown':'failed'
     if(response.ok){messageId=extractWahaMessageId(await response.json().catch(()=>({})));
      for(const attachment of job.attachments||[]){
       const {data:file,error:downloadError}=await db.storage.from('gh-procurement').download(attachment.storage_path);if(downloadError||!file)throw new Error('PO accepted, but its selected attachment could not be loaded.');
