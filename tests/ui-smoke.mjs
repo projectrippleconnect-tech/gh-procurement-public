@@ -78,6 +78,8 @@ try{
  const newSupplier={...supplier,id:'00000000-0000-4000-8000-000000000010',name:'Newly registered supplier'}
  const rfq={id:'00000000-0000-4000-8000-000000000006',rfq_no:'RFQ-FIXTURE',status:'prepared',due_date:'2099-01-01'}
  const po={id:'00000000-0000-4000-8000-000000000007',po_no:'PO-FIXTURE',supplier_id:supplier.id,supplier,status:'sent',total:1000,po_date:'2099-01-01'}
+ const companyPo={...po,id:'00000000-0000-4000-8000-000000000014',po_no:'PO-COMPANY-DIRECT',company_id:'company-fixture',proc_po_is_company:true,quantity_only:true}
+ const companyQuotedPo={...po,id:'00000000-0000-4000-8000-000000000015',po_no:'PO-COMPANY-QUOTED',company_id:null,proc_po_is_company:true}
  const otherPo={...po,id:'00000000-0000-4000-8000-000000000011',po_no:'PO-SECOND'}
  for(const width of (process.env.GH_UI_WIDTHS?process.env.GH_UI_WIDTHS.split(',').map(Number):[320,390,768,1366])){
   let interfacePreference=null
@@ -176,6 +178,7 @@ try{
     if(groupNoShortages){await route.fulfill({status:400,json:{code:'P0001',message:'No approved unquoted shortages remain for this group'}});return}
     data={rfq_id:rfq.id,rfq_no:rfq.rfq_no,document_template:groupRoute.document_template}
    }
+   else if(name==='proc_company_direct_po_history')data=process.env.GH_UI_COMPANY_PO==='1'?[{po_id:companyPo.id,po_no:companyPo.po_no,company_id:'company-fixture',company_name:'Fixture company',po_status:'sent',created_at:new Date().toISOString(),item_count:1,sent_count:1,failed_count:0}]:[]
    else if(name==='proc_company_rfq_history')data=[{rfq_id:rfq.id,rfq_no:rfq.rfq_no,company_id:'company-fixture',company_name:'Fixture company',rfq_status:'prepared',created_at:new Date().toISOString(),item_count:2,supplier_count:2,sent_count:1,failed_count:1}]
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
@@ -241,7 +244,7 @@ try{
    else if(name==='proc_set_rfq_supplier_items_v1'){const p=req.postDataJSON();invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,requested_item_ids:p.p_item_ids}:x);data=invitations.find(x=>x.supplier_id===p.p_supplier_id)}
    else if(name==='proc_finalize_award_with_variations_v1')data=[{po_id:po.id,po_no:po.po_no,supplier_id:supplier.id}]
    else if(name==='proc_approve_po_v2'||name==='proc_mark_po_sent_v2'){assert.equal(req.postDataJSON().p_po_id,po.id);poFixtureStatus=name==='proc_approve_po_v2'?'approved':'sent';data=true}
-   else if(name==='proc_purchase_orders'){data=[{...po,status:poFixtureStatus},otherPo];const scope=url.searchParams.get('id');if(scope?.startsWith('in.'))data=data.filter(x=>scope.includes(x.id));if(scope?.startsWith('eq.'))data=data.find(x=>x.id===scope.slice(3));if(Array.isArray(data)&&url.searchParams.get('status')==='eq.approved')data=data.filter(x=>x.status==='approved')}
+   else if(name==='proc_purchase_orders'){data=process.env.GH_UI_COMPANY_PO==='1'?[po,companyPo,companyQuotedPo]:[{...po,status:poFixtureStatus},otherPo];if(process.env.GH_UI_COMPANY_PO==='1'){const type=url.searchParams.get('proc_po_is_company');if(type==='eq.false')data=data.filter(x=>!x.company_id&&!x.proc_po_is_company);if(type==='eq.true')data=data.filter(x=>x.company_id||x.proc_po_is_company)}const scope=url.searchParams.get('id');if(scope?.startsWith('in.'))data=data.filter(x=>scope.includes(x.id));if(scope?.startsWith('eq.'))data=data.find(x=>x.id===scope.slice(3));if(Array.isArray(data)&&url.searchParams.get('status')==='eq.approved')data=data.filter(x=>x.status==='approved')}
    else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
    else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
    else if(name==='proc_po_lines'&&url.searchParams.has('source_quote_line_id'))data=[{po_id:po.id,po:{...po,status:poFixtureStatus}}]
@@ -335,6 +338,35 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_COMPANY_PO==='1'){
+   await navigate('PO Orders')
+   const general=page.getByRole('tab',{name:'General Items',exact:true}),companyTab=page.getByRole('tab',{name:'Company Items',exact:true})
+   await page.getByRole('button',{name:/^PO-FIXTURE/}).waitFor()
+   assert.equal(await page.getByRole('button',{name:/^PO-COMPANY-DIRECT/}).count(),0)
+   await companyTab.click()
+   const companyRow=page.getByRole('button',{name:/^PO-COMPANY-DIRECT/})
+   await companyRow.waitFor();await page.getByRole('button',{name:/^PO-COMPANY-QUOTED/}).waitFor();assert.equal(await page.getByRole('button',{name:/^PO-FIXTURE/}).count(),0)
+   assert.ok(queries.some(u=>u.pathname.endsWith('/proc_purchase_orders')&&u.searchParams.get('proc_po_is_company')==='eq.true'),'Company filtering runs before pagination')
+   await companyRow.click()
+   const bill=page.getByRole('region',{name:'Purchase order bill',exact:true})
+   await bill.locator('.po-bill-line').waitFor()
+   assert.match(await bill.innerText(),/Unit Rate.*Direct PO/s)
+   await page.getByText('Direct PO — RFQ bypassed',{exact:true}).waitFor()
+   assert.equal(await bill.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Direct PO rates fit on mobile')
+   await general.click();await page.getByRole('button',{name:/^PO-FIXTURE/}).waitFor()
+   assert.equal(await page.getByRole('region',{name:'Purchase order bill',exact:true}).count(),0,'Switching tabs closes the other tab order')
+   await navigate('Q RFQs & Quotes');await page.getByRole('tab',{name:'Company RFQs',exact:true}).click()
+   const history=page.getByLabel('Company RFQ history',{exact:true})
+   await history.getByRole('button',{name:'Open PO',exact:true}).waitFor()
+   assert.match(await history.innerText(),/Direct PO — RFQ bypassed.*Unit Rate: Direct PO/s)
+   await history.getByRole('button',{name:'Open PO',exact:true}).click()
+   await page.getByRole('region',{name:'Purchase order bill',exact:true}).waitFor()
+   assert.equal(await page.getByRole('tab',{name:'Company Items',exact:true}).getAttribute('aria-selected'),'true')
+   assert.deepEqual(errors,[])
+   await page.screenshot({path:`test-results/company-direct-po-${width}.png`,fullPage:true})
+   console.log('PASS separate PO tabs, direct rate remarks and company RFQ bypass history at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_HELD_SEARCH==='1'){
    await navigate('✓ Stock Entry')
