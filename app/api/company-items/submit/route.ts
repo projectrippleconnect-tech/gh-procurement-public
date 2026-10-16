@@ -1,6 +1,7 @@
 import {companyAccess,companyReply} from '@/lib/company-server'
 import {POST as processOrders} from '../orders/route'
 import {POST as processRfqs} from '../rfqs/route'
+import {submittedRfqIds} from '@/lib/company-rfq-dispatch-scope.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -17,7 +18,8 @@ export async function POST(request:Request){
   }
   let rfqDispatch=null
   if(data.rfqs?.length){
-   const response=await processRfqs(new Request(request.url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:request.headers.get('authorization')||''},body:JSON.stringify({companyId:body.companyId})}))
+   const rfqIds=submittedRfqIds(data.rfqs)
+   const response=await processRfqs(new Request(request.url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:request.headers.get('authorization')||''},body:JSON.stringify({companyId:body.companyId,rfqIds})}))
    rfqDispatch=await response.json()
   }
   return companyReply({ok:true,...data,dispatch,rfqDispatch})
