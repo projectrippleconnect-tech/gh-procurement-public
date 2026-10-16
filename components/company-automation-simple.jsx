@@ -66,7 +66,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
   const ids=uniq(assigned),to=uniq(recipients.filter(id=>ids.includes(id)))
   if(!ids.length)throw new Error('Assign at least one company supplier contact.')
   if(!to.length)throw new Error('Choose at least one contact to receive the selected document.')
-  if(option==='direct'&&to.length!==1)throw new Error('Automatic purchase orders require exactly one designated supplier.')
+  if(option==='direct'&&(ids.length!==1||to.length!==1))throw new Error('Automatic direct POs are available only when this company/category has exactly one assigned supplier.')
   if((option==='direct'||option==='rfq')&&!can('procurement.'+(option==='rfq'?'rfq.manage':'orders.approve')))
    throw new Error('Administrator document approval permission is required for this automation.')
   setBusy(true);setNotice('')
@@ -107,7 +107,8 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
   <fieldset className="company-simple-options section"><legend>After stock submission</legend>
    <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='manual'} onChange={()=>switchMode('manual')}/>Manual — keep shortages for review</label>
    <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='rfq'} onChange={()=>switchMode('rfq')}/>Auto RFQ — send PNG to selected suppliers</label>
-   <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='direct'} onChange={()=>switchMode('direct')}/>Auto direct PO — approve and send PNG to one supplier</label>
+   <label className="checkline"><input type="radio" name={'company-automation-'+company.id} checked={option==='direct'} disabled={assigned.length!==1&&option!=='direct'} onChange={()=>switchMode('direct')}/>Auto direct PO — approve and send PNG to the sole supplier</label>
+   {assigned.length>1&&<p className="muted tiny">Direct PO automation requires one assigned supplier. Use RFQ for multiple suppliers.</p>}
   </fieldset>
   {option!=='manual'&&<div className="section"><strong>{option==='direct'?'Designated PO supplier':'RFQ recipients'}</strong>
    <div className="company-simple-supplier-list">{assigned.map(id=>{const s=suppliers.find(x=>x.id===id);return <label className="checkline" key={id}><input type={option==='direct'?'radio':'checkbox'} name={option==='direct'?'preferred-po-'+company.id:undefined} checked={recipients.includes(id)} onChange={e=>setRecipients(v=>option==='direct'?[id]:e.target.checked?uniq([...v,id]):v.filter(x=>x!==id))}/>{s?.name||'Unavailable supplier'} · {s?.whatsapp||s?.phone||''}</label>})}</div>
