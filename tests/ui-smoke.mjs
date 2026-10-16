@@ -480,6 +480,7 @@ try{
   }
   if(process.env.GH_UI_GROUP_SEND==='1'){
    await navigate('CL Company Lists')
+   await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
    const routing=page.getByLabel('Group supplier routing',{exact:true})
    await routing.locator('summary').first().click()
    const category=routing.locator('.company-section-directory-row').filter({has:page.getByText('ALCATHINE HOSE',{exact:true})})
