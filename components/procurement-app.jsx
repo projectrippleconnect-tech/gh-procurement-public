@@ -20,7 +20,7 @@ const StockCheck=dynamic(()=>import('./modules-stock').then(m=>m.StockCheck),{lo
 const Items=dynamic(()=>import('./modules-stock').then(m=>m.Items),{loading:screenLoading})
 const Requirements=dynamic(()=>import('./modules-buying').then(m=>m.Requirements),{loading:screenLoading})
 const Suppliers=dynamic(()=>import('./modules-buying').then(m=>m.Suppliers),{loading:screenLoading})
-const Rfqs=dynamic(()=>import('./modules-buying').then(m=>m.Rfqs),{loading:screenLoading})
+const Rfqs=dynamic(()=>import('./rfq-workspace').then(m=>m.RfqWorkspace),{loading:screenLoading})
 const UrgentActions=dynamic(()=>import('./modules-urgent').then(m=>m.UrgentActions),{loading:screenLoading})
 const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:screenLoading})
 const CompanyPriceLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyPriceLists),{loading:screenLoading})

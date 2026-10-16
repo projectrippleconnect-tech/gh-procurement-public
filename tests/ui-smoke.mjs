@@ -176,6 +176,7 @@ try{
     if(groupNoShortages){await route.fulfill({status:400,json:{code:'P0001',message:'No approved unquoted shortages remain for this group'}});return}
     data={rfq_id:rfq.id,rfq_no:rfq.rfq_no,document_template:groupRoute.document_template}
    }
+   else if(name==='proc_company_rfq_history')data=[{rfq_id:rfq.id,rfq_no:rfq.rfq_no,company_id:'company-fixture',company_name:'Fixture company',rfq_status:'prepared',created_at:new Date().toISOString(),item_count:2,supplier_count:2,sent_count:1,failed_count:1}]
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
@@ -480,6 +481,19 @@ try{
   }
   if(process.env.GH_UI_GROUP_SEND==='1'){
    await navigate('CL Company Lists')
+   const simple=page.getByLabel('Company supplier automation',{exact:true})
+   await simple.locator('summary').first().click()
+   await simple.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
+   await simple.locator('.company-simple-directory input[type=checkbox]').first().check()
+   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
+   await simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('proc_company_save_route_v2'),'Simple automation saves an explicit route')
+   assert.equal(groupRouteSaves[0].p_mode,'direct');assert.equal(groupRouteSaves[0].p_auto_send,true)
+   assert.equal(groupRouteSaves[0].p_supplier_ids.length,1)
+   assert.equal(rfqGatewayRequests.length,0,'Simple settings save does not dispatch old requirements')
+   groupRoute=null;groupRouteSaves=[]
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
+   await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
    const routing=page.getByLabel('Group supplier routing',{exact:true})
    await routing.locator('summary').first().click()
    const category=routing.locator('.company-section-directory-row').filter({has:page.getByText('ALCATHINE HOSE',{exact:true})})
@@ -538,7 +552,16 @@ try{
    assert.equal(groupRouteSaves.at(-1).p_mode,'direct');assert.equal(groupRouteSaves.at(-1).p_auto_send,true)
    assert.deepEqual(errors,[])
    await page.screenshot({path:'test-results/'+width+'-group-route-send.png',fullPage:true})
-   console.log('PASS company/category auto RFQ/PO settings, saved templates, image dispatch and duplicate-safe resume at '+width+'px')
+   await navigate('Q RFQs & Quotes')
+   await page.getByRole('tab',{name:'Company RFQs',exact:true}).click()
+   const history=page.getByLabel('Company RFQ history',{exact:true})
+   await history.getByRole('button',{name:'Open RFQ',exact:true}).waitFor()
+   await history.getByLabel('Search company RFQs',{exact:true}).fill('missing-company')
+   assert.equal(await history.getByRole('button',{name:'Open RFQ',exact:true}).count(),0)
+   await history.getByLabel('Search company RFQs',{exact:true}).fill('Fixture company')
+   await history.getByRole('button',{name:'Open RFQ',exact:true}).click()
+   assert.equal(await page.getByRole('tab',{name:'General RFQs',exact:true}).getAttribute('aria-selected'),'true')
+   console.log('PASS company/category auto RFQ/PO settings, Company RFQ history, image dispatch and duplicate-safe resume at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_CONTACT_PASTE==='1'){
@@ -551,6 +574,7 @@ try{
     }}})
    })
    await navigate('CL Company Lists')
+   await page.getByText('Advanced supplier tools',{exact:true}).click()
    const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
    await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
    assert.equal(await page.evaluate(()=>window.ghClipboardReads),0,'Opening the form never reads the clipboard')
