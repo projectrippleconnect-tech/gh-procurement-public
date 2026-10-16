@@ -36,6 +36,8 @@ jobs:
         run: npm run lint
       - name: Contract tests
         run: npm test
+      - name: Verify full production-schema lifecycle and authorization
+        run: npm run test:database
       - name: Production build
         env:
           NEXT_TELEMETRY_DISABLED: '1'

@@ -66,7 +66,8 @@ begin
  perform set_config('request.jwt.claims',jsonb_build_object('sub',staff_id,'role','authenticated')::text,true);
  execute 'set local role authenticated';
  result:=public.proc_submit_company_list_check_v2(company_v,jsonb_build_array(jsonb_build_object('company_list_item_id',list_v,'current_stock',0),jsonb_build_object('company_list_item_id',review_v,'current_stock',0)));
- if jsonb_array_length(result->'purchase_orders')<>2 then raise exception 'Staff stock submission did not follow configured admin auto-approval';end if;
+ if jsonb_array_length(result->'purchase_orders')<>1 then raise exception 'New brand must order once; existing PO top-up must wait for review';end if;
+ if (select ordered_qty from public.proc_requirements where id=req_v)<>10 then raise exception 'Existing order was silently increased';end if;
  select (value->>'id')::uuid into brand_po from jsonb_array_elements(result->'purchase_orders') where value->>'supplier_id'=brand_contact_v::text;
  if brand_po is null then raise exception 'Brand contact override ignored';end if;
  select id into queue_v from public.proc_company_dispatch_queue where po_id=brand_po;

@@ -8,6 +8,10 @@ declare
  result jsonb; sizes jsonb; base_lines jsonb; added_id uuid; count_before integer; plan jsonb; orders jsonb;
 begin
  select id into supplier_v from public.proc_suppliers where active limit 1;
+ if supplier_v is null then
+  supplier_v:=gen_random_uuid();
+  insert into public.proc_suppliers(id,supplier_code,name) values(supplier_v,'QA-SIZE-'||supplier_v,'Isolated size supplier');
+ end if;
  insert into public.proc_items(id,item_code,description,size,category,uom,source) values(item_id_v,'TEST-'||item_id_v::text,'Rolled-back cycle lock test '||item_id_v::text,'1.5 ft','GENERAL','PCS','TEST');
  insert into public.proc_requirements(id,requirement_no,item_id,location_id,required_qty,adjusted_qty) values(req_id_v,'TEST-'||req_id_v::text,item_id_v,(select id from public.proc_locations where active limit 1),12,12);
  perform public.proc_review_requirements(array[req_id_v],'approve',true,null);
