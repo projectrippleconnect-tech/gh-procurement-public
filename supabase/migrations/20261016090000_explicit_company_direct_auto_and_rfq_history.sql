@@ -56,7 +56,7 @@ begin
   perform set_config('request.jwt.claims',coalesce(claims_v,''),true);perform set_config('request.jwt.claim.sub',coalesce(sub_v,''),true);
  exception when others then perform set_config('request.jwt.claims',coalesce(claims_v,''),true);perform set_config('request.jwt.claim.sub',coalesce(sub_v,''),true);raise;end;
  return result;
-end $function$
+end $function$;
 
 CREATE OR REPLACE FUNCTION public.proc_submit_company_list_check_v2(p_company_id uuid, p_lines jsonb, p_notes text DEFAULT NULL::text, p_count_started_at timestamp with time zone DEFAULT NULL::timestamp with time zone)
  RETURNS jsonb
@@ -98,7 +98,7 @@ begin
    and coalesce((rt.route->>'auto_send')::boolean,false)
   )) then orders:=private.proc_company_auto_from_count(c.id,count_id_v,ids);end if;
  return jsonb_build_object('count_id',count_id_v,'count_no',count_no_v,'requirements_created',req_count,'purchase_orders',orders,'company_id',c.id);
-end $function$
+end $function$;
 
 -- Read-only history of all company-list RFQs (automatic and manually prepared).
 -- The query binds RFQs to source requirements, so even manually prepared RFQs appear.

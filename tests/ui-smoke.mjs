@@ -480,6 +480,18 @@ try{
   }
   if(process.env.GH_UI_GROUP_SEND==='1'){
    await navigate('CL Company Lists')
+   const simple=page.getByLabel('Company supplier automation',{exact:true})
+   await simple.locator('summary').first().click()
+   await simple.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
+   await simple.locator('.company-simple-directory input[type=checkbox]').first().check()
+   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
+   await simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('proc_company_save_route_v2'),'Simple automation saves an explicit route')
+   assert.equal(groupRouteSaves[0].p_mode,'direct');assert.equal(groupRouteSaves[0].p_auto_send,true)
+   assert.equal(groupRouteSaves[0].p_supplier_ids.length,1)
+   assert.equal(rfqGatewayRequests.length,0,'Simple settings save does not dispatch old requirements')
+   groupRoute=null;groupRouteSaves=[]
+   await page.reload();await page.getByRole('heading',{name:'Company Lists',exact:true}).waitFor()
    await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
    const routing=page.getByLabel('Group supplier routing',{exact:true})
    await routing.locator('summary').first().click()
@@ -552,6 +564,7 @@ try{
     }}})
    })
    await navigate('CL Company Lists')
+   await page.getByText('Advanced supplier tools',{exact:true}).click()
    const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
    await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
    assert.equal(await page.evaluate(()=>window.ghClipboardReads),0,'Opening the form never reads the clipboard')

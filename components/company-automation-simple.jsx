@@ -37,7 +37,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
  useEffect(()=>{load().catch(fail)},[company?.id,refresh])
  useEffect(()=>{
   let ids=[]
-  if(scope==='company')ids=routeMembers
+  if(scope==='company')ids=rule?routeMembers:[company.default_supplier_id].filter(Boolean)
   else {
    let node=group,seen=new Set()
    while(node&&!seen.has(node.id)){
@@ -48,7 +48,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
    if(!ids.length)ids=routeMembers
   }
   setAssigned(uniq([...ids,...routeMembers]))
-  setRecipients(routeMembers)
+  setRecipients(rule?routeMembers:ids)
   setOption(rule?.auto_send?(rule.route_mode==='direct'?'direct':'rfq'):'manual')
   setNotice('');setExpanded(false)
  },[company?.id,scope,sections,routes,links,pool])
