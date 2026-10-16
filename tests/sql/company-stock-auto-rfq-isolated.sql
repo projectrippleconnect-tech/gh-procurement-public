@@ -9,6 +9,11 @@ CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SEL
 INSERT INTO public.proc_profiles(id,role) VALUES('00000000-0000-4000-8000-000000000002','stock_handler');
 CREATE OR REPLACE FUNCTION private.proc_is_role(text[]) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS(SELECT 1 FROM public.proc_profiles WHERE id=auth.uid() AND active AND role=ANY($1)) $$;
 CREATE OR REPLACE FUNCTION private.proc_has_permission(text) RETURNS boolean LANGUAGE sql AS $$ SELECT private.proc_is_role(ARRAY['admin']) OR (private.proc_is_role(ARRAY['stock_handler']) AND $1 IN ('stock.count.enter','company_lists.view')) $$;
+CREATE FUNCTION private.fixture_rfq_permission_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+ IF NOT private.proc_has_permission('procurement.rfq.manage') THEN RAISE EXCEPTION 'RFQ write permission required by production trigger';END IF;RETURN NEW;
+END $$;
+CREATE TRIGGER fixture_rfq_guard BEFORE INSERT OR UPDATE ON public.proc_rfqs FOR EACH ROW EXECUTE FUNCTION private.fixture_rfq_permission_guard();
+CREATE TRIGGER fixture_invitation_guard BEFORE INSERT OR UPDATE ON public.proc_rfq_suppliers FOR EACH ROW EXECUTE FUNCTION private.fixture_rfq_permission_guard();
 CREATE OR REPLACE FUNCTION public.proc_create_rfq_v4(uuid[],uuid[],date,text,jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE fid uuid:=gen_random_uuid();rid uuid;sid uuid;
 BEGIN
@@ -80,6 +85,7 @@ BEGIN
  ASSERT claim->>'phone' IS NOT NULL AND auth.uid()=worker,'Stock operator must claim an admin-authorized send without gaining RFQ administration';
  ASSERT public.proc_company_claim_rfq_send(q.id,'default',repeat('a',64),'Caption') IS NULL,'A concurrent or repeat claim must not send twice';
  PERFORM public.proc_company_finish_rfq_send(q.id,'accepted','message-one',NULL);
+ ASSERT auth.uid()=worker,'Acceptance updates must restore the stock operator after RFQ permission guards';
  ASSERT (SELECT status='accepted' FROM public.proc_company_rfq_queue WHERE id=q.id),'Acceptance not recorded';
  ASSERT (SELECT status='sent' FROM public.proc_rfq_suppliers WHERE rfq_id=q.rfq_id AND supplier_id=q.supplier_id),'Automatic send must update supplier status';
  SELECT * INTO q FROM public.proc_company_rfq_queue WHERE status='pending' LIMIT 1;

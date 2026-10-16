@@ -281,7 +281,7 @@ END $$;
 REVOKE ALL ON FUNCTION public.proc_company_rfq_job(uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.proc_company_rfq_job(uuid) TO authenticated;
 CREATE FUNCTION public.proc_company_finish_rfq_send(p_id uuid,p_status text,p_message_id text,p_error text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE q public.proc_company_rfq_queue;
+DECLARE q public.proc_company_rfq_queue;claims_v text;sub_v text;
 BEGIN
  PERFORM private.proc_assert_access();
  IF p_status NOT IN ('accepted','failed','unknown') THEN RAISE EXCEPTION 'Invalid dispatch status';END IF;
@@ -290,8 +290,17 @@ BEGIN
  UPDATE public.proc_company_rfq_queue SET status=p_status,message_id=left(p_message_id,500),last_error=left(p_error,1000),updated_at=now() WHERE id=q.id;
  UPDATE public.proc_whatsapp_rfq_dispatches SET status=p_status,message_id=left(p_message_id,500),last_error=left(p_error,1000),updated_at=now() WHERE id=q.dispatch_id;
  IF p_status='accepted' THEN
+  IF NOT EXISTS(SELECT 1 FROM public.proc_profiles WHERE id=q.automation_admin_id AND active AND role='admin') THEN RAISE EXCEPTION 'Automation administrator inactive; inspect accepted send before updating RFQ';END IF;
+  claims_v:=current_setting('request.jwt.claims',true);sub_v:=current_setting('request.jwt.claim.sub',true);
+  BEGIN
+   PERFORM set_config('request.jwt.claims',jsonb_build_object('sub',q.automation_admin_id,'role','authenticated')::text,true);PERFORM set_config('request.jwt.claim.sub',q.automation_admin_id::text,true);
+   IF NOT private.proc_has_permission('procurement.rfq.manage') THEN RAISE EXCEPTION 'Automation RFQ permission has been removed';END IF;
   UPDATE public.proc_rfq_suppliers SET status='sent',sent_at=now(),sent_by=q.automation_admin_id WHERE rfq_id=q.rfq_id AND supplier_id=q.supplier_id AND status IN ('pending','prepared');
   UPDATE public.proc_rfqs SET status='sent',updated_at=now() WHERE id=q.rfq_id AND status IN ('draft','prepared') AND NOT EXISTS(SELECT 1 FROM public.proc_rfq_suppliers WHERE rfq_id=q.rfq_id AND status IN ('pending','prepared'));
+   PERFORM set_config('request.jwt.claims',coalesce(claims_v,''),true);PERFORM set_config('request.jwt.claim.sub',coalesce(sub_v,''),true);
+  EXCEPTION WHEN OTHERS THEN
+   PERFORM set_config('request.jwt.claims',coalesce(claims_v,''),true);PERFORM set_config('request.jwt.claim.sub',coalesce(sub_v,''),true);RAISE;
+  END;
  END IF;
 END $$;
 REVOKE ALL ON FUNCTION public.proc_company_finish_rfq_send(uuid,text,text,text) FROM PUBLIC,anon;
