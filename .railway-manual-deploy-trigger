@@ -60,3 +60,5 @@ Manually approved GH Procurement deployment 2026-10-15: Google Sheets service-ac
 Manually approved GH Procurement 2026-10-15 Android phone contact picker recovery release. Preserve company and group supplier draft when native picker closes or returns zero, add local vCard fallback with clear guidance, retain existing supplier and order records. Pin exact SHA on Railway, run audit, typecheck, tests, production build and healthchecks; maintain manual-only watch trigger. No new credentials, database changes, or external costs.
 
 Approved 2026-10-16: deploy Alkathine flat main category and Google Sheets normalization atop the current group-supplier-pool release. Preserve existing supplier routes and all 10 item IDs, current stock, history, source keys and manual-only watch policy. Supabase migration already applied and verified.
+
+Manual Railway trigger after releasing the source branch pin. This build includes flat Alkathine categorization, stable sheet identities, preserved group supplier settings, and the current supplier-pool improvements. 2026-10-16.
