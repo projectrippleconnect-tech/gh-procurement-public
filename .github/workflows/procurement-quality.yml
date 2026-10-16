@@ -42,6 +42,11 @@ jobs:
         run: npm run build
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
+      - name: Verify group route save and WhatsApp image sending
+        env:
+          GH_UI_GROUP_SEND: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: npm run test:ui
       - name: Verify pasted company contacts and manual paste fallback
         env:
           GH_UI_CONTACT_PASTE: '1'
