@@ -19,6 +19,7 @@ import {reorderFor} from '@/lib/company-items.mjs'
 import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
 import {CompanySectionManager} from './company-section-manager'
 import {CompanySectionRouteManager} from './company-section-route-manager'
+import {CompanyAutomationSimple} from './company-automation-simple'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
@@ -246,8 +247,11 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
-  {companyId&&<CompanyContactManager company={currentCompany} canManage={canManage&&(profile.role_key||profile.role)==='admin'} flash={flash} fail={fail} onChanged={loadCompanies}/>}
-  {canManage&&companyId&&<CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>}
+  {canManage&&companyId&&<CompanyAutomationSimple company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
+  {canManage&&companyId&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
+    <CompanyContactManager company={currentCompany} canManage={canManage&&(profile.role_key||profile.role)==='admin'} flash={flash} fail={fail} onChanged={loadCompanies}/>
+    <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>
+   </details>}
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
 
   <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
