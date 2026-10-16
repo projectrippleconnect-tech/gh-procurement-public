@@ -16,27 +16,41 @@ const uniq=ids=>[...new Set(ids.filter(Boolean))]
 export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{}}){
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
+ const [groupContactLinks,setGroupContactLinks]=useState([]),[groupIds,setGroupIds]=useState([]),[showFallback,setShowFallback]=useState(false)
  const [template,setTemplate]=useState(defaultRouteTemplate('rfq'))
- const routeSections=useMemo(()=>[{id:companyScope,name:'Entire company · default contacts',active:true,parent_id:null},...sections.map(s=>({...s,parent_id:s.parent_id||companyScope}))],[sections])
+ const routeSections=useMemo(()=>[{id:companyScope,name:'Advanced · fallback for unassigned groups',active:true,parent_id:null},...sections.map(s=>({...s,parent_id:s.parent_id||companyScope}))],[sections])
  const [editing,setEditing]=useState(''),[draft,setDraft]=useState(initial),[search,setSearch]=useState('')
  const [supplierSearch,setSupplierSearch]=useState(''),[editContactId,setEditContactId]=useState('')
  const [busy,setBusy]=useState(false),[sendResults,setSendResults]=useState([]),[pendingRfq,setPendingRfq]=useState(null),[routeNotice,setRouteNotice]=useState('')
  const running=useRef(false)
  const admin=(profile?.role_key||profile?.role)==='admin'&&can('company_lists.manage')
  const paths=useMemo(()=>sectionPaths(sections),[sections])
- const groups=useMemo(()=>[...routeSections].filter(s=>s.active!==false&&(paths.get(s.id)||s.name).toLowerCase().includes(search.trim().toLowerCase()))
-  .sort((a,b)=>(paths.get(a.id)||a.name).localeCompare(paths.get(b.id)||b.name,undefined,{numeric:true})),[routeSections,paths,search])
+ const groups=useMemo(()=>[...routeSections].filter(s=>s.active!==false&&(s.id!==companyScope||showFallback)&&(paths.get(s.id)||s.name).toLowerCase().includes(search.trim().toLowerCase()))
+  .sort((a,b)=>a.id===companyScope?1:b.id===companyScope?-1:(paths.get(a.id)||a.name).localeCompare(paths.get(b.id)||b.name,undefined,{numeric:true})),[routeSections,paths,search,showFallback])
  const routeIndex=useMemo(()=>new Map(routes.map(r=>[r.section_id,r])),[routes])
  const coverage=useMemo(()=>new Map(routeSections.filter(s=>s.active!==false).map(s=>[s.id,sectionRouteCoverage(s.id,routeSections,rows.map(r=>({...r,section_id:r.section_id||companyScope})),routes)])),[routeSections,rows,routes])
  const members=useMemo(()=>new Map(routes.map(r=>[r.id,routeSuppliers.filter(v=>v.route_id===r.id).sort((a,b)=>a.sort_order-b.sort_order).map(v=>v.supplier_id)])),[routes,routeSuppliers])
+ const contactBySection=useMemo(()=>new Map(sections.map(s=>[s.id,groupContactLinks.filter(v=>v.section_id===s.id).sort((a,b)=>a.sort_order-b.sort_order).map(v=>v.supplier_id)]).filter(([,ids])=>ids.length)),[sections,groupContactLinks])
+ function inheritedContacts(s){
+  let current=s,seen=new Set()
+  while(current&&current.id!==companyScope&&!seen.has(current.id)){
+   seen.add(current.id)
+   if(contactBySection.has(current.id))return contactBySection.get(current.id)
+   current=routeSections.find(v=>v.id===current.parent_id)
+  }
+  const rule=routeIndex.get(s.id)||nearestSectionRoute(s,routeSections,routes)?.rule
+  return rule?members.get(rule.id)||[]:[]
+ }
  async function load(){
   if(!company?.id)return
-  const [rules,contacts]=await Promise.all([
+  const [rules,contacts,pool]=await Promise.all([
    supabase.from('proc_company_section_routes').select('*').eq('company_id',company.id),
-   supabase.from('proc_suppliers').select('id,name,contact_person,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name')
+   supabase.from('proc_suppliers').select('id,name,contact_person,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name'),
+   supabase.from('proc_company_group_contacts').select('company_id,section_id,supplier_id,sort_order').eq('company_id',company.id)
   ])
   if(rules.error)throw rules.error
   if(contacts.error)throw contacts.error
+  if(pool.error)throw pool.error
   const ids=(rules.data||[]).map(v=>v.id)
   const links=[]
   for(let i=0;i<ids.length;i+=40){
@@ -47,11 +61,14 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setRoutes((rules.data||[]).map(r=>({...r,section_id:r.section_id||companyScope})))
   setRouteSuppliers(links)
   setSuppliers(contacts.data||[])
+  setGroupContactLinks(pool.data||[])
  }
- useEffect(()=>{load().catch(fail);setEditing('');setDraft(initial);setSearch('');setPendingRfq(null);setSendResults([]);setRouteNotice('')},[company?.id])
+ useEffect(()=>{load().catch(fail);setEditing('');setDraft(initial);setSearch('');setPendingRfq(null);setSendResults([]);setRouteNotice('');setShowFallback(false);setGroupIds([])},[company?.id])
  const openEditor=s=>{
   const existing=routeIndex.get(s.id)||nearestSectionRoute(s,routeSections,routes)?.rule
   const ids=existing?members.get(existing.id)||[]:[]
+  const assigned=inheritedContacts(s)
+  setGroupIds(uniq([...assigned,...ids]))
   setEditing(s.id)
   setTemplate(routeTemplate(existing?.document_template||{},existing?.route_mode||'rfq'))
   setDraft(existing?{mode:existing.route_mode,auto_send:existing.auto_send,supplier_ids:ids}:
@@ -66,8 +83,10 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  }
  async function save(close=true){
   const check=validateSectionRoute({mode:draft.mode,supplierIds:draft.supplier_ids,autoSend:draft.auto_send})
+  if(draft.supplier_ids.some(id=>!groupIds.includes(id)))throw new Error('Select assigned group contacts for sending.')
   if(!check.valid)throw new Error(check.reason)
   const ids=check.supplierIds
+  if(editing!==companyScope)await saveGroupContacts(false)
   const r=await supabase.rpc('proc_company_save_route_v2',{
    p_company_id:company.id,p_section_id:editing===companyScope?null:editing,p_mode:draft.mode,
    p_auto_send:draft.auto_send,p_supplier_ids:ids,p_template:routeTemplate(template,draft.mode)
@@ -76,6 +95,14 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setRouteNotice('Group route saved.');
   await load();await onChanged();if(close)setEditing('')
   flash(draft.mode==='direct'?(draft.auto_send?'Direct PO with automatic sending configured.':'Direct PO route saved without automatic sending.'):'RFQ route saved for '+ids.length+' supplier(s).'+(draft.auto_send?' Automatic sending after stock submission is enabled.':''))
+ }
+ async function saveGroupContacts(close=true){
+  if(editing===companyScope)throw new Error('Assign suppliers to a main group or subgroup, not the entire company.')
+  if(!groupIds.length)throw new Error('Add at least one supplier contact to this group.')
+  const r=await supabase.rpc('proc_company_save_group_contacts',{p_company_id:company.id,p_section_id:editing,p_supplier_ids:groupIds})
+  if(r.error)throw r.error
+  await load()
+  if(close){setEditing('');flash('Group contacts saved. Sending settings have not changed.')}
  }
  async function gatewayRequest(path,body){
   const {data:{session}}=await supabase.auth.getSession()
@@ -125,18 +152,21 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  async function contactSaved(id){
   // Save the supplier independently, but only save the group assignment on Save group route.
   await load()
-  setDraft(v=>{
-   const ids=uniq([...v.supplier_ids,id])
-   return {...v,supplier_ids:ids,mode:ids.length>1?'rfq':v.mode,auto_send:ids.length>1&&v.mode!=='rfq'?false:v.auto_send}
-  })
+  setGroupIds(v=>uniq([...v,id]))
+  setDraft(v=>({...v,supplier_ids:v.mode==='rfq'?uniq([...v.supplier_ids,id]):v.supplier_ids.length?v.supplier_ids:[id]}))
   setEditContactId('')
  }
- function toggleSupplier(id,checked){
+ function toggleGroupContact(id,checked){
+  setGroupIds(v=>checked?uniq([...v,id]):v.filter(x=>x!==id))
   setDraft(v=>{
-   const ids=checked?uniq([...v.supplier_ids,id]):v.supplier_ids.filter(x=>x!==id)
-   return {...v,supplier_ids:ids,mode:ids.length>1?'rfq':v.mode,auto_send:ids.length>1&&v.mode!=='rfq'?false:v.auto_send}
+   if(!checked)return {...v,supplier_ids:v.supplier_ids.filter(x=>x!==id)}
+   return {...v,supplier_ids:v.mode==='rfq'?uniq([...v.supplier_ids,id]):v.supplier_ids.length?v.supplier_ids:[id]}
   })
   if(!checked&&editContactId===id)setEditContactId('')
+ }
+ function toggleRecipient(id,checked){
+  if(!groupIds.includes(id))return
+  setDraft(v=>({...v,supplier_ids:checked?(v.mode==='direct'?[id]:uniq([...v.supplier_ids,id])):v.supplier_ids.filter(x=>x!==id)}))
  }
  async function prepare(s,rule){
   if(rule.route_mode==='rfq'){
@@ -159,23 +189,25 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  }
  if(!company?.id||!admin)return null
  return <details className="card pad section" aria-label="Group supplier routing">
-  <summary>Company / category contacts &amp; automatic RFQ / PO</summary>
-  <p className="muted tiny">Choose the entire company or a category below, add its supplier contacts, then choose RFQ or PO. Set a route for each item group. One supplier can receive an approved direct PO automatically; two or more suppliers can receive separate RFQ invitations. Nested groups inherit their parent route until you override it. Unconfigured groups keep their previous company settings.</p>
+  <summary>Group supplier contacts · RFQ / PO</summary>
+  <p className="muted tiny">Assign Supplier 1, Supplier 2 and more to each main group. Subgroups inherit those contacts unless you override them. Next, select which assigned contacts will receive RFQs, or choose one contact for purchase orders. Automatic sending uses the saved routing selection, not every contact in your directory.</p>
   {routeNotice&&<p role="status" className="notice">{routeNotice}</p>}
   {sendResults.length>0&&<div aria-label="Group WhatsApp sending results" className="section">{sendResults.map(result=><p key={result.supplierId} className="tiny">{result.name||'Purchase order'} · <strong>{result.status}</strong> · {result.message}</p>)}</div>}
   {pendingRfq&&<div className="toolbar section"><button className="btn small" disabled={busy} onClick={()=>run(()=>sendRfq(pendingRfq))}>Resume unsent RFQ images</button><button className="btn small" disabled={busy} onClick={()=>navigate('rfq',pendingRfq.rfq_id,3)}>Open {pendingRfq.rfq_no}</button></div>}
-  <label className="field section">Find company / category<input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Alkathene, PVC, ceiling fittings…"/></label>
+  <label className="field section">Find item group / subgroup<input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="ALCATHINE, ALCATHINE HOSE…"/></label>
+  <label className="checkline section"><input type="checkbox" checked={showFallback} onChange={e=>setShowFallback(e.target.checked)}/>Advanced: show optional company-wide fallback</label>
   <div className="company-section-directory section">
    {groups.map(s=>{
     const own=routeIndex.get(s.id),inherited=nearestSectionRoute(s,routeSections,routes),rule=own||inherited?.rule
-    const selectedNames=rule?(members.get(rule.id)||[]).map(id=>suppliers.find(v=>v.id===id)?.name||'Unavailable contact'):[]
+    const selectedNames=inheritedContacts(s).map(id=>suppliers.find(v=>v.id===id)?.name||'Unavailable contact')
     const scope=coverage.get(s.id)||{directItems:0,totalItems:0,coveredItems:0,overriddenItems:0,descendantSections:0}
-    return <div key={s.id} className="company-section-directory-row" style={{display:'block'}}>
+    const isSubgroup=s.id!==companyScope&&!!sections.find(v=>v.id===s.id)?.parent_id
+    return <div key={s.id} className="company-section-directory-row" style={{display:'block',marginLeft:isSubgroup?'18px':0,borderLeft:isSubgroup?'3px solid var(--line, #496475)':undefined,paddingLeft:isSubgroup?'12px':undefined}}>
      <div className="toolbar" style={{justifyContent:'space-between',alignItems:'center'}}>
-      <div><strong>{paths.get(s.id)||s.name}</strong>
-       <div className="muted tiny"><strong>{scope.totalItems} item(s){scope.descendantSections>0?' including nested subgroups':''}</strong>{scope.descendantSections>0?' · '+scope.directItems+' directly assigned':''} · {rule?(rule.route_mode==='rfq'?'RFQ':'Direct PO')+(inherited?.inherited?' · inherited':''):'Company fallback route'}{rule?.auto_send?' · Auto-send':''}</div>
+      <div><strong>{s.id===companyScope?s.name:isSubgroup?'↳ '+s.name:s.name}</strong>
+       <div className="muted tiny"><strong>{scope.totalItems} item(s){scope.descendantSections>0?' including nested subgroups':''}</strong>{scope.descendantSections>0?' · '+scope.directItems+' directly assigned':''} · {rule?(rule.route_mode==='rfq'?'RFQ':'Direct PO')+(inherited?.inherited?' · inherited':'') :s.id===companyScope?'Fallback not configured':'No group send rule'}{rule?.auto_send?' · Auto-send':''}</div>
        {scope.descendantSections>0&&<div className="muted tiny">{scope.coveredItems} item(s) covered when routed here · {scope.descendantSections} nested subgroup(s){scope.overriddenItems>0?' · '+scope.overriddenItems+' item(s) use child-specific overrides':''}</div>}
-       {selectedNames.length>0&&<div className="muted tiny">{selectedNames.join(' · ')}</div>}</div>
+       {selectedNames.length>0&&<div className="muted tiny">{'Group contacts: '+selectedNames.join(' · ')}</div>}</div>
       <button className="btn small" type="button" onClick={()=>editing===s.id?setEditing(''):openEditor(s)}>{editing===s.id?'Close':'Configure'}</button>
      </div>
      {own&&editing!==s.id&&<div className="toolbar section">
@@ -188,44 +220,54 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
       })}>{own.route_mode==='rfq'?'Prepare RFQ for approved shortages':'Create direct PO for approved shortages'}</button>
      </div>}
      {editing===s.id&&<div className="section">
-      <p className="muted tiny"><strong>Scope: {scope.coveredItems} item(s)</strong> in {paths.get(s.id)||s.name}{scope.descendantSections>0?' and its nested subgroups':''}. {scope.overriddenItems>0?scope.overriddenItems+' item(s) are excluded because their child group has its own routing rule.':'Child groups inherit this route unless you override them individually.'} Only approved outstanding shortages are included when an RFQ or PO is actually prepared.</p>
+      <p className="muted tiny"><strong>Scope: {scope.coveredItems} item(s)</strong> in {paths.get(s.id)||s.name}{scope.descendantSections>0?' and its nested subgroups':''}. {scope.overriddenItems>0?scope.overriddenItems+' item(s) are excluded because their child group has its own routing rule.':'Subgroups inherit the main group contacts and sending rule until individually overridden.'} Only approved outstanding shortages are included when an RFQ or PO is actually prepared.</p>
       <div className="formgrid">
-       <label className="checkline"><input type="radio" name={'route-'+s.id} checked={draft.mode==='direct'} onChange={()=>{setDraft(v=>({...v,mode:'direct',auto_send:false}));setTemplate(defaultRouteTemplate('direct'))}}/>Send direct purchase order (one supplier)</label>
+       <label className="checkline"><input type="radio" name={'route-'+s.id} checked={draft.mode==='direct'} onChange={()=>{setDraft(v=>({...v,mode:'direct',auto_send:false,supplier_ids:v.supplier_ids.slice(0,1).length?v.supplier_ids.slice(0,1):groupIds.slice(0,1)}));setTemplate(defaultRouteTemplate('direct'))}}/>Send direct purchase order (one supplier)</label>
        <label className="checkline"><input type="radio" name={'route-'+s.id} checked={draft.mode==='rfq'} onChange={()=>{setDraft(v=>({...v,mode:'rfq',auto_send:false}));setTemplate(defaultRouteTemplate('rfq'))}}/>Request quotation / RFQ (one or more suppliers)</label>
       </div>
       {<label className="checkline section"><input type="checkbox" checked={draft.auto_send} onChange={e=>setDraft(v=>({...v,auto_send:e.target.checked}))}/>{draft.mode==='rfq'?'Automatically create and send RFQ images after stock submission':'Automatically create, approve and send PO images after stock submission'}</label>}
+      <p className="section"><strong>1. Assign contacts to this main group / subgroup</strong></p>
+      <p className="muted tiny">Keep several supplier numbers here even when your default purchase order goes to only one. Assigned contacts remain available for future RFQs and POs.</p>
       <label className="field section">Search suppliers for this group
        <input className="input" type="search" value={supplierSearch} onChange={e=>setSupplierSearch(e.target.value)} placeholder="Supplier name or number…"/>
       </label>
       <div className="formgrid section" style={{maxHeight:250,overflowY:'auto'}}>
        {suppliers.filter(s=>(s.name+' '+(s.phone||'')).toLowerCase().includes(supplierSearch.toLowerCase())).slice(0,70).map(person=><label key={person.id} className="checkline">
-        <input type="checkbox" checked={draft.supplier_ids.includes(person.id)} onChange={e=>toggleSupplier(person.id,e.target.checked)}/>
+        <input type="checkbox" checked={groupIds.includes(person.id)} onChange={e=>toggleGroupContact(person.id,e.target.checked)}/>
         {person.name}{person.contact_person?' · '+person.contact_person:''} · {person.phone||person.whatsapp||'No number'}
        </label>)}
       </div>
-      {draft.supplier_ids.length>0&&<div className="section" aria-label="Selected group suppliers">
-       <strong>Selected suppliers ({draft.supplier_ids.length})</strong>
-       {draft.supplier_ids.map((id,index)=>{
+      {groupIds.length>0&&<div className="section" aria-label="Assigned group contacts">
+       <strong>Assigned contacts ({groupIds.length})</strong>
+       {groupIds.map((id,index)=>{
         const person=suppliers.find(s=>s.id===id)
         return <div key={id} className="company-document-row">
          <span><strong>Supplier {index+1}:</strong> {person?.name||'Contact unavailable'}{person?.contact_person?' · '+person.contact_person:''} · {person?.phone||person?.whatsapp||'No number'}</span>
          <div className="toolbar" style={{flexWrap:'wrap'}}>
           <button type="button" className="btn small" disabled={busy||!person} onClick={()=>setEditContactId(id)}>Edit</button>
-          <button type="button" className="btn small" disabled={busy} onClick={()=>toggleSupplier(id,false)}>Remove</button>
+          <button type="button" className="btn small" disabled={busy} onClick={()=>toggleGroupContact(id,false)}>Remove</button>
          </div>
         </div>
        })}
       </div>}
       <GroupSupplierContactEditor key={editing} suppliers={suppliers} editingSupplier={suppliers.find(s=>s.id===editContactId)||null}
        onCancel={()=>setEditContactId('')} onSaved={contactSaved} flash={flash} fail={fail}/>
+      <div className="section" aria-label="Sending recipients">
+       <p><strong>2. Choose recipients for this RFQ / PO rule</strong></p>
+       <p className="muted tiny">{draft.mode==='direct'?'Choose one preferred PO supplier from the saved group contacts.':'Choose one or more contacts to receive quotation requests. Automatic RFQs use this saved selection.'}</p>
+       <div className="formgrid">{groupIds.map(id=>{
+        const person=suppliers.find(v=>v.id===id)
+        return <label key={id} className="checkline"><input type={draft.mode==='direct'?'radio':'checkbox'} name={draft.mode==='direct'?'po-recipient-'+editing:undefined} checked={draft.supplier_ids.includes(id)} onChange={e=>toggleRecipient(id,e.target.checked)}/>{person?.name||'Unavailable supplier'} · {person?.phone||person?.whatsapp||''}</label>
+       })}</div>
+      </div>
       <details className="section"><summary>Outgoing image &amp; WhatsApp message</summary>
        <div className="formgrid section">{[['name','Business heading',80],['title','Document title',60],['note','Remarks / instructions',300],['caption','WhatsApp caption',2000]].map(([key,label,max])=><label key={key} className="field">{label}<textarea aria-label={label} className="input" rows={key==='caption'?4:2} maxLength={max} value={template[key]} onChange={e=>setTemplate(v=>({...v,[key]:e.target.value}))}/></label>)}</div>
        <div className="pillrow section">{[['no','Row number'],['uom','Unit of measure'],['rate','Blank unit-rate column'],['remarks','Item remarks']].map(([key,label])=><label key={key} className="choice-pill"><input type="checkbox" checked={template.fields[key]!==false} onChange={e=>setTemplate(v=>({...v,fields:{...v.fields,[key]:e.target.checked}}))}/>{label}</label>)}</div>
        <p className="muted tiny">Description and quantity are always included. Unit-rate blanks can be enabled or disabled; quantity-only POs do not invent prices. Use {'{company_name}, {supplier_name}, {rfq_number}, {po_number}'} in captions. Settings are saved with this route for all stock handlers.</p>
       </details>
-      <p className="muted tiny">Save group route stores the settings only. Save route &amp; send WhatsApp image also prepares and sends the current approved shortages. Future direct POs use the automatic-send setting above.</p>
-      <p className="muted tiny">Selected: {draft.supplier_ids.length}. Direct POs require exactly one supplier. RFQs keep quotation prices separate and require approval before a PO is made.</p>
-      <div className="toolbar section"><button className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(()=>save())}>{busy?'Working…':'Save group route'}</button>
+      <p className="muted tiny">Save group contacts keeps your list of Supplier 1, 2, 3 independently. Save group route also stores the chosen sending recipients. Automatic sending requires opting in; saving contacts by itself does not send anything.</p>
+      <p className="muted tiny">Assigned contacts: {groupIds.length} · Sending recipients: {draft.supplier_ids.length}. Direct POs use one selected supplier; RFQs may use several.</p>
+      <div className="toolbar section">{editing!==companyScope&&<button className="btn small" disabled={busy||!groupIds.length} onClick={()=>run(()=>saveGroupContacts())}>Save group contacts</button>}<button className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&draft.supplier_ids.length!==1)} onClick={()=>run(()=>save())}>{busy?'Working…':'Save group route'}</button>
        <button type="button" className="btn primary" disabled={busy||!draft.supplier_ids.length||(draft.mode==='direct'&&(!draft.auto_send||draft.supplier_ids.length!==1))||!can(draft.mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({title:'Save route and send WhatsApp image',message:'Save this group route and send '+(draft.mode==='rfq'?'a quotation request':'an approved quantity-only purchase order')+' to '+draft.supplier_ids.map(id=>suppliers.find(s=>s.id===id)?.name||'supplier').join(', ')+'?',warning:'Only approved outstanding shortages are included. Each supplier receives an image with a caption. RFQs still require quote review before any purchase order.',confirmLabel:'Save route & send image',onConfirm:()=>run(saveAndSend)})}>{busy?'Working…':'Save route & send WhatsApp image'}</button>
        {own&&<button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
         title:'Remove group routing override',message:'Remove the custom route for '+(paths.get(s.id)||s.name)+'?',
