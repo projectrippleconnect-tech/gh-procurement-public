@@ -16,7 +16,7 @@ const uniq=ids=>[...new Set(ids.filter(Boolean))]
 export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{}}){
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
- const [groupContactLinks,setGroupContactLinks]=useState([]),[groupIds,setGroupIds]=useState([]),[showFallback,setShowFallback]=useState(false)
+ const [groupContactLinks,setGroupContactLinks]=useState([]),[groupIds,setGroupIds]=useState([]),[poolDirty,setPoolDirty]=useState(false),[showFallback,setShowFallback]=useState(false)
  const [template,setTemplate]=useState(defaultRouteTemplate('rfq'))
  const routeSections=useMemo(()=>[{id:companyScope,name:'Advanced · fallback for unassigned groups',active:true,parent_id:null},...sections.map(s=>({...s,parent_id:s.parent_id||companyScope}))],[sections])
  const [editing,setEditing]=useState(''),[draft,setDraft]=useState(initial),[search,setSearch]=useState('')
@@ -69,6 +69,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   const ids=existing?members.get(existing.id)||[]:[]
   const assigned=inheritedContacts(s)
   setGroupIds(uniq([...assigned,...ids]))
+  setPoolDirty(false)
   setEditing(s.id)
   setTemplate(routeTemplate(existing?.document_template||{},existing?.route_mode||'rfq'))
   setDraft(existing?{mode:existing.route_mode,auto_send:existing.auto_send,supplier_ids:ids}:
@@ -86,7 +87,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   if(draft.supplier_ids.some(id=>!groupIds.includes(id)))throw new Error('Select assigned group contacts for sending.')
   if(!check.valid)throw new Error(check.reason)
   const ids=check.supplierIds
-  if(editing!==companyScope)await saveGroupContacts(false)
+  if(editing!==companyScope&&poolDirty)await saveGroupContacts(false)
   const r=await supabase.rpc('proc_company_save_route_v2',{
    p_company_id:company.id,p_section_id:editing===companyScope?null:editing,p_mode:draft.mode,
    p_auto_send:draft.auto_send,p_supplier_ids:ids,p_template:routeTemplate(template,draft.mode)
@@ -102,6 +103,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   const r=await supabase.rpc('proc_company_save_group_contacts',{p_company_id:company.id,p_section_id:editing,p_supplier_ids:groupIds})
   if(r.error)throw r.error
   await load()
+  setPoolDirty(false)
   if(close){setEditing('');flash('Group contacts saved. Sending settings have not changed.')}
  }
  async function gatewayRequest(path,body){
@@ -153,10 +155,12 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   // Save the supplier independently, but only save the group assignment on Save group route.
   await load()
   setGroupIds(v=>uniq([...v,id]))
+  setPoolDirty(true)
   setDraft(v=>({...v,supplier_ids:v.mode==='rfq'?uniq([...v.supplier_ids,id]):v.supplier_ids.length?v.supplier_ids:[id]}))
   setEditContactId('')
  }
  function toggleGroupContact(id,checked){
+  setPoolDirty(true)
   setGroupIds(v=>checked?uniq([...v,id]):v.filter(x=>x!==id))
   setDraft(v=>{
    if(!checked)return {...v,supplier_ids:v.supplier_ids.filter(x=>x!==id)}
