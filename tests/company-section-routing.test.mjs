@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {defaultSectionRoute,nearestSectionRoute,validateSectionRoute,sectionRouteCoverage} from '../lib/company-section-routing.mjs'
+import {defaultSectionRoute,nearestSectionRoute,validateSectionRoute,sectionRouteCoverage,companyAutomationScope} from '../lib/company-section-routing.mjs'
 
 test('one designated supplier defaults to direct order and auto-send; multiple to RFQ',()=>{
  assert.deepEqual(defaultSectionRoute(1),{mode:'direct',autoSend:true})
@@ -89,4 +89,14 @@ test('counting is scoped to active sections and rows, and cyclic section inputs 
  })
  assert.equal(sectionRouteCoverage('cycleA',sections,rows).totalItems,1)
  assert.equal(sectionRouteCoverage('missing',sections,rows).totalItems,0)
+})
+
+test('automation opens the assigned single root category without combining separate routes',()=>{
+ const sections=[{id:'root',active:true,parent_id:null},{id:'old',active:false,parent_id:'root'}]
+ assert.equal(companyAutomationScope({},sections,[{section_id:'root'}]),'root')
+ assert.equal(companyAutomationScope({},sections,[],[{section_id:'root'}]),'root')
+ assert.equal(companyAutomationScope({},sections,[]),'company')
+ assert.equal(companyAutomationScope({default_supplier_id:'s'},sections,[{section_id:'root'}]),'company')
+ assert.equal(companyAutomationScope({},sections,[{section_id:null},{section_id:'root'}]),'company')
+ assert.equal(companyAutomationScope({},[...sections,{id:'second',active:true,parent_id:null}],[{section_id:'root'}]),'company')
 })
