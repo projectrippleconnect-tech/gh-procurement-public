@@ -10,7 +10,7 @@ assert.match(started,/^\d{4}-\d\d-\d\d /)
 const stats=()=>JSON.parse(read("select json_build_object('counts',(select count(*) from proc_stock_counts),'orders',(select count(*) from proc_purchase_orders),'queued',(select count(*) from proc_company_dispatch_queue))"))
 const before=stats()
 const company='00000000-0000-4000-8000-000000000101'
-const body='[{"company_list_item_id":"00000000-0000-4000-8000-000000000401","current_stock":1}]'
+const body='[{"company_list_item_id":"00000000-0000-4000-8000-000000000401","current_stock":0}]'
 const submit=`select public.proc_submit_company_list_check_v3('${company}','${body}',gen_random_uuid(),NULL,'${started}'::timestamptz)`
 const auth="select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);"
 function launch(sql,onOutput=()=>{}){

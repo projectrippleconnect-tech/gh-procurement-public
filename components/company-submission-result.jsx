@@ -7,6 +7,7 @@ export function CompanySubmissionResult({result,navigate}){
   <p role="status"><strong>{companySubmissionMessage(result)}</strong></p>
   {orders.map(p=><button key={p.id} className="btn small" onClick={()=>navigate('po',p.id)}>Open PO {p.po_no}</button>)}
   {result.dispatch&&<p>{result.dispatch.message||result.dispatch.error||'Review WhatsApp sending status.'}</p>}
+  {result.automation_errors?.length>0&&<p role="alert">Stock saved. Automation needs attention: {result.automation_errors.map(e=>e.error).join('; ')}</p>}
   {result.rfqDispatch&&<p>{result.rfqDispatch.message||result.rfqDispatch.error||'Review RFQ sending status.'}</p>}
   {outcomes.length>0&&<details><summary>Counted items and purchasing status ({outcomes.length})</summary>
    {outcomes.map((l,index)=><div key={index} className="section" style={{borderBottom:'1px solid var(--line)',paddingBottom:10}}>

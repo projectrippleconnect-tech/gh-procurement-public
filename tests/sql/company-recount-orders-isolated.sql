@@ -14,6 +14,7 @@ CREATE TABLE public.proc_stock_balances(item_id uuid,location_id uuid,qty numeri
 CREATE TABLE public.proc_stock_ledger(item_id uuid,location_id uuid,txn_type text,qty_delta numeric,balance_after numeric,source_type text,source_id uuid,note text,created_by uuid,created_at timestamptz DEFAULT now());
 \ir stock-submit-production-fixture.sql
 \ir ../../supabase/migrations/20261016091837_company_recount_order_guards.sql
+\ir ../../supabase/migrations/20261016093027_company_existing_documents_and_automation_failures.sql
 CREATE FUNCTION public.proc_company_claim_send(uuid) RETURNS jsonb LANGUAGE sql AS $$SELECT private.proc_company_claim_send($1)$$;
 
 DO $$
@@ -130,4 +131,57 @@ BEGIN
  blocked:=false;BEGIN PERFORM public.proc_submit_company_list_check_v3(co,body,gen_random_uuid(),NULL,now()-interval '1 day');EXCEPTION WHEN OTHERS THEN blocked:=true;END;
  ASSERT blocked AND (SELECT count(*)=count_before FROM public.proc_stock_counts),'Stale count was partly saved';
  ASSERT NOT has_function_privilege('authenticated','private.proc_company_open_orders(uuid,uuid)','EXECUTE'),'Internal commitment helper exposed';
+END $$;
+
+DO $$
+DECLARE co uuid:='00000000-0000-4000-8000-000000000101';
+ root uuid:='00000000-0000-4000-8000-000000000201';
+ item uuid:='00000000-0000-4000-8000-000000000301';
+ supplier uuid:='00000000-0000-4000-8000-000000000011';
+ location uuid:='00000000-0000-4000-8000-000000000099';
+ manual_req uuid:=gen_random_uuid();q uuid;result_v jsonb;body jsonb;before_v integer;
+BEGIN
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+ UPDATE public.proc_requirements SET status='closed';
+ UPDATE public.proc_purchase_orders SET status='closed';
+ UPDATE public.proc_rfqs SET status='cancelled';
+ -- An existing manual RFQ is on another requirement for the same stock item.
+ INSERT INTO public.proc_requirements(id,company_id,item_id,location_id,required_qty,adjusted_qty,source_type,approval_status,selected_for_order)
+ VALUES(manual_req,co,item,location,2,2,'manual','approved',true);
+ result_v:=public.proc_create_rfq_v4(ARRAY[manual_req],ARRAY[supplier],NULL,NULL,'{}');q:=(result_v->>'rfq_id')::uuid;
+ PERFORM public.proc_company_save_route_v2(co,root,'direct',true,ARRAY[supplier],'{}');
+ body:='[{"company_list_item_id":"00000000-0000-4000-8000-000000000401","current_stock":0}]';
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+ result_v:=public.proc_submit_company_list_check_v3(co,body,gen_random_uuid(),NULL,clock_timestamp());
+ ASSERT jsonb_array_length(result_v->'purchase_orders')=0,'Separate manual RFQ was ignored by automatic direct PO';
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+ PERFORM public.proc_company_save_route_v2(co,root,'rfq',true,ARRAY[supplier],'{}');
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+ result_v:=public.proc_submit_company_list_check_v3(co,body,gen_random_uuid(),NULL,clock_timestamp());
+ ASSERT jsonb_array_length(result_v->'rfqs')=0,'Separate manual RFQ caused another automatic RFQ';
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+ UPDATE public.proc_rfqs SET status='cancelled' WHERE id=q;
+ PERFORM public.proc_company_save_route_v2(co,root,'direct',true,ARRAY[supplier],'{}');
+ -- Inactive supplier: stock must persist, documents must not be partly created.
+ UPDATE public.proc_suppliers SET active=false WHERE id=supplier;
+ SELECT count(*) INTO before_v FROM public.proc_purchase_orders;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+ result_v:=public.proc_submit_company_list_check_v3(co,body,gen_random_uuid(),NULL,clock_timestamp());
+ ASSERT (SELECT status='submitted' FROM public.proc_stock_counts WHERE id=(result_v->>'count_id')::uuid),'Inactive supplier discarded valid stock';
+ ASSERT jsonb_array_length(result_v->'automation_errors')=1,'Supplier error was not surfaced';
+ ASSERT (SELECT count(*)=before_v FROM public.proc_purchase_orders),'Invalid supplier partly created PO';
+ ASSERT auth.uid()='00000000-0000-4000-8000-000000000002'::uuid,'Failed automation leaked approving admin identity';
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+ UPDATE public.proc_suppliers SET active=true WHERE id=supplier;
+ UPDATE public.proc_companies SET automation_admin_id='00000000-0000-4000-8000-000000000002' WHERE id=co;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+ result_v:=public.proc_submit_company_list_check_v3(co,body,gen_random_uuid(),NULL,clock_timestamp());
+ ASSERT jsonb_array_length(result_v->'automation_errors')=1,'Invalid approving admin was not surfaced';
+ ASSERT (SELECT status='submitted' FROM public.proc_stock_counts WHERE id=(result_v->>'count_id')::uuid),'Invalid approving admin discarded valid stock';
+ -- Recovering configuration processes the current uncovered need once.
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+ UPDATE public.proc_companies SET automation_admin_id=auth.uid() WHERE id=co;
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+ result_v:=public.proc_submit_company_list_check_v3(co,body,gen_random_uuid(),NULL,clock_timestamp());
+ ASSERT jsonb_array_length(result_v->'purchase_orders')=1 AND jsonb_array_length(result_v->'automation_errors')=0,'Recovered configuration did not create the required PO';
 END $$;
