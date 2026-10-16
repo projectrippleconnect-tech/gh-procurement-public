@@ -2,6 +2,7 @@
 import {useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {GroupSupplierContactEditor} from './group-supplier-contact-editor'
+import {switchRouteTemplate} from '@/lib/company-route-template.mjs'
 import {nearestSectionRoute,companyAutomationScope} from '@/lib/company-section-routing.mjs'
 
 const uniq=ids=>[...new Set(ids.filter(Boolean))]
@@ -79,7 +80,7 @@ export function CompanyAutomationSimple({company,sections=[],can=()=>false,flash
    }
    const r=await supabase.rpc('proc_company_save_route_v2',{
     p_company_id:company.id,p_section_id:scope==='company'?null:scope,
-    p_mode:option==='direct'?'direct':'rfq',p_auto_send:option!=='manual',p_supplier_ids:to,p_template:rule?.document_template||{}
+    p_mode:option==='direct'?'direct':'rfq',p_auto_send:option!=='manual',p_supplier_ids:to,p_template:switchRouteTemplate(rule?.document_template||{},rule?.route_mode||'rfq',option==='direct'?'direct':'rfq')
    })
    if(r.error)throw r.error
    setNotice('Saved. '+(option==='manual'?'Stock shortages will wait for review.':option==='rfq'?'New shortages will create and send RFQ images after stock submission.':'New shortages will create, approve and send the PO image to the designated supplier after stock submission.'))

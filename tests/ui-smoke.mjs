@@ -524,11 +524,11 @@ try{
    assert.equal(groupRouteSaves[0].p_supplier_ids.length,1)
    assert.equal(rfqGatewayRequests.length,0,'Simple settings save does not dispatch old requirements')
    // Existing suppliers belong to the sole category, not the empty company default.
-   groupRoute={...groupRoute,section_id:groupSection.id,route_mode:'rfq',auto_send:true}
+   groupRoute={...groupRoute,section_id:groupSection.id,route_mode:'rfq',auto_send:true,document_template:{title:'REQUEST FOR QUOTATION'}}
    groupContactIds=[supplier.id]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
    await simple.locator('summary').first().click()
-   assert.equal(await simple.getByLabel('Company list or category',{exact:true}).inputValue(),groupSection.id)
+   assert.equal(await simple.locator('select').first().inputValue(),groupSection.id)
    await simple.getByText('Supplier contacts (1)',{exact:true}).waitFor()
    const modes=simple.locator('.company-simple-options > label')
    const firstMode=await modes.nth(0).boundingBox(),secondMode=await modes.nth(1).boundingBox()
@@ -538,6 +538,7 @@ try{
    assert.equal(groupRouteSaves.at(-1).p_mode,'direct')
    assert.equal(groupRouteSaves.at(-1).p_section_id,groupSection.id)
    assert.equal(groupRouteSaves.at(-1).p_auto_send,true)
+   assert.equal(groupRouteSaves.at(-1).p_template.title,'PURCHASE ORDER')
    assert.equal(rfqGatewayRequests.length,0,'Selecting direct PO does not send old shortages')
    groupRoute=null;groupRouteSaves=[];groupContactIds=[]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
