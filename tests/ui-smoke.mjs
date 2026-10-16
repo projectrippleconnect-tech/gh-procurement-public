@@ -127,7 +127,7 @@ try{
    if(body.supplierId===newSupplier.id)return route.fulfill({status:422,json:{ok:false,error:'Fixture definite rejection'}})
    return route.fulfill({json:{ok:true,status:'accepted',messageId:'fixture-message'}})
   })
-  let groupRoute=null,groupRouteSaves=[],groupPreparations=0
+  let groupRoute=null,groupRouteSaves=[],groupPreparations=0,groupContactIds=[]
   const groupSection={id:'00000000-0000-4000-8000-000000000090',company_id:'company-fixture',name:'ALCATHINE HOSE',active:true,parent_id:null}
   let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('console',m=>{if(m.type()==='error'&&/ReferenceError|TypeError|Minified React error/.test(m.text()))errors.push(m.text())})
