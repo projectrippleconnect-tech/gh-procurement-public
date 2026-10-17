@@ -151,6 +151,8 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  }
  async function runSave(requested,{batch=false}={}){
   if(lock.current||!requested.length)return
+  const overlapping=requested.some(child=>requested.some(parent=>parent.key!==child.key&&parent.company.id===child.company.id&&drafts[parent.key]?.applyChildren&&(!parent.section||child.path.startsWith(parent.path+' / '))))
+  if(overlapping){setError('A parent and one of its subcategories have unsaved choices. Save the parent first, then adjust the subcategory separately.');return}
   const valid=[],skipped=[]
   for(const row of requested){
    const check=checkRow(row)
@@ -281,47 +283,44 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  }
 
  if(!can('company_lists.manage'))return null
- return <details className="card pad section" aria-label="Company workflow directory">
-  <summary><strong>Company Workflow Directory</strong> · expandable RFQ / PO categories</summary>
-  <p className="muted tiny section">Choose Auto RFQ or Auto PO on a parent, then Save branch. The choice applies to every nested category and its items. Different subcategories retain their own designated suppliers. Saving applies only to future shortages and never generates or sends a document.</p>
-  <div className="toolbar section" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-   <input className="input" type="search" value={query} onChange={e=>setQuery(e.target.value)} aria-label="Search companies and categories" placeholder="Search company, category, supplier" style={{flex:'1 1 180px',minWidth:0}}/>
-   <button className="btn small" type="button" disabled={busy} onClick={()=>{setDrafts({});setResults([]);setRefresh(x=>x+1)}}>Reload saved</button>
-   <button className="btn small" type="button" disabled={busy||!rows.length} onClick={stagePreferences}>Load my 19 choices</button>
+ return <details className="card pad section company-workflow-checklist" aria-label="Company workflow directory">
+  <summary><strong>Company Workflow Checklist</strong> <span className="muted tiny">· RFQ / PO settings</span></summary>
+  <p className="muted tiny section">Tick RFQ or PO beside a company or category. Each parent controls the categories below; existing child supplier assignments are retained. Both unchecked means manual. Settings are not active until saved, and saving does not send orders or WhatsApp messages.</p>
+  <div className="company-workflow-check-toolbar">
+   <input className="input company-workflow-search" type="search" value={query} onChange={e=>setQuery(e.target.value)} aria-label="Search companies, categories and suppliers" placeholder="Search company or category…"/>
+   <button className="btn small" type="button" disabled={busy||!rows.length} onClick={stagePreferences}>My 19 choices</button>
+   <button className="btn small" type="button" disabled={busy} onClick={()=>{setDrafts({});setResults([]);setError('');setRefresh(x=>x+1)}}>Reload</button>
   </div>
-  <p className="muted tiny">{companies.length} companies · {rows.length} scopes · saved: {totals.rfq} auto RFQ / {totals.direct} auto PO / {totals.manual} manual</p>
-  {!!stagedCompanyRows.length&&<div style={{border:'1px solid var(--line, #e2e8f0)',padding:9,borderRadius:8,marginTop:8}}>
-   <strong>Preferred company workflows — review before applying</strong>
-   <p className="muted tiny">{stagedCompanyRows.length} staged · {readyStaged.length} valid with designated suppliers · {invalidStaged} require contact updates. Invalid configurations are skipped. Company-level choices apply to all nested items unless you later create an exception.</p>
-   <button className="btn primary small" type="button" disabled={busy||!readyStaged.length} onClick={()=>runSave(stagedCompanyRows,{batch:true})}>Save valid preferred company workflows</button>
+  <div className="company-workflow-check-status">
+   <span>{companies.length} companies · {totals.rfq} RFQ · {totals.direct} PO · {totals.manual} manual</span>
+   <span>{countPending?countPending+' unsaved change'+(countPending===1?'':'s'):'All displayed choices saved'}</span>
+  </div>
+  {countPending>0&&<div className="company-workflow-check-savebar">
+   <span>{countPending} pending</span>
+   <button className="btn primary small" type="button" disabled={busy} onClick={()=>runSave(pendingRows,{batch:true})}>{busy?'Saving…':'Save valid selections ('+countPending+')'}</button>
+   <button className="btn small" type="button" disabled={busy} onClick={()=>{setDrafts({});setResults([]);setError('')}}>Undo all</button>
   </div>}
+  {!!stagedCompanyRows.length&&<p className="muted tiny" role="status">{stagedCompanyRows.length} company preferences staged · {readyStaged.length} valid · {invalidStaged} need supplier attention. Invalid selections will be skipped.</p>}
   {error&&<p className="notice bad" role="alert">{error}</p>}
   {notice&&<p className="notice" role="status">{notice}</p>}
-  {!!results.length&&<details className="section" open><summary>Saved / skipped / errors ({results.length})</summary>
-   <div style={{maxHeight:150,overflowY:'auto'}}>
-   {results.map((r,i)=><p className="muted tiny" key={r.name+':'+i}><strong>{r.status}</strong> · {r.name} · {r.reason}</p>)}
-   </div>
+  {!!results.length&&<details className="section" open><summary>Save results ({results.length})</summary>
+   <div style={{maxHeight:150,overflowY:'auto'}}>{results.map((r,i)=><p className="muted tiny" key={r.name+':'+i}><strong>{r.status}</strong> · {r.name} · {r.reason}</p>)}</div>
   </details>}
-  {!data&&!error&&<p className="muted" role="status">Loading company suppliers and nested categories…</p>}
-  {data&&<div style={{maxHeight:'65vh',overflowY:'auto',overscrollBehavior:'contain',marginTop:8}}>
+  {!data&&!error&&<p className="muted" role="status">Loading saved company routes and suppliers…</p>}
+  {data&&<div className="company-workflow-list" role="group" aria-label="Company and category automation checklist">
+   <div className="company-workflow-list-head"><span>Company / Category</span><span>Auto RFQ</span><span>Auto PO</span></div>
+   <div className="company-workflow-list-scroll">
    {[...companies].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true})).map(company=>{
     const tree=treeByCompany.get(company.id)
     if(!tree?.company)return null
-    if(query.trim()&&!rows.some(r=>r.company.id===company.id&&matches(r)))return null
-    const companyOpen=!!query.trim()||!!expanded[company.id]
-    return <div key={company.id} style={{border:'1px solid var(--line, #e2e8f0)',borderRadius:10,marginBottom:8,padding:'5px 7px'}}>
-     <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <button type="button" className="btn small" aria-label={(companyOpen?'Collapse ':'Expand ')+company.name} aria-expanded={companyOpen} onClick={()=>toggle(company.id)} style={{padding:'2px 7px',minWidth:30}}>{companyOpen?'▾':'▸'}</button>
-      <strong style={{flex:1,fontSize:13,overflowWrap:'anywhere'}}>{company.name}</strong>
-      <small className="muted">{countByKey.get(tree.company.key)||0} items</small>
-      <small className="muted">{preview(tree.company).mode==='rfq'?'RFQ':preview(tree.company).mode==='direct'?'PO':'Manual'}</small>
-     </div>
-     {companyOpen&&<div>
-      {renderRow(tree.company)}
-      {tree.sections.map(node=>renderNode(node,0))}
-     </div>}
+    if(query.trim()&&!rows.some(row=>row.company.id===company.id&&matches(row)))return null
+    const open=!!query.trim()||!!expanded[company.id]
+    return <div key={company.id} className="company-workflow-company-group">
+     {renderRow(tree.company,0)}
+     {open&&tree.sections.map(node=>renderNode(node,1))}
     </div>
    })}
+   </div>
   </div>}
  </details>
 }
