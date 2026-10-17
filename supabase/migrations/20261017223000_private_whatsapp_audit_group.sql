@@ -32,9 +32,15 @@ create or replace function private.proc_whatsapp_claim_private_group_copy(
 ) returns uuid language plpgsql security definer set search_path='' as $$
 declare v_id uuid;
 begin
- if auth.uid() is null or not private.proc_is_role(array['admin','procurement']) then
-  raise exception 'Private WhatsApp audit requires an active procurement operator';
+ if auth.uid() is null then raise exception 'Login required for private WhatsApp archive';end if;
+ perform private.proc_assert_access();
+ if p_kind in ('rfq','po') and not private.proc_is_role(array['admin','procurement']) then
+  raise exception 'Procurement operator required for manual WhatsApp archive';
  end if;
+ if p_kind in ('company_rfq','company_po') and not (
+   private.proc_has_permission('company_lists.view') and
+   (private.proc_has_permission('stock.count.enter') or private.proc_has_permission('company_lists.manage'))
+ ) then raise exception 'Company queue permission required for WhatsApp archive'; end if;
  if p_kind is null or p_kind not in ('rfq','po','company_rfq','company_po')
   or p_source_id is null or p_page is null or p_page not between 1 and 100
   or p_group_id is null or p_group_id !~ '^[0-9][0-9-]{5,48}@g[.]us$'
@@ -86,9 +92,8 @@ create or replace function private.proc_whatsapp_finish_private_group_copy(
  p_id uuid,p_status text,p_message_id text,p_error text
 ) returns boolean language plpgsql security definer set search_path='' as $$
 begin
- if auth.uid() is null or not private.proc_is_role(array['admin','procurement']) then
-  raise exception 'Private WhatsApp audit status requires an active operator';
- end if;
+ if auth.uid() is null then raise exception 'Private WhatsApp audit status requires login';end if;
+ perform private.proc_assert_access();
  if p_status is null or p_status not in ('accepted','failed','unknown') then
   raise exception 'Invalid private group status';
  end if;
