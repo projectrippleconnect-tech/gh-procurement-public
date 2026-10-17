@@ -898,3 +898,22 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  html[data-gh-keyboard-open="true"] .company-stock-header,
  html[data-gh-keyboard-open="true"] .company-items-grid th{position:static}
 }
+
+/* Stock entry prioritises rows; submission is a compact corner action. */
+.stock-submit-compact{display:none}
+@media screen and (max-width:700px){
+ .app .company-count-dock,.app .stock-submit-dock{left:auto;right:10px;width:auto;max-width:160px;padding:0;border:0;background:transparent;box-shadow:none}
+ .app .company-count-dock{display:block}
+ .app .company-count-dock .count-dock-summary,.stock-submit-full{display:none}
+ .stock-submit-compact{display:inline}
+ .app .company-count-dock>.btn,.app .stock-submit-dock{width:auto;min-height:44px;height:44px;font-size:12px;padding:8px 12px;border-radius:10px}
+ .app.workflow-active .content{padding-bottom:125px;scroll-padding-bottom:120px}
+ html[data-gh-keyboard-open="true"] .app{padding-bottom:0}
+ html[data-gh-keyboard-open="true"] .app .workflow-step-nav,
+ html[data-gh-keyboard-open="true"] .app .mobile-bottom-nav{display:none}
+ html[data-gh-keyboard-open="true"] .app .task-dock,
+ html[data-gh-keyboard-open="true"] .app .stock-submit-dock,
+ html[data-gh-keyboard-open="true"] .app .po-primary-action:not(:empty),
+ html[data-gh-keyboard-open="true"] .app .receive-post-dock{bottom:calc(8px + env(safe-area-inset-bottom) + var(--gh-keyboard-gap,0px))}
+ html[data-gh-keyboard-open="true"] .app .content{padding-bottom:70px;scroll-padding-bottom:65px}
+}

@@ -304,7 +304,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </>}
   {!setupOpen&&canCount&&companyId&&active&&<div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
    <div className="count-dock-summary" role="status"><strong>{countTotal} of {rows.length} counted</strong><small>{search||category||subgroup||brand||sectionFilter?'Includes counted items outside filters':'Zero counts as entered · blank items are skipped'}</small></div>
-   <button className="btn primary" disabled={busy||loading||!countTotal} onClick={submit}>{busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`}</button>
+   <button className="btn primary" aria-label={busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`} disabled={busy||loading||!countTotal} onClick={submit}><span className="stock-submit-full">{busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${countTotal}`}</span></button>
   </div>}
  </>
 }

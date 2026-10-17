@@ -102,3 +102,16 @@ workspace height, field geometry and hit testing, action/navigation bounds, and
 restored quantities after closing the keyboard. Navigation checks also passed at
 320/412/768px. Production build, TypeScript and all 254 unit tests passed. These
 are simulated keyboard tests; actual OnePlus confirmation remains a live-use check.
+
+## Compact stock submission — 17 October 2026
+
+Following a second real-device report, stock submission now uses a compact corner
+button on mobile instead of a full-width bar/panel. Company entry shows `Submit · N`
+while retaining its descriptive accessible label. The counted-items explanatory
+panel is hidden on mobile; submission validation and count calculation are unchanged.
+While the keyboard is open the bottom journey/main navigation hides, and returns
+when it closes. The compact action sits just above the keyboard and the workspace
+uses the reclaimed navigation space. Browser tests at 320/412px assert that the
+button is no larger than 160×44px, the journey is hidden during typing, the active
+field is visible and tappable, quantities survive, and navigation returns. Build,
+TypeScript and 254 unit tests pass. Physical-device confirmation is still needed.
