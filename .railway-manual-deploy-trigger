@@ -77,3 +77,4 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-17 compact GH Procurement company workflow checklist: one-line RFQ/PO selections, nested subcategories, supplier chooser, batch save, mobile spacing; manual release only; no sending on setup.
 2026-10-17 rerun full checklist release after precision fix in no-dispatch regression test.
 2026-10-17 isolated private staff WhatsApp audit integration: all four accepted supplier gateways, strict group member allowlist, unique per-document per-page one-attempt archive, disabled pending group and migration; no messages during release.
+2026-10-17 private WhatsApp owner-only Community routing RFQ->RFQ and PO->PO; independent audit; TypeScript declaration correction; no group ID configured and no archive sending.
