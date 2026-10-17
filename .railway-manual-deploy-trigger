@@ -70,3 +70,4 @@ Manual release 2026-10-17: replace redundant supplier suggestions and supplier c
 2026-10-17 company workflow directory release: nested categories; exclusive RFQ/PO settings; supplier readback; no send on config.
 
 Manually authorized GH Procurement company directory UI release, 2026-10-17: replace large Existing contacts and Already assigned to routing cards with compact single-line entries, showing the phone number and icon-only Edit/Delete actions. Preserve full names in accessible titles, existing confirmation flows, supplier records, RFQ/PO routing and dispatch settings. Run Railway audit, TypeScript, automated tests, production build and health check; pin this release commit without enabling auto deployments or sending messages.
+2026-10-17 hierarchical company workflow directory and parent RFQ/PO propagation; manual release; no outbound sends from setup.
