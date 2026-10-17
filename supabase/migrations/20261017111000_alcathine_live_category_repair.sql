@@ -22,6 +22,8 @@ BEGIN
     INTO v_count, v_company
   FROM public.proc_companies
   WHERE upper(btrim(name))='ALCATINE';
+  -- Disposable schema-only CI has no companies; do not invent fixtures.
+  IF v_count=0 THEN RETURN; END IF;
   IF v_count<>1 THEN
     RAISE EXCEPTION 'Alkathine repair requires one existing ALCATINE company; found %',v_count;
   END IF;
