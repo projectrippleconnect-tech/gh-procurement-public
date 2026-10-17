@@ -3,7 +3,7 @@
 import {useEffect,useState} from 'react'
 
 const KEY='gh-procurement-appearance-v1'
-const DEFAULT={theme:'classic',mode:'auto',motion:'off'}
+const DEFAULT={theme:'classic',mode:'auto',motion:'premium'}
 const allowed={theme:['classic','blue','green','slate'],mode:['auto','light','dark'],motion:['off','standard','premium','rich']}
 
 function normalize(value){
