@@ -859,3 +859,9 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .receipt-review-row{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
 
 .receipt-review-list{max-height:min(38dvh,380px);overflow:auto;overscroll-behavior:contain}
+
+/* Keep saved-report controls within the workspace beside the tablet sidebar. */
+@media(min-width:701px) and (max-width:1000px){
+ .preset-bar{grid-template-columns:minmax(0,1fr) auto}
+ .preset-bar>:last-child{grid-column:1/-1;min-width:0}
+}

@@ -85,6 +85,10 @@ try{
   let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
+  if(process.env.GH_UI_CERTIFY==='1')await context.addInitScript(()=>{
+   const viewport=new EventTarget();viewport.height=innerHeight;viewport.width=innerWidth;viewport.offsetTop=0
+   Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
+  })
   const errors=[],queries=[],receipts=[],stockSubmissions=[],policyViolations=[],companyImports=[]
   await page.exposeFunction('ghRecordCspViolation',data=>policyViolations.push(data))
   await context.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.ghRecordCspViolation({directive:e.effectiveDirective,blocked:e.blockedURI})))
@@ -374,6 +378,52 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_CERTIFY==='1'){
+   if(width<=700){
+    await navigate('✓ Stock Entry')
+    await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+    const count=page.getByLabel('Current stock: '+item.description,{exact:true})
+    await count.fill('1')
+    await page.evaluate(()=>{window.visualViewport.height=500;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.style.getPropertyValue('--gh-keyboard-gap')==='344px')
+    const dock=page.getByRole('region',{name:'Company count actions',exact:true})
+    const box=await dock.boundingBox();assert.ok(box.y>=0&&box.y+box.height<=500,'Submit stays above the simulated keyboard: '+JSON.stringify(box))
+    assert.ok(await dock.getByRole('button',{name:'Submit 1 item →',exact:true}).isEnabled())
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+    await page.screenshot({path:'test-results/certified-keyboard-'+width+'.png'})
+    await page.evaluate(()=>{window.visualViewport.height=innerHeight;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.style.getPropertyValue('--gh-keyboard-gap')==='0px')
+    console.log('PASS keyboard viewport simulation and reachable counted-item action at '+width+'px')
+   }
+   const staffCases=[
+    {role:'admin',grants:[...permissions,'admin.roles.manage','company_lists.view','suppliers.view','price_lists.view','reports.view'],landing:'Home'},
+    {role:'stock_handler',grants:['company_lists.view','items.edit','items.view','stock.count.enter','stock.count.view','stock.reorder.manage','stock.search'],landing:'Stock'},
+    {role:'receiver',grants:['procurement.orders.view','receiving.manage','receiving.view'],landing:'Receive'},
+    {role:'document_assistant',grants:['price_lists.manage','price_lists.view'],landing:'Price Lists'},
+    {role:'stock_checker',grants:['company_lists.view','items.view','stock.count.enter','stock.count.view','stock.search','urgent.manage','urgent.view'],landing:'Stock'},
+    {role:'viewer',grants:['dashboard.view','invoices.view','items.view','price_lists.view','procurement.orders.view','procurement.rfq.view','reports.view','suppliers.view'],landing:'Home'},
+    {role:'procurement',grants:[...permissions,'company_lists.view','suppliers.view','price_lists.view','reports.view'],landing:'Home'}
+   ]
+   const sections=[['dashboard.view','⌂ Home'],['stock.count.view','✓ Stock Entry'],['urgent.view','! Exceptions'],['company_lists.view','CL Company Lists'],['suppliers.view','♢ Suppliers'],['price_lists.view','₨ Price Lists'],['procurement.requirements.view','≡ Review'],['procurement.rfq.view','Q RFQs & Quotes'],['procurement.orders.view','PO Orders'],['invoices.view','▤ Invoices'],['receiving.view','⇩ Receive Goods'],['items.view','□ Items'],['reports.view','↗ Reports']]
+   for(const staff of staffCases){
+    currentProfile={...profile,role:staff.role,role_key:staff.role};grantedPermissions=staff.grants
+    await page.reload()
+    await page.waitForFunction(label=>document.querySelector('.topbar h2')?.textContent===label,staff.landing)
+    if(!staff.grants.includes('dashboard.view'))assert.equal(await page.getByRole('button',{name:'⌂ Home',exact:true}).filter({visible:true}).count(),0,'Dashboard is unavailable to '+staff.role)
+    for(const [permission,label] of sections){
+     if(!staff.grants.includes(permission))continue
+     await navigate(label)
+     await page.waitForFunction(()=>{const el=document.querySelector('.content > section:not([hidden])');return el&&el.textContent.trim().length>30&&!el.textContent.includes('Loading screen…')})
+     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Workspace overflow: '+staff.role+' / '+label+' / '+width)
+    }
+    if(!staff.grants.some(x=>x.startsWith('admin.')))assert.equal(await page.getByRole('button',{name:'⚙ Admin',exact:true}).filter({visible:true}).count(),0,'Admin is unavailable to '+staff.role)
+    await page.screenshot({path:'test-results/certified-role-'+staff.role+'-'+width+'.png'})
+    console.log('PASS permitted workspaces and landing for '+staff.role+' at '+width+'px')
+   }
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+   assert.deepEqual(errors,[]);assert.deepEqual(policyViolations,[])
+   await context.close();continue
   }
   if(receivingMode){
    await navigate('PO Orders')
@@ -2116,9 +2166,9 @@ try{
    rfqItemCount=100
   }
   const roleCases=[
-   {role:'receiver',grants:['procurement.orders.view','receiving.manage','receiving.view'],landing:'Receive Goods'},
+   {role:'receiver',grants:['procurement.orders.view','receiving.manage','receiving.view'],landing:'Receive'},
    {role:'document_assistant',grants:['price_lists.manage','price_lists.view'],landing:'Price Lists'},
-   {role:'stock_checker',grants:['company_lists.view','items.view','stock.count.enter','stock.count.view','stock.search','urgent.manage','urgent.view'],landing:'Stock Entry'},
+   {role:'stock_checker',grants:['company_lists.view','items.view','stock.count.enter','stock.count.view','stock.search','urgent.manage','urgent.view'],landing:'Stock'},
    {role:'viewer',grants:['dashboard.view','invoices.view','items.view','price_lists.view','procurement.orders.view','procurement.rfq.view','reports.view','suppliers.view'],landing:'Home'},
    {role:'procurement',grants:[...permissions,'suppliers.view','price_lists.view','reports.view'],landing:'Home'},
    {role:'admin',grants:[...permissions,'admin.roles.manage','company_lists.view','suppliers.view','price_lists.view','reports.view'],landing:'Home'}

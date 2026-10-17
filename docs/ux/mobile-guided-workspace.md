@@ -50,3 +50,8 @@ Orders offers Complete order after the delivery balance is received, and a direc
 The closure migration must be applied before deploying this UI. No live database changes, supplier notifications or deployment are performed during local verification.
 
 Verified for this phase: production build, TypeScript check, 254 Node tests, all 17 isolated database suites, receiving lifecycle at 320 / 390 / 768 / 1366 px, company-stock handoff at 390 px, and focused purchasing regression at 320 px. Browser fixtures cover cancelled reviews, partial receipt inspection, replacement follow-up, failed-refresh recovery, final closure, saved-receipt confirmation after order closure, and read-only permissions. A final 320 px rerun includes the bounded receipt-review list so its confirmation controls remain reachable. Physical-device keyboard and touch checks remain a release verification step.
+
+
+## Final validation pass
+
+The 17 October 2026 expanded validation passed 21 role/viewport combinations, two keyboard simulations, receiving lifecycle and access-restriction checks at 320 and 412 px, all 17 isolated database suites and read-only live consistency checks. It found and corrected a tablet-width Reports saved-layout overflow. See [the validation report](validation-2026-10-17.md) for exact evidence and the physical/business checks that remain unverified.
