@@ -158,16 +158,16 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    else skipped.push({name:row.company.name+' / '+row.path,status:'Skipped',reason:check.error})
   }
   if(!valid.length){setResults(skipped);setError('No valid routes ready to save. Assign active suppliers with +94 WhatsApp numbers first.');return}
-  const overrideTotal=valid.reduce((n,row)=>n+(rowDraft(row)?.applyChildren?branchOverrideRows(rows,row).length:0),0)
-  const description=valid.length+' workflow'+(valid.length===1?'':'s')+
-   (overrideTotal?' and replace '+overrideTotal+' nested override'+(overrideTotal===1?'':'s'):'')+
-   '. This only saves future automation rules; no messages or orders will be sent now. Continue?'
+  const nestedUpdates=valid.reduce((n,row)=>n+Math.max(0,planFor(row).actions.length-1),0)
+  const description=valid.length+' parent workflow'+(valid.length===1?'':'s')+
+   (nestedUpdates?' and update '+nestedUpdates+' child-specific route'+(nestedUpdates===1?'':'s'):'')+
+   '. The choice applies below each parent and preserves designated child suppliers. No messages or orders will be sent now. Continue?'
   if(!window.confirm(description))return
   lock.current=true;setBusy(true);setError('');setNotice('');setResults([])
   const completed=[],failed=[]
   try{
    for(const row of valid){
-    try{completed.push(await saveRoute(row,rows))}
+    try{completed.push(await saveRoute(row))}
     catch(e){failed.push({name:row.company.name+' / '+row.path,status:'Error',reason:e.message||String(e)})}
    }
    let refreshed
