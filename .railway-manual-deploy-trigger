@@ -80,3 +80,4 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-17 private WhatsApp owner-only Community routing RFQ->RFQ and PO->PO; independent audit; TypeScript declaration correction; no group ID configured and no archive sending.
 2026-10-17 read-only owner WAHA group discovery from Company Setup: verify RFQ PO group IDs and members, no sends or activation.
 2026-10-17 strict TypeScript correction for read-only WAHA community subgroup discovery; never send audit copies while disabled.
+2026-10-17 owner-only WhatsApp WAHA group discovery fix: object-keyed groups, group count diagnostic, partial metadata, safe chat-name fallback; read-only no sends; keep archive disabled.
