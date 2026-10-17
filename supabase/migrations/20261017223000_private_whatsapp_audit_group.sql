@@ -84,7 +84,7 @@ begin
 end $$;
 create or replace function public.proc_whatsapp_claim_private_group_copy(
  p_kind text,p_source_id uuid,p_page integer,p_group_id text,p_session text,p_image_sha256 text,p_caption text
-) returns uuid language sql security invoker set search_path='' as $$
+) returns uuid language sql security definer set search_path='' as $$
  select private.proc_whatsapp_claim_private_group_copy(p_kind,p_source_id,p_page,p_group_id,p_session,p_image_sha256,p_caption)
 $$;
 
@@ -104,7 +104,7 @@ begin
 end $$;
 create or replace function public.proc_whatsapp_finish_private_group_copy(
  p_id uuid,p_status text,p_message_id text,p_error text
-) returns boolean language sql security invoker set search_path='' as $$
+) returns boolean language sql security definer set search_path='' as $$
  select private.proc_whatsapp_finish_private_group_copy(p_id,p_status,p_message_id,p_error)
 $$;
 revoke all on function
