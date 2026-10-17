@@ -2,7 +2,7 @@ import {companyAccess,companyBody,companyReply,sheetsToken,sheetsRequest} from '
 // @ts-ignore Small safeguard with Node contract tests.
 import {companyImportCollisionGuard} from '@/lib/reviewed-company-import-guard.mjs'
 // @ts-ignore Shared worksheet parser is covered by node tests.
-import {parseCompanySheet,validateCompanyImport,companyImportSubgroup} from '@/lib/company-items.mjs'
+import {parseCompanySheet,validateCompanyImport,companyImportSubgroup,companyImportSectionPath} from '@/lib/company-items.mjs'
 // @ts-ignore Tested in the source-specific sheet parser and reconciliation tests.
 import {reconcilePanelCeilingSections,panelCeilingRowsFromDatabase} from '@/lib/company-ceiling-hierarchy.mjs'
 export const runtime='nodejs'
@@ -109,4 +109,4 @@ export async function POST(request:Request){
  }catch(e){return companyReply({ok:false,error:e instanceof Error?e.message:'Company sheet sync failed.'},400)}
 }
 function columnLabel(n:number){let label='';while(n>0){n--;label=String.fromCharCode(65+n%26)+label;n=Math.floor(n/26)}return label}
-function normalizedRows(values:unknown[][],sheetId:number,title:string){return values.slice(1).filter(r=>r[1]).map((r,index)=>({source_key:String(r[0]||sheetId+':'+(index+2)),source_sheet_id:sheetId,source_tab:title,description:String(r[1]),category:String(r[2]||title),main_group:String(r[3]||''),subgroup:companyImportSubgroup(title,String(r[4]||'')),brand:String(r[5]||''),size:String(r[6]||''),colour:String(r[7]||''),variation:String(r[8]||''),uom:String(r[9]||'PCS'),movement:String(r[10]||'NORMAL'),max_stock:r[11]===''||r[11]===undefined?null:Number(r[11]),remarks:String(r[13]||''),section_path:String(r[14]||'')}))}
+function normalizedRows(values:unknown[][],sheetId:number,title:string){return values.slice(1).filter(r=>r[1]).map((r,index)=>({source_key:String(r[0]||sheetId+':'+(index+2)),source_sheet_id:sheetId,source_tab:title,description:String(r[1]),category:String(r[2]||title),main_group:String(r[3]||''),subgroup:companyImportSubgroup(title,String(r[4]||'')),brand:String(r[5]||''),size:String(r[6]||''),colour:String(r[7]||''),variation:String(r[8]||''),uom:String(r[9]||'PCS'),movement:String(r[10]||'NORMAL'),max_stock:r[11]===''||r[11]===undefined?null:Number(r[11]),remarks:String(r[13]||''),section_path:companyImportSectionPath(title,String(r[14]||''))}))}
