@@ -50,7 +50,7 @@ export async function POST(request:Request){
    }catch(e){status=contacted?'unknown':'failed';lastError=contacted?'Gateway response interrupted. Check WhatsApp before resending.':e instanceof Error?e.message:'Order generation failed.'}
    const {error:finishError}=await db.rpc('proc_company_finish_send',{p_id:row.id,p_status:status,p_message_id:messageId,p_error:lastError})
    const privateGroupCopies:Array<{status:string;reason:string}>=[]
-   if(status==='accepted'&&!finishError&&privateGroupConfig().ready){
+   if(status==='accepted'&&!finishError&&privateGroupConfig(process.env,'po').ready){
     for(let page=0;page<sentImages.length;page++){
      const image=sentImages[page]
      const archive=await mirrorStaffGroupCopy({
