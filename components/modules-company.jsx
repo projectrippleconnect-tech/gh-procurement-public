@@ -16,6 +16,7 @@ import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
 import {CompanyContactDirectory} from './company-contact-directory'
 import {CompanyWorkflowDirectory} from './company-workflow-directory'
+import {WhatsAppAuditGroups} from './whatsapp-audit-groups'
 import {reorderFor} from '@/lib/company-items.mjs'
 import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
 import {CompanySectionManager} from './company-section-manager'
@@ -275,6 +276,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
   {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
   {canManage&&<CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
+   {canManage&&<WhatsAppAuditGroups/>}
   {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
   {canManage&&companyId&&!allCompanies&&<CompanyAutomationSimple onChanged={loadCompanies} key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
   {canManage&&companyId&&!allCompanies&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
