@@ -2,6 +2,8 @@ import {companyAccess,companyBody,companyReply} from '@/lib/company-server'
 import {extractWahaMessageId,normalizeSupplierChatId} from '@/lib/waha-rfq'
 import {companyOrderImages} from '@/lib/company-order-image.mjs'
 import {routeCaption} from '@/lib/company-route-template.mjs'
+import {createHash} from 'node:crypto'
+import {mirrorStaffGroupCopy,privateGroupCaption,privateGroupConfig} from '@/lib/whatsapp-private-audit'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -19,13 +21,15 @@ export async function POST(request:Request){
    query=query.in('po_id',body.poIds).limit(200)
   }
   const {data:queue,error}=await query;if(error)throw error
-  let accepted=0;const outcomes:Array<{id:string;status?:string;error?:string|null}>=[]
+  let accepted=0;const outcomes:Array<{id:string;status?:string;error?:string|null;privateGroupCopies?:Array<{status:string;reason:string}>}>=[]
   for(const row of queue||[]){
    const {data:job,error:claimError}=await db.rpc('proc_company_claim_send',{p_id:row.id});if(claimError){outcomes.push({id:row.id,error:claimError.message});continue}if(!job)continue
    let status='failed',messageId=null,lastError:string|null=null,contacted=false
+   let sentImages:Buffer[]=[]
    try{
     const chatId=normalizeSupplierChatId(job.phone)
     const images=await companyOrderImages(job)
+    sentImages=images
     let response:Response|null=null
     for(let page=0;page<images.length;page++){
      contacted=true
@@ -45,7 +49,25 @@ export async function POST(request:Request){
     }else lastError='WhatsApp rejected the order (HTTP '+response.status+').'
    }catch(e){status=contacted?'unknown':'failed';lastError=contacted?'Gateway response interrupted. Check WhatsApp before resending.':e instanceof Error?e.message:'Order generation failed.'}
    const {error:finishError}=await db.rpc('proc_company_finish_send',{p_id:row.id,p_status:status,p_message_id:messageId,p_error:lastError})
-   outcomes.push({id:row.id,status,error:finishError?'Audit update failed; do not resend.':lastError})
+   const privateGroupCopies:Array<{status:string;reason:string}>=[]
+   if(status==='accepted'&&!finishError&&privateGroupConfig().ready){
+    for(let page=0;page<sentImages.length;page++){
+     const image=sentImages[page]
+     const archive=await mirrorStaffGroupCopy({
+      db,kind:'company_po',sourceId:row.id,pageNumber:page+1,
+      session,base:url.origin,key,base64:image.toString('base64'),
+      imageHash:createHash('sha256').update(image).digest('hex'),
+      filename:'GH-Audit-PO-'+String(job.po_no||'')+'-'+(page+1)+'.png',
+      caption:privateGroupCaption({
+       kind:'po',number:String(job.po_no||''),supplier:String(job.supplier||''),
+       dispatchId:row.id,originalCaption:routeCaption(job)+' · Page '+(page+1)+'/'+sentImages.length
+      })
+     })
+     privateGroupCopies.push(archive)
+     if(archive.status!=='accepted')break
+    }
+   }
+   outcomes.push({id:row.id,status,error:finishError?'Audit update failed; do not resend.':lastError,privateGroupCopies})
   }
   const attention=outcomes.some(v=>v.status!=='accepted'||v.error)
   const message=(accepted?accepted+' company purchase order(s) accepted by WhatsApp.':'No new WhatsApp message sent. Check the recorded PO sending status.')+(attention?' Some orders need review; check the sending outcomes.':'')
