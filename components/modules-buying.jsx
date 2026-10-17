@@ -3,6 +3,7 @@
 import {DeleteRecordButton} from './delete-record'
 
 import {ModernSelect} from './modern-select'
+import {SupplierChecklist} from './supplier-checklist'
 import {companyApi} from './company-controls'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
@@ -333,8 +334,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
    <button className="btn small" onClick={()=>guideTo(2)}>Edit selected items ({selected.size})</button>
    <StockSubmissionDetails requirements={rows.filter(r=>selected.has(r.id))}/>
    <div className="field"><label>{t('requirements.quote_due','Quotation due date')}</label><input className="input" type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
-   {suggestedSuppliers.length>0&&<div className="section"><div className="toolbar"><b>{t('requirements.suggested_suppliers','Suggested suppliers')}</b><button className="btn small" onClick={()=>setChosen(new Set(suggestedSuppliers.map(x=>x.supplier_id)))}>{t('requirements.select_suggested','Select Suggested')}</button></div><div className="pillrow">{suggestedSuppliers.map(x=><button type="button" className={'choice-pill '+(chosen.has(x.supplier_id)?'selected-choice':'')} key={x.supplier_id} onClick={()=>setChosen(v=>{const n=new Set(v);n.has(x.supplier_id)?n.delete(x.supplier_id):n.add(x.supplier_id);return n})}><b>{x.supplier_name}</b><span>{x.matched_items}/{x.selected_items}{x.unrestricted?' · general':''}</span></button>)}</div></div>}
-   <label className="field section">Supplier contacts<ModernSelect className="select" value={supplierKind} onChange={e=>{setSupplierKind(e.target.value);setChosen(new Set())}}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect></label><div className="pillrow section">{suppliers.filter(s=>supplierKind==='all'||(s.supplier_kind||'general')===supplierKind).map(s=><label className={'choice-pill '+(chosen.has(s.id)?'selected-choice':'')} key={s.id}><input type="checkbox" checked={chosen.has(s.id)} onChange={e=>setChosen(v=>{const n=new Set(v);e.target.checked?n.add(s.id):n.delete(s.id);return n})}/>{s.name}</label>)}</div>
+    <SupplierChecklist suppliers={suppliers} suggested={suggestedSuppliers} selected={chosen} onChange={setChosen} kind={supplierKind} onKindChange={setSupplierKind} t={t}/>
    {[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).length>0&&<div className="notice section"><b>{t('requirements.coverage_override','Supplier coverage override')}</b><p className="muted tiny">{t('requirements.coverage_override_hint','These suppliers do not match the configured coverage for the selected items. State why they should still receive the price request.')}</p><div className="stack">{[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).map(id=><div className="field" key={id}><label>{suppliers.find(s=>s.id===id)?.name||id}</label><input className="input" value={scopeOverrides[id]||''} onChange={e=>setScopeOverrides(v=>({...v,[id]:e.target.value}))} placeholder={t('requirements.override_reason','Required override reason')}/></div>)}</div></div>}
   </div>}
  </>
