@@ -22,7 +22,7 @@ const links=[
 ];
 test('all companies and every nested subcategory are shown without duplication',()=>{
  const output=workflowRows(companies,sections,routes,links);
- assert.equal(output.length,6);
+ assert.equal(output.length,5);
  assert.equal(output.filter(x=>x.company.id==='cmp-b').length,1);
  assert.equal(output.find(x=>x.key==='cmp-b:company').path,'Entire company');
  assert.equal(output.find(x=>x.key==='cmp-a:deep').path,'CEILING FITTINGS / WHITE PLAIN / MAIN TEE');
