@@ -218,53 +218,63 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
 
  function renderRow(row,depth=0){
   if(!isVisible(row))return null
-  const children=(treeByCompany.get(row.company.id)?.sections||[])
-  // Actual child nodes are rendered by renderNode; company root has children in the accordion.
-  const chosen=preview(row),selected=ownIds(row),hasChildren=rows.some(r=>r.company.id===row.company.id&&r.section?.parent_id===row.section_id)
-  const branch=planFor(row)
-  const dirty=changed(row)
-  const check=checkRow(row)
-  const contacts=contactChoices(row)
-  const isInheritedPreview=!!chosen.from
   const isCompany=!row.section
-  return <div key={row.key} style={{borderBottom:'1px solid var(--line, #e2e8f0)',padding:'7px 5px',fontSize:13}}>
-   <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'space-between'}}>
-    <div style={{display:'flex',alignItems:'center',gap:6,minWidth:0,flex:'1 1 150px'}}>
-     {hasChildren&&!isCompany?<button type="button" className="btn small" aria-label={(expanded[row.key]?'Collapse ':'Expand ')+row.path} aria-expanded={!!expanded[row.key]} onClick={()=>toggle(row.key)} style={{padding:'2px 7px',minWidth:28}}>{expanded[row.key]?'▾':'▸'}</button>:!isCompany?<span style={{display:'inline-block',width:26}}/>:null}
-     <strong style={{overflowWrap:'anywhere',fontSize:13}}>{isCompany?'Entire company':row.section.name}</strong>
-     <small className="muted">{countByKey.get(row.key)||0} items</small>
+  const openKey=isCompany?row.company.id:row.key
+  const canExpand=isCompany?!!treeByCompany.get(row.company.id)?.sections.length:rows.some(r=>r.company.id===row.company.id&&r.section?.parent_id===row.section_id)
+  const expandedNow=!!query.trim()||!!expanded[openKey]
+  const chosen=preview(row),selected=ownIds(row)
+  const draft=rowDraft(row)
+  const inherited=!!chosen.from
+  const dirty=changed(row)
+  const check=dirty?checkRow(row):{valid:true,error:''}
+  const contacts=contactChoices(row)
+  const supplierNames=chosen.ids.map(id=>supplierMap.get(id)?.name||'Missing supplier')
+  const label=isCompany?row.company.name:row.section.name
+  const count=countByKey.get(row.key)||0
+  return <div key={row.key} className={'company-workflow-check-row'+(isCompany?' company-workflow-company':'')+(dirty?' company-workflow-unsaved':'')} style={{'--workflow-depth':Math.min(depth,6)}}>
+   <div className="company-workflow-check-main">
+    <div className="company-workflow-check-name">
+     {canExpand?<button type="button" className="company-workflow-expand" aria-expanded={expandedNow} aria-label={(expandedNow?'Collapse ':'Expand ')+row.company.name+' / '+row.path} disabled={busy} onClick={()=>toggle(openKey)}>{expandedNow?'▾':'▸'}</button>:<span className="company-workflow-expand company-workflow-expand-empty" aria-hidden="true"/>}
+     <div className="company-workflow-check-name-inner">
+      <span className="company-workflow-label" title={row.company.name+' / '+row.path}>{label}</span>
+      <span className="company-workflow-subline">
+       <span>{count} items</span>
+       <button className="company-workflow-supplier-link" type="button" disabled={busy} aria-expanded={contactsOpen===row.key} aria-label={'Select supplier contacts for '+row.company.name+' / '+row.path} title={supplierNames.join(', ')||'No supplier'} onClick={()=>setContactsOpen(x=>x===row.key?'':row.key)}>Suppliers: {chosen.ids.length}</button>
+       {dirty&&<span className="company-workflow-changed">Unsaved</span>}
+       {!dirty&&inherited&&<span>Parent pending</span>}
+      </span>
+     </div>
     </div>
-    <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:12}}>
-     <label className="checkline" style={{whiteSpace:'nowrap',fontSize:12}}><input type="checkbox" checked={chosen.mode==='rfq'} disabled={busy||!can('procurement.rfq.manage')||isInheritedPreview} onChange={e=>update(row,{mode:e.target.checked?'rfq':'manual',applyChildren:true})}/>Auto RFQ</label>
-     <label className="checkline" style={{whiteSpace:'nowrap',fontSize:12}}><input type="checkbox" checked={chosen.mode==='direct'} disabled={busy||!can('procurement.orders.approve')||isInheritedPreview} onChange={e=>update(row,{mode:e.target.checked?'direct':'manual',applyChildren:true})}/>Auto PO</label>
-    </div>
+    <label className="company-workflow-check-cell" title={'Auto RFQ for '+row.company.name+' / '+row.path}>
+     <input type="checkbox" aria-label={'Auto RFQ for '+row.company.name+' / '+row.path} checked={chosen.mode==='rfq'} disabled={busy||!can('procurement.rfq.manage')||inherited} onChange={e=>update(row,{mode:e.target.checked?'rfq':'manual',applyChildren:true})}/>
+    </label>
+    <label className="company-workflow-check-cell" title={'Auto PO for '+row.company.name+' / '+row.path}>
+     <input type="checkbox" aria-label={'Auto PO for '+row.company.name+' / '+row.path} checked={chosen.mode==='direct'} disabled={busy||!can('procurement.orders.approve')||inherited} onChange={e=>update(row,{mode:e.target.checked?'direct':'manual',applyChildren:true})}/>
+    </label>
    </div>
-   <div className="muted tiny" style={{marginTop:3,display:'flex',gap:8,flexWrap:'wrap',overflowWrap:'anywhere'}}>
-    <span>{rowDraft(row)?'Unsaved change':isInheritedPreview?'Pending parent change':row.hasOverride?'Own setting':row.inherited?'Inherited from '+(row.source==='company'?'company':data.sections.find(s=>s.id===row.source)?.name||'parent'):'Not configured'}</span>
-    <span>· {chosen.ids.length?chosen.ids.map(id=>supplierMap.get(id)?.name||'Missing supplier').join(', '):'No supplier assigned'}</span>
-   </div>
-   {isInheritedPreview&&<button type="button" className="btn small" disabled={busy} onClick={()=>update(row,{mode:row.mode,ids:row.recipients,applyChildren:true})}>Override this subcategory</button>}
-   <div style={{display:'flex',gap:7,flexWrap:'wrap',alignItems:'center',marginTop:5}}>
-    <button type="button" className="btn small" disabled={busy} onClick={()=>setContactsOpen(x=>x===row.key?'':row.key)}>{contactsOpen===row.key?'Hide contacts':'Suppliers'}</button>
-    {hasChildren&&<button type="button" className="btn small" disabled={busy} onClick={()=>update(row,{mode:chosen.mode,ids:chosen.ids,applyChildren:true})}>Apply {chosen.mode==='rfq'?'RFQ':chosen.mode==='direct'?'PO':'manual'} to all below</button>}
-    {rowDraft(row)?.applyChildren&&hasChildren&&<small className="muted">{branch.descendantSections} nested categories; {Math.max(0,branch.actions.length-1)} child routes to update · designated suppliers retained</small>}
-    {dirty&&<><button type="button" className="btn primary small" disabled={busy||!check.valid} onClick={()=>runSave([row])}>{busy?'Saving…':hasChildren&&rowDraft(row)?.applyChildren?'Save branch':'Save'}</button>
-     <button type="button" className="btn small" disabled={busy} onClick={()=>clearDraft(row)}>Cancel</button>
-     {!check.valid&&<small className="muted">{check.error}</small>}</>}
-   </div>
-   {contactsOpen===row.key&&<div style={{margin:'6px 0',maxHeight:160,overflowY:'auto'}}>
-    {contacts.length?contacts.map(c=><label key={c.id} className="checkline" style={{display:'flex',gap:8,margin:'7px 0'}}>
-     <input type="checkbox" disabled={busy||!!isInheritedPreview} checked={selected.includes(c.id)} onChange={e=>update(row,{ids:e.target.checked?uniqueIds([...selected,c.id]):selected.filter(id=>id!==c.id),mode:ownMode(row)==='direct'&&e.target.checked?'manual':ownMode(row)})}/>
-     <span style={{overflowWrap:'anywhere'}}>{c.label} · {phone(c.supplier)}</span>
-    </label>):<p className="muted tiny">No supplier contacts assigned. Add them in Supplier Directory first.</p>}
+   {(contactsOpen===row.key||dirty||inherited)&&<div className="company-workflow-detail">
+    {contactsOpen===row.key&&<div className="company-workflow-contact-panel">
+     <strong className="muted tiny">Designated supplier contacts</strong>
+     {contacts.length?contacts.map(contact=><label key={contact.id} className="company-workflow-contact-option">
+      <input type="checkbox" checked={selected.includes(contact.id)} disabled={busy||inherited} onChange={e=>update(row,{ids:e.target.checked?uniqueIds([...selected,contact.id]):selected.filter(id=>id!==contact.id),mode:ownMode(row)==='direct'&&e.target.checked?'manual':ownMode(row)})}/>
+      <span>{contact.label} · {phone(contact.supplier)}</span>
+     </label>):<p className="muted tiny">No company contacts. Add a number in Supplier Directory first.</p>}
+    </div>}
+    {inherited&&<button className="btn small" type="button" disabled={busy} onClick={()=>update(row,{mode:row.mode,ids:row.recipients,applyChildren:true})}>Set a separate rule for this category</button>}
+    {dirty&&<div className="company-workflow-check-actions">
+     {canExpand&&draft?.applyChildren&&<span className="muted tiny">Applies to {planFor(row).descendantSections} subcategories below; preserves their assigned suppliers</span>}
+     <button className="btn small primary" type="button" disabled={busy||!check.valid} onClick={()=>runSave([row])}>{busy?'Saving…':'Save this selection'}</button>
+     <button className="btn small" type="button" disabled={busy} onClick={()=>clearDraft(row)}>Undo</button>
+     {!check.valid&&<span className="company-workflow-validation" role="status">{check.error}</span>}
+    </div>}
    </div>}
   </div>
  }
- function renderNode(node,depth=0){
+ function renderNode(node,depth=1){
   if(depth>50)return null
   if(!isVisible(node.row)&&!node.children.some(c=>isVisible(c.row)||c.children.some(n=>isVisible(n.row))))return null
   const visible=!!query.trim()||!!expanded[node.row.key]
-  return <div key={node.row.key} style={{marginLeft:Math.min(depth,5)*11}}>
+  return <div key={node.row.key} className="company-workflow-tree-branch">
    {renderRow(node.row,depth)}
    {visible&&node.children.map(child=>renderNode(child,depth+1))}
   </div>
