@@ -38,7 +38,7 @@ test('Company directory maintains real-company save guard and name wrapping',()=
  const css=readFileSync(new URL('../app/globals.css',import.meta.url),'utf8')
  assert.match(jsx,/if\(!selected\|\|!complete\|\|savingLock\.current\)return/)
  assert.match(jsx,/companyId===ALL_DIRECTORY_COMPANIES/)
- assert.match(jsx,/original\.company_id===companyId\|\|companyId===ALL_DIRECTORY_COMPANIES/)
+ assert.match(jsx,/c\.company_id===companyId\|\|companyId===ALL_DIRECTORY_COMPANIES/)
  assert.match(css,/\.company-directory-compact-row \.company-directory-contact-name\s*\{[^}]*white-space:normal/s)
  assert.match(css,/\.company-directory-compact-row \.company-directory-contact-name\s*\{[^}]*overflow-wrap:anywhere/s)
 })
