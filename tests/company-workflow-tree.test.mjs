@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {REQUESTED_COMPANY_MODES,requestedModeFor,companyScopeTree,companyBranchRows,branchOverrideRows,parentApplyPreview,branchItemCount} from '../lib/company-workflow-tree.mjs'
+import {REQUESTED_COMPANY_MODES,requestedModeFor,companyScopeTree,companyBranchRows,branchOverrideRows,parentApplyPreview,branchItemCount,planBranchMode} from '../lib/company-workflow-tree.mjs'
 
 const companies=[{id:'c1',name:'PANEL SHEETS'},{id:'c2',name:'ALCATHINE'}]
 const section=[
@@ -58,4 +58,23 @@ test('item counts include whole branch, never sibling or other company',()=>{
  assert.equal(branchItemCount(items,rows[1],section),4)
  assert.equal(branchItemCount(items,rows[2],section),2)
  assert.equal(branchItemCount(items,rows[5],section),1)
+});
+
+test('parent RFQ propagates to every descendant without erasing assigned child supplier routes',()=>{
+ const routeRows=rows.map(r=>({...r,mode:r.own?'manual':'rfq',recipients:r.section_id==='a'?['s2']:r.section_id==='deep'?['s3']:['s1'],assigned:['s1']}))
+ const pool=[{company_id:'c1',section_id:'b',supplier_id:'s4'}]
+ const plan=planBranchMode(routeRows,routeRows[1],'rfq',['s1'],pool)
+ assert.equal(plan.descendantSections,3)
+ assert.deepEqual(plan.actions.map(v=>v.row.section_id),['p','a','b','deep'])
+ assert.deepEqual(plan.expected.map(v=>[v.row.section_id,v.ids]),[
+  ['p',['s1']],['a',['s2']],['b',['s4']],['deep',['s3']]
+ ])
+ assert.equal(plan.conflicts.length,0)
+});
+test('inconsistent subgroup contact pool is reported rather than silently changing supplier',()=>{
+ const routeRows=rows.map(r=>({...r,mode:'manual',recipients:r.section_id==='a'?['s2']:['s1']}))
+ const pool=[{company_id:'c1',section_id:'a',supplier_id:'s9'}]
+ const plan=planBranchMode(routeRows,routeRows[1],'direct',['s1'],pool)
+ assert.equal(plan.conflicts.length,1)
+ assert.match(plan.conflicts[0].reason,/differ/i)
 });
