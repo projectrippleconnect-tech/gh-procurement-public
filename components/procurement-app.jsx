@@ -61,7 +61,7 @@ function ProcurementApp(){
     .filter(el=>!el.closest('[hidden]')&&el.getClientRects().length&&getComputedStyle(el).display!=='none')
     .map(el=>el.getBoundingClientRect()).filter(r=>r.height>0)
    const bottom=Math.min(bounds.bottom,...docks.map(r=>r.top))-10,top=bounds.top+8
-   const row=field.closest('.stock-dense-row,.company-stock-item-row,.company-stock-row')
+   const row=field.closest('.stock-dense-row,.company-stock-item-row,.company-stock-row,.receive-entry-row')
    const rowRect=row?.getBoundingClientRect()
    const rect=rowRect&&rowRect.height<=bottom-top?rowRect:field.getBoundingClientRect()
    // Scroll only the workspace; scrolling the document pans Android's visual viewport.

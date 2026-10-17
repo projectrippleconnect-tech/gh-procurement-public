@@ -964,3 +964,20 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  html[data-gh-keyboard-open="true"] .company-count-workspace .company-items-grid{margin-top:0}
  html[data-gh-keyboard-open="true"] .app:has(.stock-header-action:not(:empty)) .content{padding-bottom:8px;scroll-padding-bottom:8px}
 }
+
+/* Receipt review shares the header action slot; it never covers quantity rows. */
+.receive-review-compact{display:none}
+@media screen and (max-width:700px){
+ .app .stock-header-action .receive-post-dock{position:static;inset:auto;width:auto;max-width:140px;min-height:40px;height:40px;margin:0;padding:6px 10px;font-size:12px;box-shadow:none}
+ .receive-review-full{display:none}
+ .receive-review-compact{display:inline}
+ .app .content:has(section:not([hidden]) .receiving-rows){padding-bottom:16px;scroll-padding-bottom:16px}
+ .receiving-search{position:static;padding:6px 0;margin-top:8px}
+ .receiving-search .checkline{font-size:12px;display:flex;align-items:center;gap:6px;margin-top:4px}
+ .receiving-search p{margin:6px 0;font-size:11px}
+ .receiving-rows{gap:0}
+ .receive-entry-row{padding:4px 0;gap:4px}
+ .receive-entry-row .row-item-name strong{font-size:12px;line-height:1.2}
+ .receive-entry-row .row-quantity{min-height:38px;height:38px;padding:4px;font-size:16px}
+ html[data-gh-keyboard-open="true"] .app .content:has(section:not([hidden]) .receiving-rows){padding-bottom:12px;scroll-padding-bottom:12px}
+}
