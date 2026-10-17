@@ -200,6 +200,12 @@ try{
    else if(name==='proc_company_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1')data=groupContactIds.map((id,idx)=>({company_id:'company-fixture',section_id:groupSection.id,supplier_id:id,sort_order:idx+1}))
    else if(name==='proc_company_save_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1'){const b=req.postDataJSON();groupContactIds=b.p_supplier_ids;data={supplier_count:groupContactIds.length}}
    else if(name==='proc_company_section_route_suppliers'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[{route_id:groupRoute.id,supplier_id:supplier.id,sort_order:1}]:[]
+   else if(name==='proc_company_save_supplier_setup'&&process.env.GH_UI_GROUP_SEND==='1'){
+    const b=req.postDataJSON()
+    groupRouteSaves.push({p_mode:b.p_action,p_auto_send:b.p_action!=='manual',p_supplier_ids:b.p_recipient_ids,p_section_id:b.p_section_id,p_template:b.p_template})
+    groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_action==='direct'?'direct':'rfq',auto_send:b.p_action!=='manual',document_template:b.p_template,assigned_supplier_ids:b.p_assigned_ids,updated_at:'2026-10-17T10:00:00Z'}
+    data={id:groupRoute.id,updated_at:groupRoute.updated_at}
+   }
    else if(name==='proc_company_save_route_v2'&&process.env.GH_UI_GROUP_SEND==='1'){
     const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send,document_template:b.p_template};data={id:groupRoute.id}
    }
@@ -983,35 +989,44 @@ try{
   }
   if(process.env.GH_UI_GROUP_SEND==='1'){
    await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   const setupButton=page.getByRole('button',{name:'Company setup',exact:true})
+   if(await setupButton.count())await setupButton.click()
    const simple=page.getByLabel('Company supplier automation',{exact:true})
    await simple.locator('summary').first().click()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
    await simple.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
    await simple.locator('.company-simple-directory input[type=checkbox]').first().check()
-   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
+   await simple.getByRole('radio',{name:/Auto direct PO/}).check()
    await simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()
-   await requireQuery(u=>u.pathname.endsWith('proc_company_save_route_v2'),'Simple automation saves an explicit route')
+   await requireQuery(u=>u.pathname.endsWith('proc_company_save_supplier_setup'),'Current three-step supplier automation saves an explicit route')
    assert.equal(groupRouteSaves[0].p_mode,'direct');assert.equal(groupRouteSaves[0].p_auto_send,true)
    assert.equal(groupRouteSaves[0].p_supplier_ids.length,1)
-   assert.equal(rfqGatewayRequests.length,0,'Simple settings save does not dispatch old requirements')
-   // Existing suppliers belong to the sole category, not the empty company default.
+   assert.equal(rfqGatewayRequests.length,0,'Saving supplier settings must not send old requirements')
    groupRoute={...groupRoute,section_id:groupSection.id,route_mode:'rfq',auto_send:true,document_template:{title:'REQUEST FOR QUOTATION'}}
    groupContactIds=[supplier.id]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
    await simple.locator('summary').first().click()
    assert.equal(await simple.locator('select').first().inputValue(),groupSection.id)
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
    await simple.getByText('Supplier contacts (1)',{exact:true}).waitFor()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
    const modes=simple.locator('.company-simple-options > label')
    const firstMode=await modes.nth(0).boundingBox(),secondMode=await modes.nth(1).boundingBox()
    assert.ok(secondMode.y>=firstMode.y+firstMode.height,'Automation options occupy separate rows on mobile')
-   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
-   await Promise.all([page.waitForResponse(r=>r.url().endsWith('/rpc/proc_company_save_route_v2')&&r.request().method()==='POST'),simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()])
-   assert.equal(groupRouteSaves.at(-1).p_mode,'direct')
+   await simple.getByRole('radio',{name:/Auto direct PO/}).check()
+   await simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('proc_company_save_supplier_setup'),'Saved category route is updated')
    assert.equal(groupRouteSaves.at(-1).p_section_id,groupSection.id)
    assert.equal(groupRouteSaves.at(-1).p_auto_send,true)
-   assert.equal(groupRouteSaves.at(-1).p_template.title,'PURCHASE ORDER')
-   assert.equal(rfqGatewayRequests.length,0,'Selecting direct PO does not send old shortages')
+   assert.equal(rfqGatewayRequests.length,0,'Updating a route does not send earlier requirements')
    groupRoute=null;groupRouteSaves=[];groupContactIds=[]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
    await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
    const routing=page.getByLabel('Group supplier routing',{exact:true})
    await routing.locator('summary').first().click()
@@ -1084,49 +1099,32 @@ try{
    await context.close();continue
   }
   if(process.env.GH_UI_CONTACT_PASTE==='1'){
-   await page.evaluate(()=>{
-    window.ghClipboardReads=0;window.ghClipboardText='Sales Rep\n077 123 4567';window.ghClipboardDenied=false
-    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{readText:async()=>{
-     window.ghClipboardReads++
-     if(window.ghClipboardDenied)throw new DOMException('Denied','NotAllowedError')
-     return window.ghClipboardText
-    }}})
-   })
    await navigate('CL Company Lists')
-   await page.getByText('Advanced supplier tools',{exact:true}).click()
-   const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
-   await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
-   assert.equal(await page.evaluate(()=>window.ghClipboardReads),0,'Opening the form never reads the clipboard')
-   for(const name of ['Pick from phone','Pick phone number only','Receive from Contacts app','Import .vcf'])assert.equal(await manager.getByRole('button',{name,exact:true}).count(),0)
-   assert.equal(await manager.getByRole('link',{name:'Receive from Contacts app',exact:true}).count(),0)
-   const name=manager.getByPlaceholder('Company contact name',{exact:true}),phone=manager.getByPlaceholder('+94771234567',{exact:true}),paste=manager.getByRole('button',{name:'Paste contact',exact:true}),box=manager.getByLabel('Paste contact text',{exact:true})
-   await paste.click()
-   assert.equal(await name.inputValue(),'Sales Rep');assert.equal(await phone.inputValue(),'+94771234567')
-   await page.evaluate(()=>window.ghClipboardText='011 234 5678');await paste.click()
-   assert.equal(await name.inputValue(),'Sales Rep','Number-only paste keeps the entered name');assert.equal(await phone.inputValue(),'+94112345678')
-   await page.evaluate(()=>window.ghClipboardText='Bad data +61 412345678');await paste.click()
-   await manager.getByRole('status').getByText(/No valid Sri Lankan/).waitFor()
-   assert.equal(await name.inputValue(),'Sales Rep');assert.equal(await phone.inputValue(),'+94112345678')
-   await page.evaluate(()=>{window.ghClipboardText='Sales Rep\n0771234567\n0112345678'});await paste.click()
-   assert.equal(await phone.inputValue(),'+94112345678','Multiple numbers do not select one automatically')
-   await manager.getByRole('button',{name:'Use +94771234567',exact:true}).click()
-   assert.equal(await phone.inputValue(),'+94771234567')
-   await page.evaluate(()=>window.ghClipboardDenied=true);await paste.click()
-   await box.waitFor({state:'visible'})
-   await page.waitForFunction(()=>document.activeElement?.getAttribute('placeholder')==='Contact name and number, or just the number')
-   await box.evaluate(node=>{
-    const data=new DataTransfer();data.setData('text/plain','Manual Rep\n0779876543')
-    node.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}))
-   })
-   assert.equal(await name.inputValue(),'Manual Rep');assert.equal(await phone.inputValue(),'+94779876543')
-   await manager.getByRole('button',{name:'Edit current',exact:true}).click()
-   await page.evaluate(()=>{window.ghClipboardDenied=false;window.ghClipboardText='0771234567'});await paste.click()
-   assert.equal(await manager.getByRole('button',{name:'Save contact changes',exact:true}).count(),1,'Pasting while editing preserves the existing supplier identity')
-   assert.equal(await name.inputValue(),supplier.name)
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
+   const simple=page.getByLabel('Company supplier automation',{exact:true})
+   await simple.locator('summary').first().click()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
+   await simple.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
+   const editor=simple.getByLabel('Add or edit group supplier contact',{exact:true})
+   await editor.waitFor()
+   assert.equal(await simple.getByRole('button',{name:'Paste contact',exact:true}).count(),0,'Duplicate paste control is removed')
+   for(const label of ['Pick from phone','Pick phone number only','Receive from Contacts app','Import .vcf'])assert.equal(await simple.getByRole('button',{name:label,exact:true}).count(),0)
+   const name=editor.getByPlaceholder('Supplier or business name',{exact:true})
+   const phone=editor.getByPlaceholder('+94771234567',{exact:true})
+   await name.fill('Sample local supplier')
+   await phone.fill('+61 412345678')
+   assert.equal(await editor.getByRole('button',{name:'Save contact & select',exact:true}).isDisabled(),true,'Overseas phone must be rejected')
+   await editor.getByRole('status').waitFor()
+   await phone.fill('0771234567')
+   assert.equal(await editor.getByRole('button',{name:'Save contact & select',exact:true}).isEnabled(),true,'Valid Sri Lankan phone enables save')
+   await editor.getByRole('button',{name:'Save contact & select',exact:true}).click()
+   await simple.getByText(/Sample local supplier/).first().waitFor()
    const manifest=await (await page.request.get(root+'/manifest.webmanifest')).json()
    assert.equal(manifest.share_target,undefined,'Obsolete contact share target is removed')
+   assert.equal(rfqGatewayRequests.length,0,'Contact save does not send RFQs')
    assert.deepEqual(errors,[])
-   console.log('PASS pasted contacts, number-only names, manual paste after permission denial, multi-number choice and edit identity at '+width+'px')
+   console.log('PASS manual supplier contact validation and removed duplicate paste controls at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
