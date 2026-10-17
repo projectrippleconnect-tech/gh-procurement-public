@@ -115,3 +115,21 @@ uses the reclaimed navigation space. Browser tests at 320/412px assert that the
 button is no larger than 160×44px, the journey is hidden during typing, the active
 field is visible and tappable, quantities survive, and navigation returns. Build,
 TypeScript and 254 unit tests pass. Physical-device confirmation is still needed.
+
+## Header stock submission — 17 October 2026
+
+The compact floating button still covered lower rows on the actual phone. Mobile
+stock submission now occupies a real header slot beside Stock, using a React
+portal so the existing submit handler, busy state and live count stay connected.
+No stock submission control floats over the worksheet. The same header action
+works for general and company stock, and disappears when that workspace is not
+active. Desktop actions retain their existing placement. Language/help actions
+remain available through the menu while the stock header action is present.
+Bottom navigation still hides during keyboard entry. The worksheet no longer
+reserves footer space for stock submission.
+
+Verified general/company input visibility and hit testing at 320/412px with small,
+panned and resized keyboard viewports. Assertions place Submit inside the header,
+above the worksheet. Clicking it opens the original confirmation; Cancel preserves
+the quantities. TypeScript, build and all 254 unit tests passed. Keyboard checks
+remain simulated; no production stock counts or supplier messages were created.

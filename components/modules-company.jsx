@@ -8,7 +8,7 @@ import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {businessDate,money,qty} from '@/lib/helpers'
-import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
+import {Badge,DataTable,Empty,fieldEnabled,fieldLabel,StockSubmitAction} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
 import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
@@ -302,10 +302,10 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    </div>
   </div></details>}
   </>}
-  {!setupOpen&&canCount&&companyId&&active&&<div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
+  {!setupOpen&&canCount&&companyId&&active&&<StockSubmitAction active={active}><div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
    <div className="count-dock-summary" role="status"><strong>{countTotal} of {rows.length} counted</strong><small>{search||category||subgroup||brand||sectionFilter?'Includes counted items outside filters':'Zero counts as entered · blank items are skipped'}</small></div>
    <button className="btn primary" aria-label={busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`} disabled={busy||loading||!countTotal} onClick={submit}><span className="stock-submit-full">{busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${countTotal}`}</span></button>
-  </div>}
+  </div></StockSubmitAction>}
  </>
 }
 

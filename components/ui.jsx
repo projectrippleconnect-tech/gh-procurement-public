@@ -1,6 +1,8 @@
 'use client'
 
 import {ModernSelect} from './modern-select'
+import {useEffect,useState} from 'react'
+import {createPortal} from 'react-dom'
 
 
 export const NAV=[
@@ -30,6 +32,21 @@ export function WorkflowNavigation({view,navigate,canNavigate}){
   <div className="workflow-step-heading">Step {index+1} of 5 · {stages[index][0]}</div>
   <div className="workflow-step-tabs">{stages.map(([label,target,icon],i)=><button key={target} type="button" className={i===index?'active':''} disabled={!canNavigate(target)} aria-current={i===index?'step':undefined} aria-label={label} title={canNavigate(target)?`Step ${i+1}: ${label}`:`${label}: unavailable for your role`} onClick={()=>navigate(target)}><span aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div>
  </nav>
+}
+
+// The mobile action occupies a real header slot, never the stock rows.
+export function StockSubmitAction({active=true,children}){
+ const [target,setTarget]=useState(null)
+ const [mobile,setMobile]=useState(false)
+ useEffect(()=>{
+  const media=window.matchMedia('(max-width:700px)')
+  const update=()=>setMobile(media.matches)
+  setTarget(document.getElementById('stock-header-action'));update()
+  media.addEventListener('change',update)
+  return()=>media.removeEventListener('change',update)
+ },[])
+ if(!active)return null
+ return mobile&&target?createPortal(children,target):children
 }
 
 export function ItemLabel({item={}}){return <>{item.description||item.item_code||'Item'}{item.size&&<span className="work-item-size"> · {item.size}</span>}</>}

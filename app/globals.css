@@ -917,3 +917,17 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  html[data-gh-keyboard-open="true"] .app .receive-post-dock{bottom:calc(8px + env(safe-area-inset-bottom) + var(--gh-keyboard-gap,0px))}
  html[data-gh-keyboard-open="true"] .app .content{padding-bottom:70px;scroll-padding-bottom:65px}
 }
+
+/* Stock submission lives in the header, outside the scrolling worksheet. */
+.stock-header-action{display:none}
+@media screen and (max-width:700px){
+ .stock-header-action:not(:empty){display:block;flex:0 0 auto;margin-left:8px}
+ .app:has(.stock-header-action:not(:empty)) .top-actions,
+ .app:has(.stock-header-action:not(:empty)) .topbar-left .muted{display:none}
+ .app .stock-header-action .task-dock,
+ .app .stock-header-action .stock-submit-dock{position:static;inset:auto;width:auto;max-width:150px;margin:0;padding:0;border:0;background:transparent;box-shadow:none}
+ .app .stock-header-action .company-count-dock>.btn,
+ .app .stock-header-action .stock-submit-dock{height:44px;min-height:44px;padding:6px 10px;font-size:12px}
+ .app .content .company-count-dock,.app .content .stock-submit-dock{display:none}
+ .app.workflow-active:has(.stock-header-action:not(:empty)) .content{padding-bottom:25px;scroll-padding-bottom:20px}
+}

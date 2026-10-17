@@ -12,7 +12,7 @@ import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
-import {Badge,DataTable,configuredColumns,Empty} from './ui'
+import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
 import {StockPrintDialog} from './stock-print-dialog'
@@ -520,13 +520,15 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
  ]
 
+ const submitCount=new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])]).size
+ const submitLabel=busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+submitCount
  const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>changeStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>changeStockTab('company')}>Company Items</button>}</div>
  if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
   {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
-   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary stock-submit-dock" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])]).size}</button></div></div>
+   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy} onClick={submit}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?t('stock.submitting','Submitting…'):`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
     <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
     <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>
