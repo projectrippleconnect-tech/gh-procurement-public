@@ -182,11 +182,12 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     {loading&&<p className="muted tiny">Loading contacts…</p>}
     {!loading&&!scopedSaved.length&&<p className="muted tiny">No directory contacts yet.</p>}
     {scopedSaved.map(c=><div className="company-directory-entry" key={c.id}>
-     <div className="company-directory-record">
-      <strong>{c.name}</strong><span>{c.phone}</span><small className="good-text">Saved</small>
+     <div className="company-directory-record company-directory-compact-row">
+      <strong className="company-directory-contact-name" title={c.name}>{c.name}</strong>
+      <span className="company-directory-contact-phone" title={c.phone}>{c.phone}</span>
       <div className="company-directory-record-actions">
-       <button type="button" className="btn small" disabled={changing} onClick={()=>beginEdit(c)}>Edit</button>
-       <button type="button" className="btn small bad" disabled={changing} onClick={()=>{setDeleteTargetId(c.id);setEditingId(null);setError('');setStatus('')}}>Delete</button>
+       <button type="button" className="btn small company-directory-icon-button" aria-label={'Edit '+c.name} title={'Edit '+c.name} disabled={changing} onClick={()=>beginEdit(c)}>✎</button>
+       <button type="button" className="btn small bad company-directory-icon-button" aria-label={'Delete '+c.name} title={'Delete '+c.name} disabled={changing} onClick={()=>{setDeleteTargetId(c.id);setEditingId(null);setError('');setStatus('')}}>×</button>
       </div>
      </div>
      {editingId===c.id&&<form className="company-directory-form company-directory-edit-form" onSubmit={saveEdit}>
@@ -211,7 +212,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
       </div>
      </div>}
     </div>)}
-    {scopedAssigned.length>0&&<><h5>Already assigned to routing (not yet in directory)</h5>{scopedAssigned.map(c=><div className="company-directory-record" key={c.company_id+':'+c.supplier_id}><strong>{c.name}</strong><span>{c.phone}</span><small className="muted">{c.source}</small></div>)}</>}
+    {scopedAssigned.length>0&&<><h5>Already assigned to routing (not yet in directory)</h5>{scopedAssigned.map(c=><div className="company-directory-record company-directory-compact-row company-directory-compact-route" key={c.company_id+':'+c.supplier_id} title={c.source}><strong className="company-directory-contact-name" title={c.name}>{c.name}</strong><span className="company-directory-contact-phone" title={c.phone}>{c.phone}</span></div>)}</>}
    </div>
   </div>}
  </section>
