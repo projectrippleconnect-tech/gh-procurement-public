@@ -149,3 +149,32 @@ bounds and list coverage, check no horizontal overflow, preserve entered quantit
 and confirm header Submit remains available while bottom navigation is hidden.
 Production build, TypeScript and all 254 unit tests passed. Actual phone/browser
 font settings and keyboard size may change the number of rows visible.
+
+## Company catalogue recovery and reset protection — 17 October 2026
+
+The production audit recorded a Full reset at 12:21 PM Sri Lanka time, removing
+729 company-list links along with operational records. On explicit user approval,
+restored 729 links to existing COMPANY SHEET Item Master IDs across 19 companies.
+Master descriptions, maximum-stock values, active flags and other fields were not
+rewritten. Recovery verified a before/after hash of the complete Item Master and
+unchanged operational counts inside the transaction. Stock counts, balances, RFQs
+and POs remain cleared; recovery sent no supplier messages.
+
+668 links match an unambiguous current worksheet identity; 61 retain a distinct
+recovery identity instead of guessing a worksheet match. Existing categories and
+section records were reused. Original deleted list UUIDs and some historical sort
+positions cannot be reconstructed exactly. Six ambiguous legacy BIXTON links are
+retained inactive pending review; no Item Master entry was reactivated. There are
+723 active links, including CASING 11 and BIXTON 14. Unknown maximum-stock cases
+remain reviewable rather than being assigned invented values.
+
+Full reset now preserves company item links, price catalogues and their document
+references, as well as Item Master, companies, suppliers and routing configuration.
+The separate explicit Clear company lists operation is unchanged. Admin wording
+matches the protected backend scope. The migration changes the reset definition
+only and does not perform a reset. An isolated PostgreSQL test executes Full reset
+and verifies catalogue IDs, targets and sort order remain byte-for-byte unchanged.
+All 18 database suites, 254 unit tests, TypeScript and production build passed.
+Live authenticated Admin readback exposes all 723 active links. Stock-staff SQL
+readback without the required location/session access lease is correctly restricted;
+this is not a real staff sign-in test.
