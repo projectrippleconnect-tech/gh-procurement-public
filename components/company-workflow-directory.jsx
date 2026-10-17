@@ -5,7 +5,7 @@ import {allRows} from '@/lib/query-pages'
 import {supplierSetupPlan} from '@/lib/company-supplier-setup.mjs'
 import {switchRouteTemplate} from '@/lib/company-route-template.mjs'
 import {workflowRows,workflowValidation,uniqueIds} from '@/lib/company-workflow-directory.mjs'
-import {companyScopeTree,branchOverrideRows,branchItemCount,parentApplyPreview,requestedModeFor,REQUESTED_COMPANY_MODES} from '@/lib/company-workflow-tree.mjs'
+import {companyScopeTree,branchOverrideRows,branchItemCount,parentApplyPreview,requestedModeFor,REQUESTED_COMPANY_MODES,branchSupplierConflicts} from '@/lib/company-workflow-tree.mjs'
 
 const equalIds=(a=[],b=[])=>[...a].sort().join('|')===[...b].sort().join('|')
 const phone=s=>s?.whatsapp||s?.phone||'No number'
@@ -106,6 +106,10 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
 
  function checkRow(row){
   const chosen={mode:ownMode(row),ids:ownIds(row)}
+  if(rowDraft(row)?.applyChildren&&chosen.mode!=='manual'){
+   const conflicts=branchSupplierConflicts(rows,row,chosen.ids,data?.pool||[])
+   if(conflicts.length)return {valid:false,error:'Different designated suppliers below: '+conflicts.slice(0,3).join(', ')+(conflicts.length>3?' …':'')+'. Configure those subcategories separately; do not replace their contacts.'}
+  }
   if(chosen.mode!=='manual'&&!can(chosen.mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve'))
    return {valid:false,error:'Document approval permission required.'}
   const validate=workflowValidation(chosen.mode,chosen.ids,data?.suppliers||[])
