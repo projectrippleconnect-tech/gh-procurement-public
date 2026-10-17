@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {parseCompanySheet,companyImportSubgroup} from '../lib/company-items.mjs'
+import {parseCompanySheet,companyImportSubgroup,companyImportSectionPath} from '../lib/company-items.mjs'
 import {companySectionRows} from '../lib/company-section-tree.mjs'
 import {sectionRouteCoverage} from '../lib/company-section-routing.mjs'
 
@@ -30,4 +30,23 @@ test('Alcathine renders as one root and category supplier route covers direct ro
  assert.deepEqual(displayed.filter(x=>x.type==='section').map(x=>x.title),['ALCATHINE'])
  assert.deepEqual(displayed.filter(x=>x.type==='item').map(x=>x.row.id),['row1','row2'])
  assert.deepEqual(sectionRouteCoverage('main',sections,rows,[{section_id:'main',route_mode:'rfq'}]),{directItems:2,totalItems:2,coveredItems:2,overriddenItems:0,descendantSections:0})
+})
+
+
+test('re-importing a published Alkathine sheet never restores an obsolete nested heading',()=>{
+ for(const title of ['ALCATINE','ALCATHINE','ALKATHINE','ALKATHENE','ALCATINE · App']){
+  assert.equal(companyImportSectionPath(title,'ALCATHINE / ALCATHINE HOSE'),'ALCATHINE')
+  assert.equal(companyImportSectionPath(title,''),'ALCATHINE')
+ }
+ assert.equal(companyImportSectionPath('PANEL SHEETS','PANEL SHEETS / CEILING FITTINGS'),'PANEL SHEETS / CEILING FITTINGS')
+})
+
+test('archived empty Alkathine hose child stays hidden and all ten direct rows keep one parent route',()=>{
+ const main={id:'root',name:'ALCATHINE',parent_id:null,active:true,sort_order:0}
+ const legacy={id:'child',name:'ALCATHINE HOSE',parent_id:'root',active:false,sort_order:1}
+ const rows=Array.from({length:10},(_,i)=>({id:'item'+i,section_id:'root',active:true,sort_order:i+1,item:{description:'ALKATHENE HOSE '+i,category:'ALCATHINE',main_group:'ALCATHINE',subgroup:''}}))
+ const output=companySectionRows(rows,[main,legacy])
+ assert.deepEqual(output.filter(x=>x.type==='section').map(x=>x.title),['ALCATHINE'])
+ assert.equal(output.filter(x=>x.type==='item').length,10)
+ assert.equal(sectionRouteCoverage('root',[main,legacy],rows,[{section_id:'root',route_mode:'direct'}]).coveredItems,10)
 })
