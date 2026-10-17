@@ -77,3 +77,28 @@ Validation: production build, TypeScript, all 254 unit tests; focused browser
 checks at 320, 412 and 768px; seven role/permission cases at 320px. Keyboard checks
 are simulated, not a physical OnePlus test. No production business records or
 supplier messages were created. Release remains manual, pending deployment.
+
+## Keyboard entry correction — 17 October 2026
+
+A real-device report showed the journey/action bars across stock rows during
+keyboard entry. The regression was reproduced: a 500px visual viewport still
+produced an 844px workspace because the desktop 100vh minimum won over the
+keyboard height. The previous test checked the action bar but missed that the
+workspace and focused input could remain underneath it.
+
+The mobile shell now has no full-screen minimum, is anchored to the visible
+viewport, and handles viewport panning as well as resizing. Supported Android
+browsers are instructed to resize the content viewport for the keyboard; the
+visual viewport handler remains as a fallback. Focus scrolling adjusts only the
+central workspace and keeps the complete stock row visible where space permits.
+Competing whole-document stock-row scrolling has been removed. During keyboard
+entry the header is compact, history controls are hidden, and company selectors
+and table headings scroll normally. The five destinations and primary action
+remain at the visible bottom. Draft quantities and submission logic are unchanged.
+
+Regression checks cover general and company stock at 320/412px, 500/340px visual
+heights, a 75px viewport pan, and a 420px layout viewport resize. They verify the
+workspace height, field geometry and hit testing, action/navigation bounds, and
+restored quantities after closing the keyboard. Navigation checks also passed at
+320/412/768px. Production build, TypeScript and all 254 unit tests passed. These
+are simulated keyboard tests; actual OnePlus confirmation remains a live-use check.

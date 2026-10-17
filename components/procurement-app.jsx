@@ -51,17 +51,51 @@ function ProcurementApp(){
  useEffect(()=>{
   const viewport=window.visualViewport
   if(!viewport)return
-  const update=()=>{
-   const field=document.activeElement
-   const gap=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop)
-   const editing=field?.matches('input,textarea,[contenteditable="true"]')
-   const open=editing&&gap>120
-   document.documentElement.style.setProperty('--gh-keyboard-gap',open?gap+'px':'0px')
-   document.documentElement.style.setProperty('--gh-workspace-height',open?viewport.height+'px':'100dvh')
-   if(open)requestAnimationFrame(()=>field?.scrollIntoView({block:'nearest'}))
+  const root=document.documentElement
+  let fullHeight=window.innerHeight,fullWidth=window.innerWidth,wasOpen=false,frame=0
+  const revealField=()=>{
+   const field=document.activeElement,content=workContent.current
+   if(!wasOpen||!content?.contains(field)||window.innerWidth>700)return
+   const bounds=content.getBoundingClientRect()
+   const docks=[...content.querySelectorAll('.stock-submit-dock,.task-dock,.receive-post-dock,.po-primary-action')]
+    .filter(el=>!el.closest('[hidden]')&&el.getClientRects().length&&getComputedStyle(el).display!=='none')
+    .map(el=>el.getBoundingClientRect()).filter(r=>r.height>0)
+   const bottom=Math.min(bounds.bottom,...docks.map(r=>r.top))-10,top=bounds.top+8
+   const row=field.closest('.stock-dense-row,.company-stock-item-row,.company-stock-row')
+   const rowRect=row?.getBoundingClientRect()
+   const rect=rowRect&&rowRect.height<=bottom-top?rowRect:field.getBoundingClientRect()
+   // Scroll only the workspace; scrolling the document pans Android's visual viewport.
+   if(rect.bottom>bottom)content.scrollTop+=rect.bottom-bottom
+   else if(rect.top<top)content.scrollTop-=top-rect.top
   }
-  viewport.addEventListener('resize',update);update()
-  return()=>{viewport.removeEventListener('resize',update);document.documentElement.style.removeProperty('--gh-keyboard-gap');document.documentElement.style.removeProperty('--gh-workspace-height')}
+  const update=()=>{
+   if(fullWidth!==window.innerWidth){fullWidth=window.innerWidth;fullHeight=window.innerHeight}
+   const field=document.activeElement
+   const editing=field?.matches('input,textarea,[contenteditable="true"]')
+   const gap=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop)
+   const reduced=gap>120||fullHeight-viewport.height>120
+   const open=Boolean((editing||wasOpen)&&reduced)
+   if(!open)fullHeight=Math.max(fullHeight,window.innerHeight)
+   wasOpen=open
+   root.dataset.ghKeyboardOpen=String(open)
+   root.style.setProperty('--gh-keyboard-gap',open?gap+'px':'0px')
+   root.style.setProperty('--gh-workspace-height',open?viewport.height+'px':'100dvh')
+   root.style.setProperty('--gh-workspace-top',open?viewport.offsetTop+'px':'0px')
+   cancelAnimationFrame(frame);frame=requestAnimationFrame(revealField)
+  }
+  const focusChanged=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(update)}
+  viewport.addEventListener('resize',update);viewport.addEventListener('scroll',update)
+  window.addEventListener('resize',update)
+  document.addEventListener('focusin',focusChanged);document.addEventListener('focusout',focusChanged)
+  update()
+  return()=>{
+   cancelAnimationFrame(frame)
+   viewport.removeEventListener('resize',update);viewport.removeEventListener('scroll',update)
+   window.removeEventListener('resize',update)
+   document.removeEventListener('focusin',focusChanged);document.removeEventListener('focusout',focusChanged)
+   delete root.dataset.ghKeyboardOpen
+   for(const key of ['--gh-keyboard-gap','--gh-workspace-height','--gh-workspace-top'])root.style.removeProperty(key)
+  }
  },[])
 
  useEffect(()=>{

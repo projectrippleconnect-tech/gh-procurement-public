@@ -433,15 +433,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  }
  function focusDenseInput(i){
   setActiveBrowseId(i.item_id)
-  setTimeout(()=>document.getElementById('browse-row-'+i.item_id)?.scrollIntoView({block:'center',behavior:'smooth'}),90)
+  // Mobile focus is kept above the action dock by the shared workspace handler.
+  if(window.innerWidth>700)document.getElementById('browse-row-'+i.item_id)?.scrollIntoView({block:'nearest'})
  }
- useEffect(()=>{
-  if(typeof window==='undefined'||!window.visualViewport)return
-  const vv=window.visualViewport
-  const keepVisible=()=>{if(activeBrowseId)setTimeout(()=>document.getElementById('browse-row-'+activeBrowseId)?.scrollIntoView({block:'center',behavior:'smooth'}),60)}
-  vv.addEventListener('resize',keepVisible)
-  return()=>vv.removeEventListener('resize',keepVisible)
- },[activeBrowseId])
 
  async function submit(){
   if(busy)return

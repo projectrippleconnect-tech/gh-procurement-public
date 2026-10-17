@@ -85,7 +85,7 @@ try{
   let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  if(process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1')await context.addInitScript(()=>{
+  if(process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1'||process.env.GH_UI_STOCK_KEYBOARD==='1')await context.addInitScript(()=>{
    const viewport=new EventTarget();viewport.height=innerHeight;viewport.width=innerWidth;viewport.offsetTop=0
    Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
   })
@@ -424,6 +424,51 @@ try{
    }
    assert.deepEqual(errors,[]);assert.deepEqual(policyViolations,[])
    console.log('PASS five aligned steps, direct order destination, preserved stock draft and Home at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_STOCK_KEYBOARD==='1'){
+   if(width>700){await context.close();continue}
+   await navigate('✓ Stock Entry')
+   const general=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
+   await general.fill('4')
+   const journey=page.getByRole('navigation',{name:'Guided procurement navigation',exact:true})
+   for(const [kind,input,action] of [
+    ['general',general,page.locator('.stock-submit-dock').filter({visible:true})],
+    ['company',page.getByLabel('Current stock: '+item.description,{exact:true}),page.getByRole('region',{name:'Company count actions',exact:true})]
+   ]){
+    if(kind==='company')await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+    await input.fill(kind==='company'?'0':'4')
+    for(const [height,top] of [[500,0],[340,0],[340,75]]){
+     await input.focus()
+     await page.evaluate(({height,top})=>{window.visualViewport.height=height;window.visualViewport.offsetTop=top;window.visualViewport.dispatchEvent(new Event('resize'));window.visualViewport.dispatchEvent(new Event('scroll'))},{height,top})
+     await page.waitForFunction(height=>document.documentElement.style.getPropertyValue('--gh-workspace-height')===height+'px',height)
+     const shell=await page.locator('.app').boundingBox()
+     assert.ok(Math.abs(shell.height-height)<=1,'Workspace must shrink to keyboard viewport: '+JSON.stringify({kind,height,top,shell}))
+     await page.waitForFunction(()=>{const el=document.activeElement,c=document.querySelector('.content'),d=document.querySelector('.content > section:not([hidden]) .company-count-dock')||document.querySelector('.stock-submit-dock');if(!el||!c||!d)return false;const e=el.getBoundingClientRect(),b=c.getBoundingClientRect(),a=d.getBoundingClientRect();return e.top>=b.top-1&&e.bottom<=a.top-4})
+     await page.waitForFunction(()=>{const f=document.activeElement,b=f.getBoundingClientRect();return document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)===f})
+     const field=await input.boundingBox(),dock=await action.boundingBox(),nav=await journey.boundingBox()
+     assert.ok(field.y>=top&&field.y+field.height<=dock.y-4,'Focused stock stays above Submit')
+     assert.ok(dock.y+dock.height<=nav.y+1&&nav.y+nav.height<=top+height+1,'Action and navigation stay at the visible bottom')
+     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+     await page.screenshot({path:`test-results/stock-keyboard-${kind}-${width}-${height}-${top}.png`})
+    }
+    await page.evaluate(()=>{window.visualViewport.height=innerHeight;window.visualViewport.offsetTop=0;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.style.getPropertyValue('--gh-keyboard-gap')==='0px')
+    // Android can resize the layout viewport itself rather than overlay it.
+    await page.setViewportSize({width,height:420})
+    await page.evaluate(()=>{window.visualViewport.height=innerHeight;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.dataset.ghKeyboardOpen==='true')
+    assert.equal(await page.evaluate(()=>document.documentElement.style.getPropertyValue('--gh-keyboard-gap')),'0px','Resized layout must not apply a second keyboard offset')
+    await page.waitForFunction(()=>{const c=document.querySelector('.content'),f=document.activeElement;const a=c.querySelector('.company-count-dock')||c.querySelector('.stock-submit-dock');return f.getBoundingClientRect().bottom<=a.getBoundingClientRect().top-4})
+    await page.waitForFunction(()=>{const f=document.activeElement,b=f.getBoundingClientRect();return document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)===f})
+    await page.screenshot({path:`test-results/stock-keyboard-${kind}-${width}-layout-resize.png`})
+    await page.setViewportSize({width,height:844})
+    await page.evaluate(()=>{window.visualViewport.height=innerHeight;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.dataset.ghKeyboardOpen==='false')
+    assert.equal(await input.inputValue(),kind==='company'?'0':'4')
+   }
+   assert.deepEqual(errors,[]);assert.deepEqual(policyViolations,[])
+   console.log('PASS general/company focused stock, compact/panned keyboard, reachable action and restored draft at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_CERTIFY==='1'){
