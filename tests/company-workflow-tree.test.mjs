@@ -23,8 +23,8 @@ const rows=[
 ]
 test('the 19 requested modes are exact and missing company names are never assumed',()=>{
  assert.equal(Object.keys(REQUESTED_COMPANY_MODES).length,19)
- assert.equal(Object.values(REQUESTED_COMPANY_MODES).filter(x=>x==='rfq').length,8)
- assert.equal(Object.values(REQUESTED_COMPANY_MODES).filter(x=>x==='direct').length,11)
+ assert.equal(Object.values(REQUESTED_COMPANY_MODES).filter(x=>x==='rfq').length,9)
+ assert.equal(Object.values(REQUESTED_COMPANY_MODES).filter(x=>x==='direct').length,10)
  assert.equal(requestedModeFor('  panel sheets '),'rfq')
  assert.equal(requestedModeFor(' ALKATHINE '),'direct')
  assert.equal(requestedModeFor('KEVILTON'),'direct')
