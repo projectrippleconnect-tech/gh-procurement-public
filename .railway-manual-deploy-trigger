@@ -66,3 +66,5 @@ Manual production deployment authorized 2026-10-17 Asia/Colombo: release guided 
 Manual release 2026-10-17: fix mobile Company Lists supplier setup overlap. Keep Back/Next/Reload in document flow and let the company header scroll during setup. CSS-only change; 254 tests and TypeScript passed locally. Browser download unavailable locally. Preserve pinned manual releases and existing data.
 
 Manual release 2026-10-17: replace redundant supplier suggestions and supplier chips in Procurement Review with one searchable alphabetically sorted scrollable checkbox list. Keep existing supplier IDs, multi-selection, coverage override validation, RFQ submission, and manual pinned Railway deployments. Run audit, lint, tests, build and healthcheck; no data migration or WhatsApp dispatch in this UI-only release.
+
+2026-10-17 company workflow directory release: nested categories; exclusive RFQ/PO settings; supplier readback; no send on config.
