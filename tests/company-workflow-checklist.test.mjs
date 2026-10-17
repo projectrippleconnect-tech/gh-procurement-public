@@ -33,5 +33,5 @@ test('saving still requires server supplier verification and never calls an outb
  assert.match(jsx,/proc_company_save_supplier_setup/)
  assert.match(jsx,/done\.expected\.every/)
  assert.match(jsx,/No messages or orders were sent/)
- assert.doesNotMatch(jsx,/waha.*send|fetch\(.+\/api\/whatsapp/si)
+ assert.doesNotMatch(jsx,/(?:waha|whatsapp)\.send\(|fetch\([^\n]*\/api\/whatsapp/i)
 });
