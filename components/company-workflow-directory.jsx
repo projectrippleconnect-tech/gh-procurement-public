@@ -107,24 +107,29 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  const toggle=key=>setExpanded(old=>({...old,[key]:!old[key]}))
  const clearDraft=row=>setDrafts(old=>{const next={...old};delete next[row.key];return next})
 
+ function planFor(row){
+  if(rowDraft(row)?.applyChildren)return planBranchMode(rows,row,ownMode(row),ownIds(row),data?.pool||[])
+  return {actions:[{row,mode:ownMode(row),ids:ownIds(row)}],expected:[{row,mode:ownMode(row),ids:ownIds(row)}],conflicts:[],descendantSections:0}
+ }
  function checkRow(row){
-  const chosen={mode:ownMode(row),ids:ownIds(row)}
-  if(rowDraft(row)?.applyChildren&&chosen.mode!=='manual'){
-   const conflicts=branchSupplierConflicts(rows,row,chosen.ids,data?.pool||[])
-   if(conflicts.length)return {valid:false,error:'Different designated suppliers below: '+conflicts.slice(0,3).join(', ')+(conflicts.length>3?' …':'')+'. Configure those subcategories separately; do not replace their contacts.'}
+  const plan=planFor(row)
+  if(plan.conflicts.length)return {valid:false,error:plan.conflicts[0].path+': '+plan.conflicts[0].reason+'. Review supplier assignments first.'}
+  for(const choice of plan.expected){
+   if(choice.mode!=='manual'&&!can(choice.mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve'))
+    return {valid:false,error:'Document approval permission required.'}
+   const v=workflowValidation(choice.mode,choice.ids,data?.suppliers||[])
+   if(!v.valid)return {valid:false,error:choice.row.path+': '+v.error}
+   const p=supplierSetupPlan({assigned:choice.ids,recipients:choice.ids,mode:choice.mode,suppliers:data?.suppliers||[]})
+   if(!p.valid)return {valid:false,error:choice.row.path+': '+p.error}
   }
-  if(chosen.mode!=='manual'&&!can(chosen.mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve'))
-   return {valid:false,error:'Document approval permission required.'}
-  const validate=workflowValidation(chosen.mode,chosen.ids,data?.suppliers||[])
-  if(!validate.valid)return validate
-  const plan=supplierSetupPlan({assigned:chosen.ids,recipients:chosen.ids,mode:chosen.mode,suppliers:data?.suppliers||[]})
-  return plan.valid?{valid:true,error:''}:{valid:false,error:plan.error}
+  return {valid:true,error:''}
  }
  function changed(row){
   const draft=rowDraft(row)
   if(!draft)return false
   if(draft.mode!==row.mode||!equalIds(draft.ids,row.recipients))return true
-  return !!draft.applyChildren&&branchOverrideRows(rows,row).length>0
+  const plan=planFor(row)
+  return plan.actions.length>1||plan.expected.some(x=>x.row.mode!==draft.mode)
  }
  async function saveRoute(row,contextRows){
   const draft={mode:ownMode(row),ids:ownIds(row),applyChildren:rowDraft(row)?.applyChildren===true}
