@@ -68,7 +68,7 @@ export async function GET(request:Request){
  }
  let connected=false
  try{connected=(await gatewaySession(config)).connected}catch{}
- return reply({ok:true,configured:true,connected,sendingEnabled:process.env.WAHA_SENDING_ENABLED==='true',privateGroupConfigured:privateGroupConfig().ready,dispatches})
+ return reply({ok:true,configured:true,connected,sendingEnabled:process.env.WAHA_SENDING_ENABLED==='true',privateGroupConfigured:privateGroupConfig(process.env,'po').ready,dispatches})
 }
 
 export async function POST(request:Request){
