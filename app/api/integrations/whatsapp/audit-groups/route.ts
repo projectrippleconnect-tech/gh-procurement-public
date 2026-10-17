@@ -60,7 +60,7 @@ export async function GET(request:Request){
      const chats=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/chats?limit=50&offset='+offset+'&sortBy=messageTimestamp&sortOrder=desc',config.key)
      const list=parseWahaChats(chats)
      for(const g of groupMatches(list,desired))if(!found.has(g.id))found.set(g.id,g)
-     if(list.length<50)break
+     if(tidy(chats).length<50)break
     }
     if(found.size)source='chats'
    }catch{}
