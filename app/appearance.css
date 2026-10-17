@@ -106,6 +106,45 @@ html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.danger-text) {color:#d02
 html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.company-workflow-check-cell input,input[type="checkbox"],input[type="radio"]) {accent-color:var(--gh-accent)}
 html[data-gh-theme]:not([data-gh-theme="classic"]) .login-shell {background:var(--gh-page)}
 
+
+/* Existing module-specific dark fills also follow the optional palette. */
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(
+ .stock-search-launch,.stock-filter-summary,.guided-progress,.guided-item,.guided-stats>div,
+ .stock-search-panel,.stock-search-top,.stock-search-result,.urgent-action-card,
+ .urgent-card-grid>div,.selected-item-box,.browse-entry-row>div:first-child,
+ .special-request-builder,.special-stock-context>div,.lang,.info-popover,.help-topic,
+ .stock-dense-list,.stock-dense-columns,.stock-dense-row,.role-list button,
+ .permission-group h4,.stock-history-summary>div,.stock-history-record,
+ .stock-history-detail,.procurement-stepbar>div,.proc-review-mobile-list,
+ .proc-review-row,.admin-accordion,.action-dialog .danger-details,
+ .workflow-navigation,.rfq-recipient-row,.rfq-caption-preview,
+ .po-line-details,.task-dock,.order-progress,.quote-filter>.field,
+ .focused-navigation .journey-shortcuts[open],.po-primary-action:not(:empty),
+ .po-bill-head,.journey-stages span,.company-review-sheet td:first-child,
+ .picker-panel,.dashboard-totals>summary,.dashboard-recent>summary,
+ .workflow-next-card,.receiving-followup-dialog,.receiving-followup-dialog .toolbar,
+ .app .workflow-step-nav,.company-directory-form,.company-directory-record,
+ .company-directory-edit-form,.app .task-dock,.stock-submit-dock,.company-stock-header
+) {background:var(--gh-surface);color:var(--gh-text);border-color:var(--gh-line)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(
+ .stock-dense-row.active,.stock-search-result:active,.stock-search-result:hover,
+ .proc-review-row.selected-card,.procurement-stepbar>div.active,
+ .role-list button.active,.language-switch button.active,.journey-stages .current,
+ .po-order-row.active-record
+) {background:var(--gh-nav);color:var(--gh-text);border-color:var(--gh-accent)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(
+ .mobile-menu-btn,.info-icon-btn,.nav-more>summary:hover,.mobile-drawer-grid.secondary button,
+ .app .task-dock,.app .po-primary-action:not(:empty),.stock-submit-dock
+) {background:var(--gh-surface-2);color:var(--gh-text);border-color:var(--gh-line)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.stock-dense-columns,.permission-group h4,.stock-search-top,.company-workflow-list-head){
+ background:var(--gh-surface-2);color:var(--gh-muted)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.procurement-stepbar>div>span,.guided-meta span) {background:var(--gh-surface-3);color:var(--gh-text)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.stock-search-launch:hover,.metric-link:hover) {background:var(--gh-accent-soft)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.stock-dense-row.entered,.stock-dense-row.sufficient,.workflow-result,.entry-check) {background:#dcfce7;color:#14532d}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.info-popover,.picker-panel,.mobile-drawer) {box-shadow:0 15px 35px #0004}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.language-switch button.active,.nav-more>summary:hover) {color:var(--gh-text)}
+html[data-gh-theme]:not([data-gh-theme="classic"]) :is(.company-items-grid .company-category-row th) {background:var(--gh-accent-soft);color:var(--gh-text)}
+
 /* Small, accessible header control. No floating button over stock input or bottom navigation. */
 .gh-appearance-control{position:relative;flex:0 0 auto}
 .gh-appearance-control>summary{list-style:none;display:grid;place-items:center;width:37px;height:37px;min-width:37px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--text);cursor:pointer;font-size:20px}
@@ -120,6 +159,10 @@ html[data-gh-theme]:not([data-gh-theme="classic"]) .login-shell {background:var(
 html[data-gh-theme]:not([data-gh-theme="classic"]) .gh-appearance-panel {background:var(--gh-surface);color:var(--gh-text);border-color:var(--gh-line)}
 html[data-gh-theme]:not([data-gh-theme="classic"]) .gh-appearance-panel select {background:var(--gh-field);color:var(--gh-text);border-color:var(--gh-line)}
 @media(max-width:760px) {
+ .top-actions .gh-appearance-control{display:none}
+ .mobile-drawer .gh-appearance-control{display:block;margin:4px 0 12px}
+ .mobile-drawer .gh-appearance-control>summary{display:flex;gap:8px;width:100%;justify-content:flex-start;padding:0 12px}
+ .mobile-drawer .gh-appearance-panel{position:static;width:100%;max-height:none;margin-top:8px;box-shadow:none}
  .gh-appearance-control>summary{width:34px;min-width:34px;height:34px}
  .gh-appearance-panel{position:fixed;right:10px;top:62px;width:min(300px,calc(100vw - 20px));max-height:calc(100dvh - 85px)}
 }
