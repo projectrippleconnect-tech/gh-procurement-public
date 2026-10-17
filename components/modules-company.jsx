@@ -15,6 +15,7 @@ import {CompanyListOcr} from './company-list-ocr'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
 import {CompanyContactDirectory} from './company-contact-directory'
+import {CompanyWorkflowDirectory} from './company-workflow-directory'
 import {reorderFor} from '@/lib/company-items.mjs'
 import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
 import {CompanySectionManager} from './company-section-manager'
@@ -273,6 +274,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
   {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
   {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
+  {canManage&&<CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
   {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
   {canManage&&companyId&&!allCompanies&&<CompanyAutomationSimple onChanged={loadCompanies} key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
   {canManage&&companyId&&!allCompanies&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
