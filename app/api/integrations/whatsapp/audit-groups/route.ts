@@ -1,13 +1,11 @@
 // Read-only administrator diagnostics. This route never joins groups, sends messages, or configures archive destinations.
 import {createClient} from '@supabase/supabase-js'
+import {parseWahaGroups,parseWahaChats,groupMatches} from '@/lib/waha-group-discovery.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
-const groupIdPattern=/^[0-9][0-9-]{5,48}@g\.us$/
-const desired=new Set(['RFQ','PO','General'])
-const tidy=(data:any):any[]=>Array.isArray(data)?data:Array.isArray(data?.items)?data.items:Array.isArray(data?.data)?data.data:[]
-const groupId=(g:any)=>String(g?.id?._serialized||g?.id||g?.groupId||'')
-const groupName=(g:any)=>String(g?.subject||g?.name||g?._data?.subject||'').trim()
+const desired=['RFQ','PO','General']
+const tidy=(data:any):any[]=>Array.isArray(data)?data:Array.isArray(data?.participants)?data.participants:Array.isArray(data?.items)?data.items:Array.isArray(data?.data)?data.data:[]
 function gateway(){
  const raw=process.env.WAHA_BASE_URL||'',key=process.env.WAHA_API_KEY||'',session=process.env.WAHA_SESSION||'default'
  if(!raw||!key||!/^[\w-]{1,50}$/.test(session))return null
@@ -39,13 +37,33 @@ export async function GET(request:Request){
   const state=await read(config.base+'/api/sessions/',encodeURIComponent(config.session),config.key)
   if(state?.status!=='WORKING')return reply({ok:false,connected:false,error:'WAHA session is not connected.'},503)
   const found=new Map<string,{id:string;name:string}>()
-  for(let offset=0;offset<=100;offset+=50){
-   const list=tidy(await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups?limit=50&offset='+offset+'&exclude=participants',config.key))
-   for(const item of list){
-    const id=groupId(item),name=groupName(item)
-    if(groupIdPattern.test(id)&&desired.has(name)&&!found.has(id))found.set(id,{id,name})
-   }
-   if(list.length<50)break
+  const seen=new Set<string>()
+  let totalListed=0,nameless=0,recognized=false,source='groups'
+  // WAHA GOWS/NOWEB responses vary by engine: array, wrapped list, or a map keyed by group ID.
+  // Only interpret a response as genuinely empty after determining its shape.
+  for(let offset=0;offset<500;offset+=50){
+   const raw=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups?limit=50&offset='+offset+'&sortBy=id&sortOrder=desc&exclude=participants',config.key)
+   const parsed=parseWahaGroups(raw)
+   if(!parsed.recognized)return reply({ok:false,error:'WAHA returned an unrecognized group-list format; no destination has been selected.'},502)
+   recognized=true
+   const fresh=parsed.items.filter(group=>!seen.has(group.id))
+   if(!fresh.length)break
+   for(const item of fresh){seen.add(item.id);totalListed++;if(!item.name)nameless++}
+   for(const item of groupMatches(fresh,desired))if(!found.has(item.id))found.set(item.id,item)
+   if(parsed.items.length<50)break
+  }
+  if(!found.size){
+   // Chats can contain subgroup names after WhatsApp creation even before group
+   // metadata has synchronized. Inspect only read-only chat names, never messages.
+   try{
+    for(let offset=0;offset<200;offset+=50){
+     const chats=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/chats?limit=50&offset='+offset+'&sortBy=messageTimestamp&sortOrder=desc',config.key)
+     const list=parseWahaChats(chats)
+     for(const g of groupMatches(list,desired))if(!found.has(g.id))found.set(g.id,g)
+     if(list.length<50)break
+    }
+    if(found.size)source='chats'
+   }catch{}
   }
   const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string}>=[]
   for(const item of found.values()){
@@ -61,6 +79,6 @@ export async function GET(request:Request){
   }
   results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
   return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
-   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name===name)),notice:'No group messages were sent. Check group membership manually before enabling copies.'})
+   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),discovery:{source,listed:totalListed,nameless,recognized},notice:'No group messages were sent. Check group membership manually before enabling copies.'})
  }catch{return reply({ok:false,connected:false,error:'Unable to read WAHA groups. Try again after the WhatsApp session has synchronized.'},503)}
 }
