@@ -55,3 +55,25 @@ Verified for this phase: production build, TypeScript check, 254 Node tests, all
 ## Final validation pass
 
 The 17 October 2026 expanded validation passed 21 role/viewport combinations, two keyboard simulations, receiving lifecycle and access-restriction checks at 320 and 412 px, all 17 isolated database suites and read-only live consistency checks. It found and corrected a tablet-width Reports saved-layout overflow. See [the validation report](validation-2026-10-17.md) for exact evidence and the physical/business checks that remain unverified.
+
+## Five fixed purchasing tabs — 17 October 2026
+
+Replaced the floating step chooser and duplicate purchasing-section row with one
+five-destination journey bar: Stock, Review, Prices, Order, Receive. On mobile it
+replaces the usual bottom navigation only within these workspaces. On other
+screens the normal main navigation remains. Home (where permitted) and the full
+menu are available in the header. Each journey destination opens its own screen;
+Order opens purchase orders directly. Existing guided actions still handle
+approval, supplier selection, quotes and award review within those screens.
+
+The mobile bar has five equal columns and at least 48px-high targets. Unavailable
+workspaces remain disabled according to existing permissions. The primary action
+stays above the bar, including with the simulated keyboard, and the central
+workspace scrolls independently. Switching destinations preserves mounted drafts.
+No business or automation rules changed. Stage selection indicates location,
+while existing saved quantities determine delivery progress.
+
+Validation: production build, TypeScript, all 254 unit tests; focused browser
+checks at 320, 412 and 768px; seven role/permission cases at 320px. Keyboard checks
+are simulated, not a physical OnePlus test. No production business records or
+supplier messages were created. Release remains manual, pending deployment.

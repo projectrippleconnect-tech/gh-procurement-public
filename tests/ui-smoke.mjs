@@ -85,7 +85,7 @@ try{
   let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  if(process.env.GH_UI_CERTIFY==='1')await context.addInitScript(()=>{
+  if(process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1')await context.addInitScript(()=>{
    const viewport=new EventTarget();viewport.height=innerHeight;viewport.width=innerWidth;viewport.offsetTop=0
    Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
   })
@@ -379,6 +379,53 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_BOTTOM_STEPS==='1'){
+   await navigate('✓ Stock Entry')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   const count=page.getByLabel('Current stock: '+item.description,{exact:true})
+   await count.fill('0')
+   const guide=page.getByRole('navigation',{name:'Guided procurement navigation',exact:true})
+   const labels=['Stock','Review','Prices','Order','Receive']
+   assert.equal(await guide.getByRole('button').count(),5)
+   assert.equal(await page.getByText('Choose a step',{exact:true}).count(),0)
+   if(width<=700){
+    assert.equal(await page.getByRole('navigation',{name:'Main navigation',exact:true}).isVisible(),false)
+    const boxes=await guide.getByRole('button').evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,h:b.height}}))
+    assert.ok(boxes.every(b=>Math.abs(b.y-boxes[0].y)<1&&Math.abs(b.w-boxes[0].w)<1&&b.h>=48&&b.x>=0&&b.x+b.w<=width+1),'Five equal touch targets fit in one row')
+   }
+   for(const label of labels){
+    await guide.getByRole('button',{name:label,exact:true}).click()
+    await page.waitForFunction(label=>document.querySelector('.workflow-step-tabs [aria-current="step"]')?.textContent.endsWith(label),label)
+    await page.waitForFunction(()=>{const el=document.querySelector('.content > section:not([hidden])');return el&&el.textContent.trim().length>30&&!el.textContent.includes('Loading screen…')})
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+    await page.screenshot({path:'test-results/bottom-steps-'+label.toLowerCase()+'-'+width+'.png'})
+   }
+   // Order must open actual orders, including when coming from a different stage.
+   await guide.getByRole('button',{name:'Stock',exact:true}).click()
+   assert.equal(await count.inputValue(),'0','Switching steps preserves the stock draft')
+   await guide.getByRole('button',{name:'Order',exact:true}).click()
+   await page.waitForFunction(()=>document.querySelector('.topbar h2')?.textContent==='Orders')
+   await guide.getByRole('button',{name:'Stock',exact:true}).click()
+   if(width<=700){
+    const dock=page.getByRole('region',{name:'Company count actions',exact:true})
+    const d=await dock.boundingBox(),n=await guide.boundingBox()
+    assert.ok(d.y+d.height<=n.y,'Primary action stays above steps')
+    await count.focus()
+    await page.evaluate(()=>{window.visualViewport.height=500;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.style.getPropertyValue('--gh-keyboard-gap')==='344px')
+    const keyboardDock=await dock.boundingBox(),keyboardNav=await guide.boundingBox()
+    assert.ok(keyboardDock.y>=0&&keyboardDock.y+keyboardDock.height<=keyboardNav.y&&keyboardNav.y+keyboardNav.height<=500,'Action and five steps remain above the simulated keyboard')
+    await page.screenshot({path:'test-results/bottom-steps-keyboard-'+width+'.png'})
+    await page.evaluate(()=>{window.visualViewport.height=innerHeight;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.style.getPropertyValue('--gh-keyboard-gap')==='0px')
+    await page.getByRole('button',{name:'Go to Home',exact:true}).click()
+    assert.equal(await guide.count(),0)
+    assert.ok(await page.getByRole('navigation',{name:'Main navigation',exact:true}).isVisible())
+   }
+   assert.deepEqual(errors,[]);assert.deepEqual(policyViolations,[])
+   console.log('PASS five aligned steps, direct order destination, preserved stock draft and Home at '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_CERTIFY==='1'){
    if(width<=700){
     await navigate('✓ Stock Entry')
@@ -640,7 +687,7 @@ try{
    await page.screenshot({path:'test-results/mobile-stock-'+width+'.png'})
    if(width<=700){
     await page.locator('.content').evaluate(el=>el.scrollTop=el.scrollHeight)
-    const box=await dock.boundingBox(),navBox=await page.locator('.mobile-bottom-nav').boundingBox()
+    const box=await dock.boundingBox(),navBox=await page.getByRole('navigation',{name:'Guided procurement navigation',exact:true}).boundingBox()
     assert.ok(box.y>=0&&box.y+box.height<=navBox.y,'Submit remains above navigation at the end of the list')
     assert.ok(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Only the workspace scrolls')
    }
@@ -671,7 +718,7 @@ try{
    await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
    await page.getByText('0% received',{exact:true}).filter({visible:true}).waitFor()
    const post=page.getByRole('button',{name:/^(Review receipt \(\d+\) →|Retry saved receipt)$/})
-   if(width<=700){const a=await post.boundingBox(),b=await page.locator('.mobile-bottom-nav').boundingBox();assert.ok(a.y+a.height<=b.y,'Receiving action stays above navigation')}
+   if(width<=700){const a=await post.boundingBox(),b=await page.getByRole('navigation',{name:'Guided procurement navigation',exact:true}).boundingBox();assert.ok(a.y+a.height<=b.y,'Receiving action stays above navigation')}
    assert.equal(errors.length,0,errors.join('\n'))
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
    await page.screenshot({path:'test-results/mobile-redesign-'+width+'.png'})

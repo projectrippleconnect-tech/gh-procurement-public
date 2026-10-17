@@ -22,14 +22,13 @@ export const Badge=({children})=><span className={'badge '+statusClass(children)
 export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
-export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavigate,t=(k,f)=>f||k}){
+export function WorkflowNavigation({view,navigate,canNavigate}){
  if(!['stock','requirements','rfq','po','receiving'].includes(view))return null
- const index=view==='stock'?0:view==='requirements'?1:view==='rfq'?2:view==='po'?3:4
- const stages=[['Stock','stock',1],['Review','requirements',2],['Prices','rfq',4],['Order','po',6],['Receive','receiving',null]]
- return <nav className="workflow-navigation focused-navigation compact-journey" aria-label="Guided procurement navigation">
-  <div className="guide-title"><strong>Step {index+1} of 5 · {stages[index][0]}</strong><small>Purchasing journey</small></div>
-  <div className="journey-position" aria-hidden="true">{stages.map(([label],i)=><span key={label} className={i===index?'current':''}/>)}</div>
-  <details className="journey-shortcuts"><summary>Choose a step</summary><div className="journey-step-buttons">{stages.map(([label,target,id],i)=><button key={target} className={'btn small '+(i===index?'primary':'')} disabled={!canNavigate(target)} aria-current={i===index?'step':undefined} onClick={()=>id===null?navigate(target):onStep(id)}>{i+1}. {label}</button>)}</div><small>Steps show your location. Saved order status tracks completion.</small></details>
+ const stages=[['Stock','stock','✓'],['Review','requirements','≡'],['Prices','rfq','₨'],['Order','po','▤'],['Receive','receiving','⇩']]
+ const index=stages.findIndex(([,target])=>target===view)
+ return <nav className="workflow-navigation workflow-step-nav" aria-label="Guided procurement navigation">
+  <div className="workflow-step-heading">Step {index+1} of 5 · {stages[index][0]}</div>
+  <div className="workflow-step-tabs">{stages.map(([label,target,icon],i)=><button key={target} type="button" className={i===index?'active':''} disabled={!canNavigate(target)} aria-current={i===index?'step':undefined} aria-label={label} title={canNavigate(target)?`Step ${i+1}: ${label}`:`${label}: unavailable for your role`} onClick={()=>navigate(target)}><span aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div>
  </nav>
 }
 

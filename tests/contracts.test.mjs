@@ -56,8 +56,8 @@ test('routine shortages stop at buyer review instead of auto-awarding',()=>{
 test('guided procurement exposes five locations including receiving without claiming completion',()=>{
  const ui=read('components/ui.jsx'),guide=read('lib/workflow-guide.mjs')
  assert.match(guide,/id:1,title:'Stock entry'/);assert.match(guide,/id:6,title:'Create & send orders'/)
- assert.match(ui,/Step .*of 5/);assert.match(ui,/Choose a step/);assert.doesNotMatch(ui,/Next procurement step/)
- assert.match(ui,/journey-step-buttons/);assert.match(ui,/\['Receive','receiving'/)
+ assert.match(ui,/Step .*of 5/);assert.doesNotMatch(ui,/Choose a step/);assert.doesNotMatch(ui,/Next procurement step/)
+ assert.match(ui,/workflow-step-tabs/);assert.match(ui,/\['Receive','receiving'/)
 })
 
 test('RFQs are prepared until actual transmission is confirmed',()=>{
