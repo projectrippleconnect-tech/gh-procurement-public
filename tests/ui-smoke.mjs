@@ -1108,6 +1108,8 @@ try{
     }}})
    })
    await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
    await page.getByText('Advanced supplier tools',{exact:true}).click()
    const manager=page.getByRole('region',{name:'Designated company contact',exact:true})
    await manager.getByRole('button',{name:'Manage contact',exact:true}).click()
