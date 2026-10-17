@@ -829,7 +829,11 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .compact-journey{padding:8px;margin-bottom:8px}
  .compact-journey .guide-title small{display:none}
  .company-setup-panel{padding-bottom:10px}
- .setup-step-actions{position:sticky;bottom:0;background:#122237;padding:8px;border-radius:10px}
+ .content:has(.company-setup-panel) .company-stock-header{position:static}
+ /* Keep setup navigation after the active form; a bottom-sticky row can
+    rise over the category picker in a short mobile viewport. */
+ .setup-step-actions{position:static;background:#122237;padding:8px;border-radius:10px}
+ .setup-step-actions>.btn{min-width:0;white-space:normal}
 }
 @media print{.task-dock,.stock-submit-dock,.purchase-workspaces,.compact-journey,.setup-step-actions{display:none!important}}
 @media screen and (max-width:700px){
