@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {privateGroupConfig,inspectPrivateGroup,privateGroupCaption,mirrorStaffGroupCopy} from '../lib/whatsapp-private-audit.mjs'
 
-const env={GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,94777712346'}
+const env={GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_RFQ_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_PO_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_RFQ_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_PO_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,94777712346'}
 const config=privateGroupConfig(env)
 const group={id:'120363123456789@g.us',subject:'GH Procurement'}
 const participants=[{id:'94777712345@c.us',role:'admin'},{id:'94777712346@c.us',role:'participant'}]
@@ -10,8 +10,8 @@ const participants=[{id:'94777712345@c.us',role:'admin'},{id:'94777712346@c.us',
 test('private group archive is disabled by default and invalid/short members fail closed',()=>{
  assert.deepEqual(privateGroupConfig({}),{ready:false,reason:'not_enabled'})
  assert.equal(config.ready,true)
- assert.equal(privateGroupConfig({...env,GH_WA_AUDIT_GROUP_ID:'94777712345@c.us'}).ready,false)
- assert.equal(privateGroupConfig({...env,GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345'}).ready,false)
+ assert.equal(privateGroupConfig({...env,GH_WA_AUDIT_RFQ_GROUP_ID:'94777712345@c.us'}).ready,false)
+ assert.equal(privateGroupConfig({...env,GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345'}).ready,true)
  assert.equal(privateGroupConfig({...env,GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,invalid'}).ready,false)
  assert.equal(privateGroupConfig({...env,GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,+94777712345'}).ready,false)
 });
@@ -77,4 +77,16 @@ test('unknown staff group member blocks all archive sending before database clai
   const r=await mirrorStaffGroupCopy({db:{rpc:()=>{claims++}},kind:'rfq',sourceId:'id',session:'default',base:'http://localhost:3000',key:'secret',base64:'image',filename:'a.png',caption:'caption',imageHash:'a'.repeat(64)})
   assert.equal(r.status,'blocked');assert.equal(r.reason,'membership_changed');assert.equal(posts,0);assert.equal(claims,0)
  }finally{globalThis.fetch=original;for(const key of Object.keys(env)){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key]}}
+});
+
+test('single owner is allowed, and RFQ / PO destinations are separate',()=>{
+ const one={...env,GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345'};
+ const rfq=privateGroupConfig(one,'rfq')
+ const po=privateGroupConfig({...one,GH_WA_AUDIT_PO_GROUP_ID:'120363654321000@g.us'},'po')
+ assert.equal(rfq.ready,true)
+ assert.equal(po.ready,true)
+ assert.notEqual(rfq.groupId,po.groupId)
+ assert.equal(inspectPrivateGroup({group,participants:[participants[0]],config:rfq}).ok,true)
+ assert.equal(inspectPrivateGroup({group,participants,config:rfq}).ok,false)
+ assert.equal(privateGroupConfig({...one,GH_WA_AUDIT_RFQ_GROUP_ID:''},'rfq').ready,false)
 });
