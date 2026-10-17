@@ -931,3 +931,32 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .app .content .company-count-dock,.app .content .stock-submit-dock{display:none}
  .app.workflow-active:has(.stock-header-action:not(:empty)) .content{padding-bottom:25px;scroll-padding-bottom:20px}
 }
+
+/* Dense mobile counting: two text lines and one quantity control per row. */
+@media screen and (max-width:700px){
+ .company-count-workspace{padding:4px}
+ .company-count-workspace .company-items-grid{margin-top:6px;border-radius:8px}
+ .company-items-grid .company-current-col{width:60px}
+ .company-items-grid .company-sufficient-col{width:38px}
+ .company-items-grid .company-stock-item-row>td{padding:3px 4px}
+ .company-items-grid .company-item-presentation{gap:0}
+ .company-items-grid .company-item-line{column-gap:5px;row-gap:0;line-height:1.15}
+ .company-items-grid .company-item-presentation .company-item-name,
+ .company-items-grid .company-item-presentation .company-item-size{font-size:min(var(--company-name-font,13px),12px);line-height:1.15}
+ .company-items-grid .company-item-presentation .company-item-meta{font-size:min(var(--company-meta-font,11px),10px);line-height:1.15}
+ .company-items-grid .stock-entry{height:36px;min-height:36px;padding:3px;font-size:16px}
+ .company-items-grid .company-category-row th{padding:4px 6px;font-size:11px}
+ .company-items-grid .company-section-toggle{font-size:11px;min-height:26px;padding:3px 1px}
+ .stock-dense-row{min-height:44px}
+ .stock-dense-info{min-height:42px;padding:3px 5px;gap:1px}
+ .stock-dense-title{font-size:12px;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+ .stock-dense-row.expanded .stock-dense-title{-webkit-line-clamp:unset;display:block}
+ .stock-dense-meta{font-size:10px;line-height:1.15;gap:4px}
+ .stock-dense-meta .stock-reorder-value{font-size:11px}
+ .app .content:has(.company-count-workspace),.app .content:has(.stock-fast-panel){padding-left:6px;padding-right:6px}
+ html[data-gh-keyboard-open="true"] .company-item-edit:not([open]),
+ html[data-gh-keyboard-open="true"] .company-count-workspace>.muted{display:none}
+ html[data-gh-keyboard-open="true"] .company-count-workspace{margin-top:4px}
+ html[data-gh-keyboard-open="true"] .company-count-workspace .company-items-grid{margin-top:0}
+ html[data-gh-keyboard-open="true"] .app:has(.stock-header-action:not(:empty)) .content{padding-bottom:8px;scroll-padding-bottom:8px}
+}

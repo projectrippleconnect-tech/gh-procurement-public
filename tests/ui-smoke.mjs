@@ -85,7 +85,7 @@ try{
   let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  if(process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1'||process.env.GH_UI_STOCK_KEYBOARD==='1')await context.addInitScript(()=>{
+  if(process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1'||process.env.GH_UI_STOCK_KEYBOARD==='1'||process.env.GH_UI_DENSE_STOCK==='1')await context.addInitScript(()=>{
    const viewport=new EventTarget();viewport.height=innerHeight;viewport.width=innerWidth;viewport.offsetTop=0
    Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
   })
@@ -211,6 +211,7 @@ try{
    else if(name==='proc_company_direct_po_history')data=process.env.GH_UI_COMPANY_PO==='1'?[{po_id:companyPo.id,po_no:companyPo.po_no,company_id:'company-fixture',company_name:'Fixture company',po_status:'sent',created_at:new Date().toISOString(),item_count:1,sent_count:1,failed_count:0}]:[]
    else if(name==='proc_company_rfq_history')data=[{rfq_id:rfq.id,rfq_no:rfq.rfq_no,company_id:'company-fixture',company_name:'Fixture company',rfq_status:'prepared',created_at:new Date().toISOString(),item_count:2,supplier_count:2,sent_count:1,failed_count:1}]
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(routingMode?{default_supplier_id:setupDefaultId,updated_at:setupRoute.updated_at}:process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
+   else if(name==='proc_company_list_items'&&process.env.GH_UI_DENSE_STOCK==='1')data=Array.from({length:12},(_,i)=>({id:'dense-row-'+i,item_id:'dense-item-'+i,target_stock:20,item:{...item,id:'dense-item-'+i,description:'ALKATHENE HOSE '+['1/2IN 200FT','3/4IN 100FT','3/4IN 200FT','1IN 100FT','1IN 200FT','1 1/2IN 100FT'][i%6],category:'ALKATHINE',subgroup:'',size:'',uom:'PCS'}}))
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
@@ -425,6 +426,33 @@ try{
    }
    assert.deepEqual(errors,[]);assert.deepEqual(policyViolations,[])
    console.log('PASS five aligned steps, direct order destination, preserved stock draft and Home at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_DENSE_STOCK==='1'){
+   await navigate('✓ Stock Entry')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   const rows=page.locator('.company-stock-item-row')
+   await rows.nth(11).waitFor()
+   const field=rows.nth(5).locator('input.stock-entry')
+   await field.fill('5')
+   if(width<=700){
+    await page.evaluate(()=>{window.visualViewport.height=340;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.dataset.ghKeyboardOpen==='true')
+    await page.waitForFunction(()=>{const c=document.querySelector('.content').getBoundingClientRect(),f=document.activeElement.getBoundingClientRect();return f.top>=c.top&&f.bottom<=c.bottom})
+    const metrics=await rows.evaluateAll(nodes=>{const c=document.querySelector('.content').getBoundingClientRect();const b=nodes.map(n=>n.getBoundingClientRect());return {visible:b.filter(r=>r.top>=c.top-1&&r.bottom<=c.bottom+1).length,maxHeight:Math.max(...b.map(r=>r.height)),contentHeight:c.height,lastBottom:Math.max(...b.filter(r=>r.top<c.bottom).map(r=>Math.min(r.bottom,c.bottom))),contentBottom:c.bottom}})
+    assert.ok(metrics.visible>=5,'At least five complete company stock rows with keyboard: '+JSON.stringify(metrics))
+    assert.ok(metrics.maxHeight<=52,'Long descriptions remain compact: '+JSON.stringify(metrics))
+    assert.ok(metrics.contentBottom-metrics.lastBottom<40,'Stock rows use the available height')
+    assert.equal(await page.getByRole('navigation',{name:'Guided procurement navigation',exact:true}).isVisible(),false)
+    assert.ok(await page.locator('.stock-header-action').getByRole('button',{name:'Submit 1 item →',exact:true}).isVisible())
+    assert.equal(await field.inputValue(),'5')
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+    await page.screenshot({path:'test-results/dense-company-keyboard-'+width+'.png'})
+    await page.evaluate(()=>{window.visualViewport.height=innerHeight;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.dataset.ghKeyboardOpen==='false')
+    console.log('PASS '+metrics.visible+' complete readable stock rows with keyboard at '+width+'px')
+   }
+   assert.deepEqual(errors,[]);assert.deepEqual(policyViolations,[])
    await context.close();continue
   }
   if(process.env.GH_UI_STOCK_KEYBOARD==='1'){

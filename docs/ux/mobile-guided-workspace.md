@@ -133,3 +133,19 @@ panned and resized keyboard viewports. Assertions place Submit inside the header
 above the worksheet. Clicking it opens the original confirmation; Cancel preserves
 the quantities. TypeScript, build and all 254 unit tests passed. Keyboard checks
 remain simulated; no production stock counts or supplier messages were created.
+
+## More visible stock rows — 17 October 2026
+
+Mobile company stock rows now use compact padding, 12px names, 10px metadata and
+36px quantity fields. Existing configurable fields remain rendered. Edit controls
+and the introductory draft note hide during keyboard counting, and return when
+the keyboard closes. Table/worksheet margins are reduced and unused stock-footer
+padding removed. General stock descriptions use two compact lines, with full text
+still available by expanding the row. Desktop appearance and all data are unchanged.
+
+A representative 12-item hose fixture shows six complete stock rows within a
+340px keyboard viewport at both 320px and 412px screen widths. Tests measure row
+bounds and list coverage, check no horizontal overflow, preserve entered quantity,
+and confirm header Submit remains available while bottom navigation is hidden.
+Production build, TypeScript and all 254 unit tests passed. Actual phone/browser
+font settings and keyboard size may change the number of rows visible.
