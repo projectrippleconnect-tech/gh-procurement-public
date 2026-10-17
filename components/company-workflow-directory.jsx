@@ -5,7 +5,7 @@ import {allRows} from '@/lib/query-pages'
 import {supplierSetupPlan} from '@/lib/company-supplier-setup.mjs'
 import {switchRouteTemplate} from '@/lib/company-route-template.mjs'
 import {workflowRows,workflowValidation,uniqueIds} from '@/lib/company-workflow-directory.mjs'
-import {companyScopeTree,branchOverrideRows,branchItemCount,parentApplyPreview,requestedModeFor,REQUESTED_COMPANY_MODES,branchSupplierConflicts} from '@/lib/company-workflow-tree.mjs'
+import {companyScopeTree,branchOverrideRows,branchItemCount,parentApplyPreview,requestedModeFor,REQUESTED_COMPANY_MODES,planBranchMode} from '@/lib/company-workflow-tree.mjs'
 
 const equalIds=(a=[],b=[])=>[...a].sort().join('|')===[...b].sort().join('|')
 const phone=s=>s?.whatsapp||s?.phone||'No number'
@@ -82,7 +82,10 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  }
  const preview=row=>{
   const inherited=activeAncestorDraft(row)
-  return inherited?{mode:inherited.draft.mode,ids:inherited.draft.ids,from:inherited.row?.path}:{mode:ownMode(row),ids:ownIds(row),from:null}
+  if(!inherited)return {mode:ownMode(row),ids:ownIds(row),from:null}
+  const ownContacts=uniqueIds((data?.pool||[]).filter(x=>x.company_id===row.company.id&&x.section_id===row.section_id).map(x=>x.supplier_id))
+  const ids=row.own?row.recipients:ownContacts.length?ownContacts:inherited.draft.ids
+  return {mode:inherited.draft.mode,ids,from:inherited.row?.path}
  }
  const contactChoices=row=>{
   const owned=(data?.directory||[]).filter(x=>x.company_id===row.company.id)
