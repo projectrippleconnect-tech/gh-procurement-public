@@ -5,7 +5,7 @@ import {allRows} from '@/lib/query-pages'
 import {supplierSetupPlan} from '@/lib/company-supplier-setup.mjs'
 import {switchRouteTemplate} from '@/lib/company-route-template.mjs'
 import {workflowRows,workflowValidation,uniqueIds} from '@/lib/company-workflow-directory.mjs'
-import {companyScopeTree,branchOverrideRows,branchItemCount,parentApplyPreview,requestedModeFor,REQUESTED_COMPANY_MODES,planBranchMode} from '@/lib/company-workflow-tree.mjs'
+import {companyScopeTree,branchItemCount,requestedModeFor,REQUESTED_COMPANY_MODES,planBranchMode} from '@/lib/company-workflow-tree.mjs'
 
 const equalIds=(a=[],b=[])=>[...a].sort().join('|')===[...b].sort().join('|')
 const phone=s=>s?.whatsapp||s?.phone||'No number'
@@ -219,7 +219,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   const children=(treeByCompany.get(row.company.id)?.sections||[])
   // Actual child nodes are rendered by renderNode; company root has children in the accordion.
   const chosen=preview(row),selected=ownIds(row),hasChildren=rows.some(r=>r.company.id===row.company.id&&r.section?.parent_id===row.section_id)
-  const overrides=branchOverrideRows(rows,row)
+  const branch=planFor(row)
   const dirty=changed(row)
   const check=checkRow(row)
   const contacts=contactChoices(row)
@@ -245,7 +245,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    <div style={{display:'flex',gap:7,flexWrap:'wrap',alignItems:'center',marginTop:5}}>
     <button type="button" className="btn small" disabled={busy} onClick={()=>setContactsOpen(x=>x===row.key?'':row.key)}>{contactsOpen===row.key?'Hide contacts':'Suppliers'}</button>
     {hasChildren&&<button type="button" className="btn small" disabled={busy} onClick={()=>update(row,{mode:chosen.mode,ids:chosen.ids,applyChildren:true})}>Apply {chosen.mode==='rfq'?'RFQ':chosen.mode==='direct'?'PO':'manual'} to all below</button>}
-    {rowDraft(row)?.applyChildren&&hasChildren&&<small className="muted">{parentApplyPreview(rows,row).descendantSections} nested categories; {overrides.length} saved overrides will be replaced</small>}
+    {rowDraft(row)?.applyChildren&&hasChildren&&<small className="muted">{branch.descendantSections} nested categories; {Math.max(0,branch.actions.length-1)} child routes to update · designated suppliers retained</small>}
     {dirty&&<><button type="button" className="btn primary small" disabled={busy||!check.valid} onClick={()=>runSave([row])}>{busy?'Saving…':hasChildren&&rowDraft(row)?.applyChildren?'Save branch':'Save'}</button>
      <button type="button" className="btn small" disabled={busy} onClick={()=>clearDraft(row)}>Cancel</button>
      {!check.valid&&<small className="muted">{check.error}</small>}</>}
@@ -271,7 +271,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  if(!can('company_lists.manage'))return null
  return <details className="card pad section" aria-label="Company workflow directory">
   <summary><strong>Company Workflow Directory</strong> · expandable RFQ / PO categories</summary>
-  <p className="muted tiny section">Choose Auto RFQ or Auto PO for any parent category, then Save branch. Its items and all nested subcategories inherit that route. Child-specific rules can still be added later. A category without a parent can be configured independently. Changing settings never sends a message or generates an order.</p>
+  <p className="muted tiny section">Choose Auto RFQ or Auto PO on a parent, then Save branch. The choice applies to every nested category and its items. Different subcategories retain their own designated suppliers. Saving applies only to future shortages and never generates or sends a document.</p>
   <div className="toolbar section" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
    <input className="input" type="search" value={query} onChange={setQuery} aria-label="Search companies and categories" placeholder="Search company, category, supplier" style={{flex:'1 1 180px',minWidth:0}}/>
    <button className="btn small" type="button" disabled={busy} onClick={()=>{setDrafts({});setResults([]);setRefresh(x=>x+1)}}>Reload saved</button>
