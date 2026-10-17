@@ -157,7 +157,7 @@ export async function POST(request:Request){
  // Supplier dispatch is already accepted and permanently audited. The staff copy is
  // separately claimed and verified, and must not affect supplier sending on failure.
  const privateGroupCopy=await mirrorStaffGroupCopy({
-  db,kind:'rfq',supplierDispatchId:attemptId,session:config.session,
+  db,kind:'rfq',sourceId:attemptId,pageNumber:1,session:config.session,
   base:config.base,key:config.key,base64:payload.pngBase64,imageHash,
   filename:'GH-Audit-RFQ-'+String(rfq.rfq_no||'Document')+'.png',
   caption:privateGroupCaption({kind:'rfq',number:String(rfq.rfq_no||''),
