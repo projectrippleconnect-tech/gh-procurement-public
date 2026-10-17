@@ -16,6 +16,11 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const [loading,setLoading]=useState(false)
  const [saving,setSaving]=useState(false)
  const [status,setStatus]=useState('')
+ const [editingId,setEditingId]=useState(null)
+ const [editName,setEditName]=useState('')
+ const [editPhone,setEditPhone]=useState('')
+ const [deleteTargetId,setDeleteTargetId]=useState(null)
+ const [changing,setChanging]=useState(false)
  const [error,setError]=useState('')
  const nameInput=useRef(null)
  const savingLock=useRef(false)
@@ -27,17 +32,19 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const scopedAssigned=assigned.filter(r=>r.company_id===companyId&&!scopedSaved.some(s=>s.supplier_id===r.supplier_id))
  const complete=isCompleteCompanyContact(name,phone)&&name.trim().length<=200
  const canonical=normalizeCompanyMobile(phone)
+ const editCanonical=normalizeCompanyMobile(editPhone)
+ const canSaveEdit=isCompleteCompanyContact(editName,editPhone)&&editName.trim().length<=200
 
  useEffect(()=>{
   if(sorted.length&&(!companyId||!sorted.some(c=>c.id===companyId)))setCompanyId(sorted[0].id)
  },[sorted,companyId])
 
- const load=useCallback(async()=>{
+ const load=useCallback(async(strict=false)=>{
   if(!canManage)return
   setLoading(true)
   try{
    const [dir,groups]=await Promise.all([
-    supabase.from('proc_company_contact_directory').select('id,company_id,supplier_id,display_name,created_at').order('created_at'),
+    supabase.from('proc_company_contact_directory').select('id,company_id,supplier_id,display_name,created_at,updated_at').order('created_at'),
     supabase.from('proc_company_group_contacts').select('company_id,supplier_id')
    ])
    if(dir.error)throw dir.error
@@ -65,27 +72,27 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     if(s)asg.set(row.company_id+':'+row.supplier_id,{company_id:row.company_id,supplier_id:row.supplier_id,name:s.name,phone:s.whatsapp||s.phone||'',source:'Section supplier route'})
    }
    setAssigned([...asg.values()])
-  }catch(e){setError(e.message||String(e))}
+  }catch(e){setError(e.message||String(e));if(strict)throw e}
   finally{setLoading(false)}
  },[canManage,sorted])
  useEffect(()=>{if(expanded&&active&&canManage)load()},[expanded,active,canManage,load])
 
  function selectCompany(id){
   if(savingLock.current)return
-  setCompanyId(id);setName('');setPhone('');setStatus('');setError('')
+  setCompanyId(id);setName('');setPhone('');setStatus('');setError('');setEditingId(null);setDeleteTargetId(null)
  }
  async function saveContact(e){
   e.preventDefault()
   if(!selected||!complete||savingLock.current)return
   savingLock.current=true
-  setSaving(true);setError('');setStatus('')
+  setSaving(true);setError('');setStatus('');setEditingId(null);setDeleteTargetId(null)
   try{
    const result=await supabase.rpc('proc_company_directory_save_contact',{
     p_company_id:selected.id,p_display_name:name.trim(),p_phone:canonical
    })
    if(result.error)throw result.error
    if(!result.data?.id||result.data.company_id!==selected.id||result.data.phone!==canonical)throw new Error('The contact save was not confirmed. Check the directory before retrying.')
-   await load()
+   await load(true)
    setStatus((result.data.already_saved?'Contact updated: ':'Saved to database: ')+result.data.name+' · '+result.data.phone)
    setName('');setPhone('')
    flash?.('Contact saved to GH Procurement.')
@@ -93,6 +100,58 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
   }catch(e){setError(e.message||String(e));fail?.(e)}
   finally{savingLock.current=false;setSaving(false)}
  }
+
+ function beginEdit(c){
+  if(savingLock.current)return
+  setEditingId(c.id);setEditName(c.name);setEditPhone(c.phone)
+  setDeleteTargetId(null);setStatus('');setError('')
+ }
+ function cancelEdit(){
+  if(savingLock.current)return
+  setEditingId(null);setEditName('');setEditPhone('');setError('')
+ }
+ async function saveEdit(e){
+  e.preventDefault()
+  const original=saved.find(c=>c.id===editingId&&c.company_id===companyId)
+  if(!original||!canSaveEdit||savingLock.current)return
+  savingLock.current=true
+  setChanging(true);setError('');setStatus('')
+  try{
+   const result=await supabase.rpc('proc_company_directory_update_contact',{
+    p_id:original.id,p_display_name:editName.trim(),p_phone:editCanonical,
+    p_expected_updated_at:original.updated_at
+   })
+   if(result.error)throw result.error
+   if(!result.data?.id||result.data.id!==original.id||result.data.phone!==editCanonical)throw new Error('The update was not verified; refresh before retrying.')
+   await load(true)
+   setEditingId(null);setEditName('');setEditPhone('')
+   setStatus(result.data.routing_unchanged
+    ?'Contact updated. This number changed only in the directory. An existing RFQ/PO route still uses the old number—review the company supplier route separately.'
+    :'Contact updated and saved in GH Procurement.')
+   flash?.('Company directory contact updated.')
+  }catch(e){setError(e.message||String(e))}
+  finally{savingLock.current=false;setChanging(false)}
+ }
+ async function removeContact(c){
+  if(!c||savingLock.current)return
+  savingLock.current=true
+  setChanging(true);setError('');setStatus('')
+  try{
+   const result=await supabase.rpc('proc_company_directory_delete_contact',{
+    p_id:c.id,p_expected_updated_at:c.updated_at
+   })
+   if(result.error)throw result.error
+   if(result.data?.id!==c.id||!result.data.deleted_from_directory)throw new Error('Deletion could not be verified. Refresh the directory.')
+   await load(true)
+   setDeleteTargetId(null);setEditingId(null)
+   setStatus(result.data.routing_unchanged
+    ?'Removed from the company directory. The supplier remains assigned to an existing RFQ/PO route, which was not changed.'
+    :'Removed from the company directory. Existing order history and supplier records are preserved.')
+   flash?.('Company contact removed from directory.')
+  }catch(e){setError(e.message||String(e))}
+  finally{savingLock.current=false;setChanging(false)}
+ }
+
  if(!canManage)return null
  return <section className="card pad section company-directory-panel">
   <button type="button" className="company-directory-toggle" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>
@@ -115,15 +174,42 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     <input id="company-directory-phone" className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="076 360 9930 or +94763609930" value={phone} onChange={e=>{setPhone(e.target.value);setStatus('');setError('')}}/>
     <p className="muted tiny company-directory-number-preview" aria-live="polite">{phone?'Number entered: '+phone+(canonical?' · Save as '+canonical:' · Check the number'):'The full number will appear here as you type.'}</p>
     <button type="submit" className="btn primary company-directory-save" disabled={!selected||!complete||saving}>{saving?'Saving…':'Save Contact & Add Next'}</button>
-    {status&&<p className="success" role="status">{status}</p>}
-    {error&&<p className="error" role="alert">{error} Your entries have been kept.</p>}
    </form>
+   {status&&<p className="success" role="status">{status}</p>}
+   {error&&<p className="error" role="alert">{error} Review the existing directory before retrying.</p>}
    <div className="company-directory-existing">
     <h4>Existing contacts for {selected?.name||'this company'} <small className="muted">({scopedSaved.length} saved)</small></h4>
     {loading&&<p className="muted tiny">Loading contacts…</p>}
     {!loading&&!scopedSaved.length&&<p className="muted tiny">No directory contacts yet.</p>}
-    {scopedSaved.map(c=><div className="company-directory-record" key={c.id}>
-     <strong>{c.name}</strong><span>{c.phone}</span><small className="good-text">Saved</small>
+    {scopedSaved.map(c=><div className="company-directory-entry" key={c.id}>
+     <div className="company-directory-record">
+      <strong>{c.name}</strong><span>{c.phone}</span><small className="good-text">Saved</small>
+      <div className="company-directory-record-actions">
+       <button type="button" className="btn small" disabled={changing} onClick={()=>beginEdit(c)}>Edit</button>
+       <button type="button" className="btn small bad" disabled={changing} onClick={()=>{setDeleteTargetId(c.id);setEditingId(null);setError('');setStatus('')}}>Delete</button>
+      </div>
+     </div>
+     {editingId===c.id&&<form className="company-directory-form company-directory-edit-form" onSubmit={saveEdit}>
+      <h5>Edit {c.name}</h5>
+      <label className="field" htmlFor={'company-edit-name-'+c.id}>Contact name / title</label>
+      <input id={'company-edit-name-'+c.id} className="input" type="text" maxLength={200} value={editName} onChange={e=>setEditName(e.target.value)}/>
+      <label className="field" htmlFor={'company-edit-number-'+c.id}>WhatsApp number</label>
+      <input id={'company-edit-number-'+c.id} className="input" type="tel" inputMode="tel" value={editPhone} onChange={e=>setEditPhone(e.target.value)}/>
+      <p className="muted tiny company-directory-number-preview" aria-live="polite">{editPhone?'Number entered: '+editPhone+(editCanonical?' · Save as '+editCanonical:' · Invalid number'):'Enter the contact number.'}</p>
+      <p className="muted tiny">Edits change this company’s directory entry only. Existing RFQ/PO recipients and historical orders are not changed.</p>
+      <div className="company-directory-inline-actions">
+       <button className="btn primary" type="submit" disabled={!canSaveEdit||changing}>{changing?'Saving…':'Save Changes'}</button>
+       <button type="button" className="btn" disabled={changing} onClick={cancelEdit}>Cancel</button>
+      </div>
+     </form>}
+     {deleteTargetId===c.id&&<div className="company-directory-confirm" role="group" aria-label={'Confirm removal of '+c.name}>
+      <strong>Remove {c.name} from {selected?.name}?</strong>
+      <p>This removes only this company’s directory entry. The supplier record, existing RFQ/PO routes and order history stay intact.</p>
+      <div className="company-directory-inline-actions">
+       <button type="button" className="btn bad" disabled={changing} onClick={()=>removeContact(c)}>{changing?'Removing…':'Yes, Remove'}</button>
+       <button type="button" className="btn" disabled={changing} onClick={()=>setDeleteTargetId(null)}>Cancel</button>
+      </div>
+     </div>}
     </div>)}
     {scopedAssigned.length>0&&<><h5>Already assigned to routing (not yet in directory)</h5>{scopedAssigned.map(c=><div className="company-directory-record" key={c.company_id+':'+c.supplier_id}><strong>{c.name}</strong><span>{c.phone}</span><small className="muted">{c.source}</small></div>)}</>}
    </div>
