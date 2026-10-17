@@ -27,6 +27,7 @@ import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
 
 export function Requirements({activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},guidedStep=2,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,t=(k,f)=>f||k}){
+ const targetRequirement=/^requirement:[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter)?initialFilter.slice(12):''
  const reviewRef=useRef(null),supplierBuilderRef=useRef(null)
  useEffect(()=>{if(activeView!=='requirements')return;requestAnimationFrame(()=>{const target=(guidedStep===3?supplierBuilderRef.current:null)||reviewRef.current;target?.scrollIntoView({block:'start'});target?.focus({preventScroll:true})})},[activeView,guidedStep,guideRevision])
  const canAdd=can('procurement.requirements.manage')
@@ -40,7 +41,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
  const[addMode,setAddMode]=useState('standard'),[specialItem,setSpecialItem]=useState(null)
  const[special,setSpecial]=useState({reason:'customer_request',customer_qty:'',purchase_qty:'',customer_reference:'',notes:'',priority:''})
- const[stage,setStage]=useState(['all','to_order','delivery'].includes(initialFilter)?initialFilter:(canReview?'pending_review':'all'))
+ const[stage,setStage]=useState(targetRequirement?(guidedStep===3?'approved':'all'):['all','to_order','delivery'].includes(initialFilter)?initialFilter:(canReview?'pending_review':'all'))
  const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
  const[controlCounts,setControlCounts]=useState({outstanding:null,overdue:null,uncovered:null,delivery:null})
  const[controlFilter,setControlFilter]=useState('all')
@@ -59,6 +60,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
 
  const load=useCallback(async()=>{try{
   let q=supabase.from('proc_v_requirements').select('*',{count:'exact'}).in('status',['open','quoting','partially_ordered','ordered','partially_received']).order(oldestFirst?'created_at':'source_activity_at',{ascending:!oldestFirst}).range(page*pageSize,page*pageSize+pageSize-1)
+  if(targetRequirement)q=q.eq('id',targetRequirement)
   if(stage==='to_order')q=q.gt('remaining_to_order',0)
   if(stage==='pending_review')q=q.eq('approval_status','pending_review')
   if(stage==='approved')q=q.eq('approval_status','approved').gt('remaining_to_order',0).eq('has_active_rfq',false)
@@ -84,14 +86,14 @@ export function Requirements({activeView='requirements',initialFilter='',profile
    tasks.push(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true}).gt('ordered_not_received',0))
   }
   const results=await Promise.all(tasks)
-  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0)
+  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0);if(targetRequirement)setSelected(new Set((a.data||[]).map(r=>r.id)))
   if(canReview){
    const b=results[1];if(b.error)throw b.error;setSuppliers(b.data||[])
    for(const x of results.slice(2))if(x.error)throw x.error
    setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
    setControlCounts({outstanding:results[6].count||0,overdue:results[7].count||0,uncovered:results[8].count||0,delivery:results[9].count||0})
   }
- }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter,categoryFilter,requirementSearch])
+ }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter,categoryFilter,requirementSearch,targetRequirement])
  useEffect(()=>{if(activeView==='requirements')load()},[load,activeView])
  useEffect(()=>{setPage(0);setChosen(new Set());setScopeOverrides({})},[stage])
 
@@ -248,6 +250,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
  const cols=configuredColumns(fields,'requirements',defaults)
 
  return <>
+  {targetRequirement&&<div className="notice toolbar"><span>Showing only the selected urgent item.</span><button type="button" className="btn small" onClick={()=>navigate('requirements','all',2)}>Show all requirements</button></div>}
   {activity&&<ItemActivity row={activity} onClose={()=>setActivity(null)} can={can} navigate={navigate}/>}
   <div hidden={guidedStep===3&&stage==='approved'&&selected.size>0}>
   <div className="filters two sticky-work-search"><input aria-label="Search outstanding items" className="input" placeholder="Search item, size or requirement" value={requirementSearch} onChange={e=>{setRequirementSearch(e.target.value);setPage(0)}}/><input aria-label="Filter requirement category" className="input" placeholder="Category (e.g. BATHROOM)" value={categoryFilter} onChange={e=>{setCategoryFilter(e.target.value.toUpperCase());setPage(0)}}/></div>

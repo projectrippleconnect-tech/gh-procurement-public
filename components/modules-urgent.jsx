@@ -1,5 +1,6 @@
 'use client'
 
+import {ItemActivity} from './item-activity'
 import {ModernSelect} from './modern-select'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
@@ -29,14 +30,22 @@ async function uploadUrgentImage(file,prefix){
  return path
 }
 
-export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function UrgentActions({activeView='urgent_actions',profile,fields,features=[],flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const canManage=can('urgent.manage')
  const canAutomation=can('procurement.requirements.manage')||can('procurement.rfq.manage')||can('procurement.orders.edit')||can('admin.audit.view')
  const[rows,setRows]=useState([]),[jobs,setJobs]=useState([]),[loading,setLoading]=useState(true),[priority,setPriority]=useState('all'),[reason,setReason]=useState('all')
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[selectedItem,setSelectedItem]=useState(null)
  const[urgent,setUrgent]=useState({required_qty:'',current_stock:'',reason:'manual_urgent',customer_paid:false,customer_reference:'',notes:''}),[urgentImage,setUrgentImage]=useState(null)
  const[missing,setMissing]=useState({proposed_name:'',brand:'',category:'GENERAL',main_group:'',subgroup:'',size:'',uom:'PCS',movement:'NORMAL',required_qty:'',suggested_max_stock:'',reason:'customer_request',customer_paid:false,customer_reference:'',notes:''}),[missingImage,setMissingImage]=useState(null)
- const[busy,setBusy]=useState(false)
+ const[busy,setBusy]=useState(false),[actionBusy,setActionBusy]=useState(''),[activity,setActivity]=useState(null)
+ async function continuePurchasing(r){
+  setActionBusy(r.action_id)
+  try{
+   const result=await supabase.from('proc_v_requirements').select('*').eq('id',r.action_id).single()
+   if(result.error)throw result.error
+   setActivity(result.data)
+  }catch(e){fail(e)}finally{setActionBusy('')}
+ }
  const[queuePage,setQueuePage]=useState(0),[jobPage,setJobPage]=useState(0)
  const loadRevision=useRef(0),queueHeading=useRef(null)
  const[scope,setScope]=useState('all')
@@ -59,7 +68,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
   }
   if(revision===loadRevision.current){setRows(r.data||[]);setJobs(nextJobs);setQueuePage(0);setJobPage(0)}
  }catch(e){if(revision===loadRevision.current)fail(e)}finally{if(revision===loadRevision.current)setLoading(false)}},[fail,canAutomation])
- useEffect(()=>{load();return()=>{loadRevision.current++}},[load])
+ useEffect(()=>{if(activeView!=='urgent_actions')return;load();return()=>{loadRevision.current++}},[load,activeView])
  useEffect(()=>{setQueuePage(0)},[priority,reason,scope])
 
  useEffect(()=>{
@@ -138,7 +147,12 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
   setBusy(false)
   if(x.error)return fail(x.error)
   flash('Item created/matched and '+x.data.requirement_no+' added to Procurement Review.')
-  load()
+  await load()
+  if(x.data?.requirement_no){
+   const requirement=await supabase.from('proc_v_requirements').select('*').eq('requirement_no',x.data.requirement_no).single()
+   if(requirement.error)return fail(requirement.error)
+   setActivity(requirement.data)
+  }
  }
  async function approve(r){
   if(!canManage||r.action_type!=='existing_item')return
@@ -173,6 +187,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
  }
 
  return <>
+  {activity&&<ItemActivity row={activity} can={can} navigate={navigate} onClose={()=>setActivity(null)}/>}
   <div className="sectionhead urgent-page-head"><div><h3>{t('urgent.title','Urgent Actions')} <InfoButton topic="urgent_orders" language={language}/></h3><p>{t('urgent.subtitle','Priority purchasing queue for zero stock, customer-paid needs and other time-critical requirements.')}</p></div></div>
   <div className="urgent-summary-grid">
    {[
@@ -245,7 +260,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
    {loading?<Empty>Loading urgent actions…</Empty>:shown.length===0?<Empty>No urgent actions in this filter.</Empty>:<div className="urgent-action-list">{shown.slice(queuePage*50,(queuePage+1)*50).map(r=><div className={'urgent-action-card priority-'+r.effective_priority} key={r.action_type+'-'+r.action_id}>
     <div className="urgent-card-head"><div><div className="pillrow"><Badge>{r.effective_priority}</Badge><Badge>{r.action_type==='missing_item'?'missing item':r.movement}</Badge>{r.customer_paid&&<Badge>customer paid</Badge>}</div><h3>{itemTitle(r)}</h3><div className="muted tiny">{[r.brand,r.uom,r.category,r.main_group].filter(Boolean).join(' · ')}</div></div><div className="priority-score"><span>Priority score</span><b>{r.priority_score}</b></div></div>
     <div className="urgent-card-grid"><div><span>Reason</span><b>{reasonLabels[r.urgency_reason]||r.urgency_reason||'FAST / Stock'}</b></div><div><span>Required</span><b>{qty(r.required_qty)}</b></div><div><span>Book Stock</span><b>{r.book_stock===null||r.book_stock===undefined?'—':qty(r.book_stock)}</b></div><div><span>Status</span><b>{String(r.status).replaceAll('_',' ')}</b></div>{r.customer_reference&&<div><span>Customer Ref</span><b>{r.customer_reference}</b></div>}</div>
-    <div className="toolbar section">{r.image_path&&<button className="btn small" onClick={()=>viewImage(r.image_path)}>View Photo</button>}{canManage&&r.action_type==='missing_item'&&<><button className="btn good" disabled={busy} onClick={()=>convert(r)}>Create Item + Requirement</button><button className="btn bad" onClick={()=>rejectMissing(r)}>Reject</button></>}{canManage&&r.action_type==='existing_item'&&r.approval_status==='pending_review'&&<button className="btn good" onClick={()=>approve(r)}>Approve for Supplier Prices</button>}</div>
+    <div className="toolbar section">{r.action_type==='existing_item'&&<button type="button" className="btn primary record-button" disabled={!!actionBusy} onClick={()=>continuePurchasing(r)}>{actionBusy===r.action_id?'Opening…':'Next action · RFQ / purchase order →'}</button>}{r.image_path&&<button className="btn small" onClick={()=>viewImage(r.image_path)}>View Photo</button>}{canManage&&r.action_type==='missing_item'&&<><button className="btn good" disabled={busy} onClick={()=>convert(r)}>Create Item + Requirement</button><button className="btn bad" onClick={()=>rejectMissing(r)}>Reject</button></>}{canManage&&r.action_type==='existing_item'&&r.approval_status==='pending_review'&&<button className="btn good" onClick={()=>approve(r)}>Approve for Supplier Prices</button>}</div>
    </div>)}</div>}
    <ListPages total={shown.length} page={queuePage} onChange={setQueuePage} label="Urgent actions"/>
   </div>
