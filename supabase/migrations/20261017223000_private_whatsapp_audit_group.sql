@@ -38,7 +38,7 @@ begin
   raise exception 'Unauthorized private group archive';
  end if;
  if p_kind not in ('rfq','po') or p_supplier_dispatch_id is null
-  or p_group_id !~ '^[0-9][0-9-]{5,48}@g\\.us$'
+  or p_group_id !~ '^[0-9][0-9-]{5,48}@g[.]us$'
   or p_session !~ '^[A-Za-z0-9_-]{1,50}$'
   or p_image_sha256 !~ '^[a-f0-9]{64}$'
   or p_caption is null or length(trim(p_caption))=0 or length(p_caption)>2000 then
