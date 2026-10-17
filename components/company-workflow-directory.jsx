@@ -207,8 +207,10 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   }
   setDrafts(next);setError('');setResults([])
   setNotice('Loaded '+matched+' of '+Object.keys(REQUESTED_COMPANY_MODES).length+' requested company modes for review. Nothing has been saved yet. Missing/invalid contacts will be skipped on save.')
-  setExpanded(old=>({...old,...Object.fromEntries(rows.filter(r=>!r.section&&requestedModeFor(r.company.name)).map(r=>[r.company.id,true]))}))
+
  }
+ const pendingRows=rows.filter(r=>changed(r))
+ const countPending=pendingRows.length
  const stagedCompanyRows=rows.filter(r=>!r.section&&changed(r)&&requestedModeFor(r.company.name))
  const readyStaged=stagedCompanyRows.filter(r=>checkRow(r).valid)
  const invalidStaged=stagedCompanyRows.length-readyStaged.length
@@ -273,7 +275,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   <summary><strong>Company Workflow Directory</strong> · expandable RFQ / PO categories</summary>
   <p className="muted tiny section">Choose Auto RFQ or Auto PO on a parent, then Save branch. The choice applies to every nested category and its items. Different subcategories retain their own designated suppliers. Saving applies only to future shortages and never generates or sends a document.</p>
   <div className="toolbar section" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-   <input className="input" type="search" value={query} onChange={setQuery} aria-label="Search companies and categories" placeholder="Search company, category, supplier" style={{flex:'1 1 180px',minWidth:0}}/>
+   <input className="input" type="search" value={query} onChange={e=>setQuery(e.target.value)} aria-label="Search companies and categories" placeholder="Search company, category, supplier" style={{flex:'1 1 180px',minWidth:0}}/>
    <button className="btn small" type="button" disabled={busy} onClick={()=>{setDrafts({});setResults([]);setRefresh(x=>x+1)}}>Reload saved</button>
    <button className="btn small" type="button" disabled={busy||!rows.length} onClick={stagePreferences}>Load my 19 choices</button>
   </div>
