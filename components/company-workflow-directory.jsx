@@ -131,28 +131,23 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   const plan=planFor(row)
   return plan.actions.length>1||plan.expected.some(x=>x.row.mode!==draft.mode)
  }
- async function saveRoute(row,contextRows){
-  const draft={mode:ownMode(row),ids:ownIds(row),applyChildren:rowDraft(row)?.applyChildren===true}
+ async function saveRoute(row){
   const validation=checkRow(row)
   if(!validation.valid)throw new Error(validation.error)
-  const own=row.own
-  const save=await supabase.rpc('proc_company_save_supplier_setup',{
-   p_company_id:row.company.id,p_section_id:row.section_id,p_action:draft.mode,
-   p_assigned_ids:draft.ids,p_recipient_ids:draft.ids,
-   p_template:switchRouteTemplate(row.effective?.document_template||{},row.effective?.route_mode||'rfq',draft.mode==='direct'?'direct':'rfq'),
-   p_expected_route_id:own?.id||null,p_expected_updated_at:own?.updated_at||null
-  })
-  if(save.error)throw save.error
-  let cleared=0
-  if(draft.applyChildren){
-   const overrides=branchOverrideRows(contextRows,row).sort((a,b)=>b.path.length-a.path.length)
-   for(const child of overrides){
-    const reply=await supabase.rpc('proc_company_clear_section_route',{p_company_id:row.company.id,p_section_id:child.section_id})
-    if(reply.error)throw new Error('Parent saved, but could not reset '+child.path+': '+reply.error.message)
-    cleared++
-   }
+  const plan=planFor(row)
+  let updated=0
+  for(const choice of plan.actions){
+   const current=choice.row
+   const res=await supabase.rpc('proc_company_save_supplier_setup',{
+    p_company_id:current.company.id,p_section_id:current.section_id,p_action:choice.mode,
+    p_assigned_ids:choice.ids,p_recipient_ids:choice.ids,
+    p_template:switchRouteTemplate(current.effective?.document_template||{},current.effective?.route_mode||'rfq',choice.mode==='direct'?'direct':'rfq'),
+    p_expected_route_id:current.own?.id||null,p_expected_updated_at:current.own?.updated_at||null
+   })
+   if(res.error)throw new Error((updated?'Previous group(s) saved; ':'')+current.path+': '+res.error.message)
+   updated++
   }
-  return {row,mode:draft.mode,ids:draft.ids,cleared,branch:draft.applyChildren}
+  return {row,mode:ownMode(row),ids:ownIds(row),updated,expected:plan.expected,branch:!!rowDraft(row)?.applyChildren}
  }
  async function runSave(requested,{batch=false}={}){
   if(lock.current||!requested.length)return
