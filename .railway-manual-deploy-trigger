@@ -68,3 +68,5 @@ Manual release 2026-10-17: fix mobile Company Lists supplier setup overlap. Keep
 Manual release 2026-10-17: replace redundant supplier suggestions and supplier chips in Procurement Review with one searchable alphabetically sorted scrollable checkbox list. Keep existing supplier IDs, multi-selection, coverage override validation, RFQ submission, and manual pinned Railway deployments. Run audit, lint, tests, build and healthcheck; no data migration or WhatsApp dispatch in this UI-only release.
 
 2026-10-17 company workflow directory release: nested categories; exclusive RFQ/PO settings; supplier readback; no send on config.
+
+Manually authorized GH Procurement company directory UI release, 2026-10-17: replace large Existing contacts and Already assigned to routing cards with compact single-line entries, showing the phone number and icon-only Edit/Delete actions. Preserve full names in accessible titles, existing confirmation flows, supplier records, RFQ/PO routing and dispatch settings. Run Railway audit, TypeScript, automated tests, production build and health check; pin this release commit without enabling auto deployments or sending messages.
