@@ -200,6 +200,12 @@ try{
    else if(name==='proc_company_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1')data=groupContactIds.map((id,idx)=>({company_id:'company-fixture',section_id:groupSection.id,supplier_id:id,sort_order:idx+1}))
    else if(name==='proc_company_save_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1'){const b=req.postDataJSON();groupContactIds=b.p_supplier_ids;data={supplier_count:groupContactIds.length}}
    else if(name==='proc_company_section_route_suppliers'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[{route_id:groupRoute.id,supplier_id:supplier.id,sort_order:1}]:[]
+   else if(name==='proc_company_save_supplier_setup'&&process.env.GH_UI_GROUP_SEND==='1'){
+    const b=req.postDataJSON()
+    groupRouteSaves.push({p_mode:b.p_action,p_auto_send:b.p_action!=='manual',p_supplier_ids:b.p_recipient_ids,p_section_id:b.p_section_id,p_template:b.p_template})
+    groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_action==='direct'?'direct':'rfq',auto_send:b.p_action!=='manual',document_template:b.p_template,assigned_supplier_ids:b.p_assigned_ids,updated_at:'2026-10-17T10:00:00Z'}
+    data={id:groupRoute.id,updated_at:groupRoute.updated_at}
+   }
    else if(name==='proc_company_save_route_v2'&&process.env.GH_UI_GROUP_SEND==='1'){
     const b=req.postDataJSON();groupRouteSaves.push(b);groupRoute={id:'route-fixture',company_id:b.p_company_id,section_id:b.p_section_id,route_mode:b.p_mode,auto_send:b.p_auto_send,document_template:b.p_template};data={id:groupRoute.id}
    }
@@ -983,35 +989,44 @@ try{
   }
   if(process.env.GH_UI_GROUP_SEND==='1'){
    await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   const setupButton=page.getByRole('button',{name:'Company setup',exact:true})
+   if(await setupButton.count())await setupButton.click()
    const simple=page.getByLabel('Company supplier automation',{exact:true})
    await simple.locator('summary').first().click()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
    await simple.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
    await simple.locator('.company-simple-directory input[type=checkbox]').first().check()
-   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
+   await simple.getByRole('radio',{name:/Auto direct PO/}).check()
    await simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()
-   await requireQuery(u=>u.pathname.endsWith('proc_company_save_route_v2'),'Simple automation saves an explicit route')
+   await requireQuery(u=>u.pathname.endsWith('proc_company_save_supplier_setup'),'Current three-step supplier automation saves an explicit route')
    assert.equal(groupRouteSaves[0].p_mode,'direct');assert.equal(groupRouteSaves[0].p_auto_send,true)
    assert.equal(groupRouteSaves[0].p_supplier_ids.length,1)
-   assert.equal(rfqGatewayRequests.length,0,'Simple settings save does not dispatch old requirements')
-   // Existing suppliers belong to the sole category, not the empty company default.
+   assert.equal(rfqGatewayRequests.length,0,'Saving supplier settings must not send old requirements')
    groupRoute={...groupRoute,section_id:groupSection.id,route_mode:'rfq',auto_send:true,document_template:{title:'REQUEST FOR QUOTATION'}}
    groupContactIds=[supplier.id]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
    await simple.locator('summary').first().click()
    assert.equal(await simple.locator('select').first().inputValue(),groupSection.id)
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
    await simple.getByText('Supplier contacts (1)',{exact:true}).waitFor()
+   await simple.getByRole('button',{name:'Next →',exact:true}).click()
    const modes=simple.locator('.company-simple-options > label')
    const firstMode=await modes.nth(0).boundingBox(),secondMode=await modes.nth(1).boundingBox()
    assert.ok(secondMode.y>=firstMode.y+firstMode.height,'Automation options occupy separate rows on mobile')
-   await simple.getByLabel('Auto direct PO — approve and send PNG to the sole supplier',{exact:true}).check()
-   await Promise.all([page.waitForResponse(r=>r.url().endsWith('/rpc/proc_company_save_route_v2')&&r.request().method()==='POST'),simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()])
-   assert.equal(groupRouteSaves.at(-1).p_mode,'direct')
+   await simple.getByRole('radio',{name:/Auto direct PO/}).check()
+   await simple.getByRole('button',{name:'Save supplier & automation settings',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('proc_company_save_supplier_setup'),'Saved category route is updated')
    assert.equal(groupRouteSaves.at(-1).p_section_id,groupSection.id)
    assert.equal(groupRouteSaves.at(-1).p_auto_send,true)
-   assert.equal(groupRouteSaves.at(-1).p_template.title,'PURCHASE ORDER')
-   assert.equal(rfqGatewayRequests.length,0,'Selecting direct PO does not send old shortages')
+   assert.equal(rfqGatewayRequests.length,0,'Updating a route does not send earlier requirements')
    groupRoute=null;groupRouteSaves=[];groupContactIds=[]
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
    await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
    const routing=page.getByLabel('Group supplier routing',{exact:true})
    await routing.locator('summary').first().click()
