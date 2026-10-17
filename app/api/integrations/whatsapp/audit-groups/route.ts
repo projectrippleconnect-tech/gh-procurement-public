@@ -36,6 +36,11 @@ export async function GET(request:Request){
  try{
   const state=await read(config.base+'/api/sessions/',encodeURIComponent(config.session),config.key)
   if(state?.status!=='WORKING')return reply({ok:false,connected:false,error:'WAHA session is not connected.'},503)
+  let groupCount:number|null=null
+  try{
+   const count=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/count',config.key)
+   if(Number.isInteger(count?.count)&&count.count>=0)groupCount=count.count
+  }catch{}
   const found=new Map<string,{id:string;name:string}>()
   const seen=new Set<string>()
   let totalListed=0,nameless=0,recognized=false,source='groups'
@@ -51,6 +56,17 @@ export async function GET(request:Request){
    for(const item of fresh){seen.add(item.id);totalListed++;if(!item.name)nameless++}
    for(const item of groupMatches(fresh,desired))if(!found.has(item.id))found.set(item.id,item)
    if(parsed.items.length<50)break
+  }
+  if(!found.size&&nameless>0){
+   // WAHA may list newly-created community subgroups without subjects.
+   // Re-fetch only a small number of incomplete records; never mutate the group.
+   for(const id of [...seen].slice(0,20)){
+    try{
+     const metadata=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(id),config.key)
+     const named=groupMatches(parseWahaGroups({[id]:metadata}).items,desired)
+     if(named.length&&!found.has(id))found.set(id,named[0])
+    }catch{}
+   }
   }
   if(!found.size){
    // Chats can contain subgroup names after WhatsApp creation even before group
@@ -79,6 +95,6 @@ export async function GET(request:Request){
   }
   results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
   return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
-   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),discovery:{source,listed:totalListed,nameless,recognized},notice:'No group messages were sent. Check group membership manually before enabling copies.'})
+   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),discovery:{source,listed:totalListed,nameless,recognized,groupCount},notice:'No group messages were sent. Check group membership manually before enabling copies.'})
  }catch{return reply({ok:false,connected:false,error:'Unable to read WAHA groups. Try again after the WhatsApp session has synchronized.'},503)}
 }
