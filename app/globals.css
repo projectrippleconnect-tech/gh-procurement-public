@@ -1030,3 +1030,42 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .company-directory-inline-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .company-directory-inline-actions .btn{min-width:0}
 }
+
+
+/* Ultra-compact company directory list: one row per contact without cards. */
+.company-directory-existing{gap:0}
+.company-directory-existing>h4{margin:0 0 6px}
+.company-directory-existing>h5{margin:11px 0 5px}
+.company-directory-existing .company-directory-entry{gap:0}
+.company-directory-existing .company-directory-record.company-directory-compact-row{
+ display:grid;grid-template-columns:minmax(0,1fr) max-content auto;align-items:center;
+ gap:8px;min-height:38px;padding:3px 1px;border:0;border-bottom:1px solid var(--line);
+ background:transparent;border-radius:0;min-width:0;max-width:100%;
+}
+.company-directory-existing .company-directory-record.company-directory-compact-route{
+ grid-template-columns:minmax(0,1fr) max-content;
+}
+.company-directory-existing .company-directory-compact-row .company-directory-contact-name{
+ display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ overflow-wrap:normal;font-size:12.5px;font-weight:700;line-height:1.2;
+}
+.company-directory-existing .company-directory-compact-row .company-directory-contact-phone{
+ display:block;min-width:0;white-space:nowrap;overflow-wrap:normal;
+ font-size:12px;line-height:1.2;font-variant-numeric:tabular-nums;color:var(--muted);
+}
+.company-directory-existing .company-directory-compact-row .company-directory-record-actions{
+ display:flex;justify-content:flex-end;gap:4px;flex-wrap:nowrap;min-width:0;
+}
+.company-directory-existing .company-directory-compact-row .company-directory-icon-button{
+ display:inline-flex;align-items:center;justify-content:center;flex:none;
+ width:32px;min-width:32px;height:32px;min-height:32px;padding:0;
+ border-radius:7px;font-size:19px;font-weight:700;line-height:1;
+}
+.company-directory-existing .company-directory-edit-form,
+.company-directory-existing .company-directory-confirm{margin:8px 0 10px}
+@media(max-width:430px){
+ .company-directory-existing .company-directory-record.company-directory-compact-row{gap:5px;min-height:36px;padding:2px 0}
+ .company-directory-existing .company-directory-compact-row .company-directory-contact-name{font-size:12px}
+ .company-directory-existing .company-directory-compact-row .company-directory-contact-phone{font-size:11px}
+ .company-directory-existing .company-directory-compact-row .company-directory-icon-button{width:30px;min-width:30px;height:30px;min-height:30px;font-size:18px}
+}
