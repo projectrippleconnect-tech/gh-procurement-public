@@ -29,7 +29,8 @@ export function WhatsAppAuditGroups(){
   {error&&<p role="alert" className="error">{error}</p>}
   {result&&<>
    <p className="muted tiny">{result.archiveEnabled?'Archive switch is on — group privacy checks still apply.':'Automatic audit copies are OFF until group IDs and migration are verified.'}</p>
-   {result.groups?.length===0?<p className="muted">WAHA has not listed RFQ, PO or General yet. Open the groups on your phone and try checking again.</p>:null}
+   {result.groups?.length===0?<p className="muted">{result.discovery?.listed>0?(result.discovery?.nameless>0?'WAHA returned '+result.discovery.listed+' group records, but '+result.discovery.nameless+' have no recognizable names. This can happen before WhatsApp community metadata is fully synchronized.':'WAHA returned '+result.discovery.listed+' group records, but none match RFQ, PO or General. Verify the group names in WhatsApp.'):'WAHA returned no recognized group records. Open the groups on your phone, confirm they can receive messages, and retry.'}</p>:null}
+   {result.discovery&&<p className="muted tiny" role="status">WAHA discovery: {result.discovery.listed} group records · {result.discovery.nameless} missing names · source: {result.discovery.source}{result.discovery.groupCount===null?'':' · WAHA reports '+result.discovery.groupCount+' groups'}. No messages sent.</p>}
    <div style={{display:'grid',gap:7}}>
    {(result.groups||[]).map(group=><div key={group.id} style={{border:'1px solid var(--line)',borderRadius:8,padding:8,minWidth:0}}>
     <strong>{group.name}</strong>
