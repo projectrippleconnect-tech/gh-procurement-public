@@ -47,7 +47,7 @@ export async function GET(request:Request){
    }
    if(list.length<50)break
   }
-  const results=[]
+  const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string}>=[]
   for(const item of found.values()){
    let count:number|null=null,memberIds:string[]=[],reason='not_verified'
    try{
