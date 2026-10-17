@@ -4,6 +4,7 @@ import {routeCaption} from '@/lib/company-route-template.mjs'
 import {extractWahaMessageId,normalizeSupplierChatId} from '@/lib/waha-rfq'
 import {createHash} from 'node:crypto'
 import {checkedRfqIds} from '@/lib/company-rfq-dispatch-scope.mjs'
+import {mirrorStaffGroupCopy,privateGroupCaption,privateGroupConfig} from '@/lib/whatsapp-private-audit'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -40,8 +41,28 @@ export async function POST(request:Request){
     }
    }catch{lastError='Sending interrupted. Check WhatsApp and dispatch history before resending.'}
    const {error:finishError}=await db.rpc('proc_company_finish_rfq_send',{p_id:row.id,p_status:status,p_message_id:messageId,p_error:lastError})
-   if(status==='accepted'&&!finishError)accepted++
-   outcomes.push({id:row.id,status,error:finishError?'Audit update failed; do not resend.':lastError})
+   const privateGroupCopies:Array<{status:string;reason:string}>=[]
+   if(status==='accepted'&&!finishError){
+    accepted++
+    if(privateGroupConfig().ready){
+     for(let index=0;index<images.length;index++){
+      const image=images[index]
+      const archive=await mirrorStaffGroupCopy({
+       db,kind:'company_rfq',sourceId:row.id,pageNumber:index+1,
+       session,base:url.origin,key,base64:image.toString('base64'),
+       imageHash:createHash('sha256').update(image).digest('hex'),
+       filename:'GH-Audit-RFQ-'+String(job.rfq_no||'')+'-'+(index+1)+'.png',
+       caption:privateGroupCaption({
+        kind:'rfq',number:String(job.rfq_no||''),supplier:String(job.supplier||''),
+        dispatchId:row.id,originalCaption:caption+' · Page '+(index+1)+'/'+images.length
+       })
+      })
+      privateGroupCopies.push(archive)
+      if(archive.status!=='accepted')break
+     }
+    }
+   }
+   outcomes.push({id:row.id,status,error:finishError?'Audit update failed; do not resend.':lastError,privateGroupCopies})
   }
   return companyReply({ok:true,message:accepted+' automatic RFQ image(s) accepted by WhatsApp. Review unsent or uncertain results in Company settings.',outcomes})
  }catch(e){return companyReply({ok:false,error:e instanceof Error?e.message:'Automatic RFQ dispatch failed.'},400)}
