@@ -2,8 +2,6 @@
 
 import {ModernSelect} from './modern-select'
 
-import {PROCUREMENT_STEPS} from '@/lib/workflow-guide.mjs'
-import {STAGES,stageForTask} from '@/lib/procurement-journey.mjs'
 
 export const NAV=[
  ['dashboard','⌂','Home'],['stock','✓','Stock Entry'],['urgent_actions','!','Exceptions'],['requirements','≡','Review'],
@@ -25,16 +23,13 @@ export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
 export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavigate,t=(k,f)=>f||k}){
- if(!['requirements','rfq','po','receiving'].includes(view))return null
- const receiving=view==='receiving',stage=stageForTask(step,view)
- const current=PROCUREMENT_STEPS.find(s=>s.id===step)||PROCUREMENT_STEPS[0]
- const available=PROCUREMENT_STEPS.filter(s=>canStep(s.id))
- const previous=[...available].reverse().find(s=>s.id<step)
- return <nav className="workflow-navigation focused-navigation" aria-label="Guided procurement navigation">
-  <div className="guide-title"><div><small>{receiving?'DELIVERY · AFTER ORDERING':'STAGE '+stage+' OF 3'}</small><strong>{receiving?'Receive delivery':STAGES[stage-1]}</strong></div>{previous&&!receiving&&<button className="btn small" aria-label="Previous procurement step" onClick={()=>onStep(previous.id)}>← Back</button>}</div>
-  {!receiving&&<div className="journey-stages">{STAGES.map((title,index)=><span key={title} aria-current={stage===index+1?'step':undefined} className={stage===index+1?'current':stage>index+1?'prior':''}>{index+1}. {title}</span>)}</div>}
-  <p>{receiving?'Choose the PO and enter quantities received. Delivery progress is separate.':view==='po'?'Review the supplier orders, approve when required, then send and confirm.':current.hint}</p>
-  <details className="journey-shortcuts"><summary>Other tasks</summary><ModernSelect className="select" aria-label="Go to procurement section" value={step} onChange={e=>onStep(Number(e.target.value))}>{available.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</ModernSelect>{canNavigate('po')&&<button className="btn small" onClick={()=>navigate('po')}>Open purchase orders →</button>}{canNavigate('receiving')&&<button className="btn small" onClick={()=>navigate('receiving')}>Receive delivery →</button>}</details>
+ if(!['stock','requirements','rfq','po','receiving'].includes(view))return null
+ const index=view==='stock'?0:view==='requirements'?1:view==='rfq'?2:view==='po'?3:4
+ const stages=[['Stock','stock',1],['Review','requirements',2],['Prices','rfq',4],['Order','po',6],['Receive','receiving',null]]
+ return <nav className="workflow-navigation focused-navigation compact-journey" aria-label="Guided procurement navigation">
+  <div className="guide-title"><strong>Step {index+1} of 5 · {stages[index][0]}</strong><small>Purchasing journey</small></div>
+  <div className="journey-position" aria-hidden="true">{stages.map(([label],i)=><span key={label} className={i===index?'current':''}/>)}</div>
+  <details className="journey-shortcuts"><summary>Choose a step</summary><div className="journey-step-buttons">{stages.map(([label,target,id],i)=><button key={target} className={'btn small '+(i===index?'primary':'')} disabled={!canNavigate(target)} aria-current={i===index?'step':undefined} onClick={()=>id===null?navigate(target):onStep(id)}>{i+1}. {label}</button>)}</div><small>Steps show your location. Saved order status tracks completion.</small></details>
  </nav>
 }
 

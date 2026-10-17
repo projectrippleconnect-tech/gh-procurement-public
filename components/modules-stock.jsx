@@ -1,6 +1,7 @@
 'use client'
 
 import {ModernSelect} from './modern-select'
+import {DashboardActions} from './dashboard-actions'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
@@ -18,15 +19,16 @@ import {StockPrintDialog} from './stock-print-dialog'
 import dynamic from 'next/dynamic'
 const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:()=> <div className="card pad">Loading Company Items…</div>})
 
-export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
+export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
+ const[queueCounts,setQueueCounts]=useState({})
  const[loadState,setLoadState]=useState({})
  const loadSerial=useRef(0)
  const[overdueOpen,setOverdueOpen]=useState(false)
  const destinations={active_items:['items',''],open_requirements:['requirements','all'],still_to_order:['requirements','to_order'],awaiting_receipt:['requirements','delivery'],open_pos:['po','open'],po_value:['po','non_cancelled'],invoice_variances:['invoices','variance'],stock_due:['stock','due'],urgent_actions:['urgent_actions','']}
  const load=useCallback(async()=>{try{
   const serial=++loadSerial.current
-  setLoadState({summary:'loading',requirements:'loading',orders:'loading',rfq:'loading',po:'loading',stockDue:'loading',receiptVariance:'loading',urgent:'loading'})
+  setLoadState({summary:'loading',requirements:'loading',orders:'loading',rfq:'loading',po:'loading',stockDue:'loading',receiptVariance:'loading',urgent:'loading',review:'loading',approval:'loading',send:'loading',prices:'loading',deliveries:'loading'})
   const today=businessDate()
   const tasks=[
    supabase.from('proc_v_dashboard').select('*').single(),
@@ -36,10 +38,15 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
    supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).lt('expected_date',today).in('status',['sent','partially_received']),
    supabase.from('proc_v_stock_check_due').select('item_id',{count:'exact',head:true}).eq('is_due',true),
    supabase.from('proc_v_receipt_reconciliation').select('po_line_id',{count:'exact',head:true}).gt('over_received_qty',0),
-   supabase.from('proc_v_urgent_actions').select('action_id',{count:'exact',head:true})
+   supabase.from('proc_v_urgent_actions').select('action_id',{count:'exact',head:true}),
+   supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']),
+   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','pending_approval'),
+   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','approved'),
+   supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted']),
+   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['sent','partially_received'])
   ]
-  const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent']
-  await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else setAlerts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
+  const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent','review','approval','send','prices','deliveries']
+  await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(index>=3&&!Number.isInteger(result.count))throw new Error('Queue count unavailable');if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else if(index<8)setAlerts(v=>({...v,[key]:result.count||0}));else setQueueCounts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
  }catch(e){fail(e)}},[fail])
  useEffect(()=>{if(activeView==='dashboard')load()},[load,activeView])
  const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
@@ -56,8 +63,8 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
-  {lastWork&&canNavigate(lastWork.view)&&<button className="btn primary section" onClick={resumeWork}>Continue order / task →</button>}
-  <div className="card pad section"><h3>Today's work</h3><div className="toolbar section">{canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>Review outstanding items</button>}{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq')}>Enter / compare prices</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','pending_approval')}>Approve orders</button>}{canNavigate('receiving')&&<button className="btn" onClick={()=>navigate('receiving')}>Receive deliveries</button>}<button className="btn small" onClick={load}>Refresh work queues</button></div></div>
+  <DashboardActions can={can} counts={{...alerts,...queueCounts}} states={loadState} canNavigate={canNavigate} navigate={navigate} onRefresh={load} lastWork={lastWork} resumeWork={resumeWork}/>
+  <details className="dashboard-totals section"><summary>Overview &amp; totals</summary>
   <div className="grid metrics">{cards.map(x=>{
    const key=x[0].slice('dashboard.'.length),target=destinations[key]
    const actionable=key==='overdue_actions'?(canNavigate('rfq')||canNavigate('po')):target&&canNavigate(target[0])
@@ -67,6 +74,8 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
    return actionable?<button type="button" className="card metric metric-link" key={x[0]} aria-label={t(x[0],x[1])} aria-describedby={x[0]+'-value'} aria-expanded={key==='overdue_actions'?overdueOpen:undefined} aria-controls={key==='overdue_actions'?'dashboard-overdue':undefined} onClick={()=>key==='overdue_actions'?setOverdueOpen(v=>!v):navigate(...target)}>{content}<span className="metric-action">{t('dashboard.view_details','View details')} →</span></button>:<div className="card metric" key={x[0]}>{content}</div>
   })}</div>
   {overdueOpen&&<div className="card pad section" id="dashboard-overdue"><h3>{t('dashboard.overdue_actions','Overdue actions')}</h3><div className="toolbar">{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq','overdue')}>{t('dashboard.overdue_rfqs','Overdue supplier requests')} · {alerts.rfq||0}</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','overdue')}>{t('dashboard.overdue_pos','Overdue purchase orders')} · {alerts.po||0}</button>}</div></div>}
+  </details>
+  <details className="dashboard-recent section"><summary>Recent purchases &amp; activity</summary>
   <div className="split section">
    <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.procurement_attention','Procurement attention')}</h3><p>{t('dashboard.procurement_attention_hint','Newest unresolved requirements')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
     {loadState.requirements==='error'?<p role="alert">Requirements unavailable. Tap Refresh to retry.</p>:loadState.requirements!=='ready'?<p role="status">Loading requirements…</p>:<DataTable columns={[
@@ -82,12 +91,15 @@ export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',fea
     {loadState.orders==='error'?<p role="alert">Orders unavailable. Tap Refresh to retry.</p>:loadState.orders!=='ready'?<p role="status">Loading orders…</p>:pos.length?pos.map(x=><button className="btn record-button compact-record" key={x.id} disabled={!canNavigate('po')} onClick={()=>navigate('po',x.id)}><div><strong>{x.po_no}</strong><div className="muted tiny">{x.supplier?.name||'Supplier'}</div></div><div className="right"><Badge>{x.status}</Badge><div className="num record-value">{money(x.total)}</div></div></button>):<Empty/>}
    </div>
   </div>
+  </details>
  </>
 }
 
 export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
- const[stockTab,setStockTab]=useState('general')
+ const[stockTab,setStockTab]=useState(()=>{try{return can('company_lists.view')&&localStorage.getItem('gh-stock-list-tab:'+profile.id)==='company'?'company':'general'}catch{return 'general'}})
+ function changeStockTab(value){setStockTab(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
+
  const[submission,setSubmission]=useState(null)
  const resultRef=useRef(null)
  useEffect(()=>{if(submission)resultRef.current?.scrollIntoView({block:'start'})},[submission])
@@ -514,13 +526,13 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
  ]
 
- const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
- if(stockTab==='company')return <>{stockTabs}<CompanyLists profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
+ const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>changeStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>changeStockTab('company')}>Company Items</button>}</div>
+ if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
   {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
-   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+Object.values(entry).filter(v=>v!==''&&v!==undefined).length}</button></div></div>
+   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary stock-submit-dock" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])]).size}</button></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
     <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
     <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>

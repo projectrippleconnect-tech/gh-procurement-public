@@ -40,7 +40,7 @@ function ProcurementApp(){
  const[visited,setVisited]=useState(()=>new Set(['dashboard']))
  const activeScreen=useRef(view);activeScreen.current=view
  const[navigation,setNavigation]=useState({filter:'',revision:0})
- const[guide,setGuide]=useState({step:1,revision:0}),[guideRfqId,setGuideRfqId]=useState('')
+ const[guide,setGuide]=useState({step:1,revision:0}),[guideRfqId,setGuideRfqId]=useState(''),[guidePoId,setGuidePoId]=useState(''),[guideReceivingId,setGuideReceivingId]=useState('')
  const[boot,setBoot]=useState(true),[notice,setNotice]=useState(''),[error,setError]=useState(''),[recovery,setRecovery]=useState(false)
  const[bootError,setBootError]=useState(''),[startupAttempt,setStartupAttempt]=useState(0)
  const[modules,setModules]=useState([]),[fields,setFields]=useState([]),[features,setFeatures]=useState([]),[settings,setSettings]=useState({})
@@ -48,6 +48,22 @@ function ProcurementApp(){
  const[mobileMenu,setMobileMenu]=useState(false),[securityOpen,setSecurityOpen]=useState(false),[helpOpen,setHelpOpen]=useState(false)
  const[screenHistory,setScreenHistory]=useState({entries:[{view:'dashboard',filter:''}],index:0})
  const workContent=useRef(null)
+ useEffect(()=>{
+  const viewport=window.visualViewport
+  if(!viewport)return
+  const update=()=>{
+   const field=document.activeElement
+   const gap=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop)
+   const editing=field?.matches('input,textarea,[contenteditable="true"]')
+   const open=editing&&gap>120
+   document.documentElement.style.setProperty('--gh-keyboard-gap',open?gap+'px':'0px')
+   document.documentElement.style.setProperty('--gh-workspace-height',open?viewport.height+'px':'100dvh')
+   if(open)requestAnimationFrame(()=>field?.scrollIntoView({block:'nearest'}))
+  }
+  viewport.addEventListener('resize',update);update()
+  return()=>{viewport.removeEventListener('resize',update);document.documentElement.style.removeProperty('--gh-keyboard-gap');document.documentElement.style.removeProperty('--gh-workspace-height')}
+ },[])
+
  useEffect(()=>{
   if(boot||!workContent.current)return
   const screen=workContent.current.querySelector('section:not([hidden])')
@@ -70,7 +86,7 @@ function ProcurementApp(){
  },[mobileMenu])
  const historyRef=useRef(screenHistory)
  const scrollPositions=useRef({})
- useEffect(()=>{const id=requestAnimationFrame(()=>window.scrollTo(0,scrollPositions.current[view]||0));return()=>cancelAnimationFrame(id)},[view])
+ useEffect(()=>{const id=requestAnimationFrame(()=>{window.scrollTo(0,scrollPositions.current[view]||0);if(workContent.current)workContent.current.scrollTop=scrollPositions.current[view]||0});return()=>cancelAnimationFrame(id)},[view])
  const lastActivity=useRef(Date.now()),noticeTimer=useRef(null),errorTimer=useRef(null)
  const hydratedUser=useRef(null)
 
@@ -251,7 +267,7 @@ function ProcurementApp(){
  const primaryNav=useMemo(()=>primaryKeys.map(k=>visibleNav.find(n=>n[0]===k)).filter(Boolean),[primaryKeys,visibleNav])
  const secondaryNav=useMemo(()=>visibleNav.filter(n=>!primaryKeys.includes(n[0])),[visibleNav,primaryKeys])
  const mobileQuickNav=useMemo(()=>{
-  if(['admin','procurement'].includes(roleKey))return ['stock','rfq','po','receiving'].map(k=>visibleNav.find(n=>n[0]===k)).filter(Boolean)
+  if(['admin','procurement'].includes(roleKey))return ['dashboard','stock','po','receiving'].map(k=>visibleNav.find(n=>n[0]===k)).filter(Boolean)
   return primaryNav.slice(0,4)
  },[primaryNav,roleKey,visibleNav])
 
@@ -269,7 +285,7 @@ function ProcurementApp(){
  },[visibleNav,primaryNav,view,profile])
  const[lastWork,setLastWork]=useState(null)
  useEffect(()=>{if(!profile?.id)return;try{const saved=JSON.parse(localStorage.getItem('gh-last-work:'+profile.id)||'null');setLastWork(saved)}catch{}},[profile?.id])
- useEffect(()=>{if(!profile?.id||!['stock','requirements','rfq','po'].includes(view))return;const work={view,step:guide.step,filter:view==='rfq'?(guideRfqId||viewFilters[view]||''):(viewFilters[view]||'')};try{localStorage.setItem('gh-last-work:'+profile.id,JSON.stringify(work));setLastWork(work)}catch{}},[profile?.id,view,guide.step,guideRfqId,viewFilters])
+ useEffect(()=>{if(!profile?.id||!['stock','requirements','rfq','po','receiving'].includes(view))return;const work={version:1,view,step:guide.step,savedAt:new Date().toISOString(),filter:view==='rfq'?(guideRfqId||viewFilters[view]||''):view==='po'?(guidePoId||viewFilters[view]||''):view==='receiving'?(guideReceivingId||viewFilters[view]||''):(viewFilters[view]||'')};try{localStorage.setItem('gh-last-work:'+profile.id,JSON.stringify(work));setLastWork(work)}catch{}},[profile?.id,view,guide.step,guideRfqId,guidePoId,guideReceivingId,viewFilters])
  const hasAuthorizedWorkspace=visibleNav.length>0
 
  if(recovery)return <LoginScreen initialError={error}/>
@@ -280,16 +296,16 @@ function ProcurementApp(){
  if(!profile)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>{t('app.access_unavailable','Access unavailable')}</h1><p>{error||t('app.account_not_enabled','Your account is not enabled for GH Procurement.')}</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>
  if(!hasAuthorizedWorkspace)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>No permitted workspace</h1><p>Your account is active, but no procurement screens are currently enabled for your role. Ask an administrator to review your role permissions.</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>Sign out</button></div></div></div>
 
- const title=visibleNav.find(x=>x[0]===view)?.[2]||'GH Procurement'
+ const title=({rfq:'Prices',requirements:'Review',po:'Orders',stock:'Stock',receiving:'Receive'})[view]||visibleNav.find(x=>x[0]===view)?.[2]||'GH Procurement'
  const company=settings.company_profile||{name:'General Hardware',town:'Nawalapitiya',country:'Sri Lanka'}
  const footer=settings.pdf_footer||'Generated by GH Procurement'
  function showScreen(k,filter='',restore=false,step=stepForView(k)){
   setGuide(v=>({step,revision:v.revision+1}))
-  setNavigation(x=>({filter,revision:x.revision+1}));scrollPositions.current[view]=window.scrollY
+  setNavigation(x=>({filter,revision:x.revision+1}));scrollPositions.current[view]=workContent.current?.scrollTop||window.scrollY
   if((restore&&filter!==(viewFilters[k]||''))||(!restore&&filter)){setViewFilters(v=>({...v,[k]:filter}));setViewKeys(v=>({...v,[k]:(v[k]||0)+1}))}
   if(!restore)scrollPositions.current[k]=0
   setVisited(v=>new Set([...v,k]));setView(k);setMobileMenu(false);setError('')
-  if(!restore)requestAnimationFrame(()=>window.scrollTo(0,0))
+  if(!restore)requestAnimationFrame(()=>{window.scrollTo(0,0);if(workContent.current)workContent.current.scrollTop=0})
  }
  function saveHistory(next){historyRef.current=next;setScreenHistory(next)}
  function go(k,filter='',step=null){
@@ -320,7 +336,7 @@ function ProcurementApp(){
  }
  function canStep(step){return visibleNav.some(n=>n[0]===guidedDestination(step))}
  function guideTo(step){if(canStep(step))go(guidedDestination(step),'',step)}
- const p={settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
+ const p={settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,onOrderSelected:setGuidePoId,onReceivingSelected:setGuideReceivingId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
  return <div className="app" style={interfaceVariables(settings.interface_preferences)}>
   <aside className="sidebar">
    <div className="brand"><div className="brandmark">GH</div><div><h1>GH Procurement</h1><small>{t('app.purchase_control','Purchase Control')}</small></div></div>
@@ -339,6 +355,7 @@ function ProcurementApp(){
    <header className="topbar"><div className="topbar-left"><button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
    <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button></nav>
    <div className="content" ref={workContent}>
+    {['requirements','rfq','po'].includes(view)&&<nav className="purchase-workspaces" aria-label="Purchasing sections">{[['requirements','Review'],['rfq','Prices'],['po','Orders']].filter(([key])=>p.canNavigate(key)).map(([key,label])=><button key={key} className={'btn small '+(view===key?'primary':'')} aria-current={view===key?'page':undefined} onClick={()=>go(key)}>{label}</button>)}</nav>}
     <WorkflowNavigation view={view} step={guide.step} onStep={guideTo} canStep={canStep} navigate={go} canNavigate={p.canNavigate} t={t}/>
      {!visibleNav.some(n=>n[0]===view)&&<p role="status" className="muted">Opening your permitted workspace…</p>}
     <section hidden={view!=='dashboard'} key={'dashboard-'+(viewKeys['dashboard']||0)}>{visited.has('dashboard')&&visibleNav.some(n=>n[0]==='dashboard')&&<Dashboard {...p} initialFilter={viewFilters['dashboard']||''}/>}</section>
@@ -358,12 +375,12 @@ function ProcurementApp(){
    </div>
   </main>
 
-  <nav className="mobile-bottom-nav" style={{gridTemplateColumns:`repeat(${mobileQuickNav.length+1},minmax(0,1fr))`}}>
-   {mobileQuickNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span>{n[2].split(' ')[0]}</button>)}
-   <button className={mobileMenu?'active':''} onClick={()=>setMobileMenu(true)}><span>☰</span>{t('app.more','More')}</button>
+  <nav className="mobile-bottom-nav" aria-label="Main navigation" style={{gridTemplateColumns:mobileQuickNav[0]?.[0]==='dashboard'?`0.8fr repeat(${mobileQuickNav.length},minmax(0,1fr))`:`repeat(${mobileQuickNav.length+1},minmax(0,1fr))`}}>
+   {mobileQuickNav.map(n=><button key={n[0]} aria-current={view===n[0]?'page':undefined} className={(view===n[0]||(n[0]==='po'&&['requirements','rfq'].includes(view)))?'active':''} onClick={()=>go(n[0])}><span aria-hidden="true">{n[1]}</span>{n[2].split(' ')[0]}</button>)}
+   <button className={mobileMenu?'active':''} onClick={()=>setMobileMenu(true)}><span aria-hidden="true">☰</span>{t('app.more','More')}</button>
   </nav>
 
-  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">GH Procurement</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><div className="drawer-section-title">WORK</div><div className="mobile-drawer-grid">{primaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div>{secondaryNav.length>0&&<><div className="drawer-section-title">MORE / ADMIN</div><div className="mobile-drawer-grid secondary">{secondaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></>}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
+  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">GH Procurement</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div>{[['Work',['dashboard','stock','requirements','rfq','po','receiving','urgent_actions']],['Directory',['company_lists','suppliers','items','price_lists']],['Business & settings',['invoices','reports','admin']]].map(([label,keys])=>{const links=keys.map(key=>visibleNav.find(n=>n[0]===key)).filter(Boolean);return links.length>0&&<div key={label}><div className="drawer-section-title">{label}</div><div className="mobile-drawer-grid">{links.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></div>})}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
 
   <div className="app-toast-stack" aria-live="polite">
    {notice&&<div className="app-toast success-toast"><b>✓</b><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice('')}>×</button></div>}

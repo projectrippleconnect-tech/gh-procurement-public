@@ -95,6 +95,9 @@ try{
    }
    assert.fail(message)
   }
+  const receivingMode=process.env.GH_UI_RECEIVING==='1'
+  let receivingAccepted=0,receivingCase=null,caseWrites=[],closureWrites=[],followupFailure=false,receivingReplayKey=null
+  let dashboardReviewFailure=false
   let exceptionFixtures=false
   const savedQuotes=new Map(),additionalCalls=[]; let extraSizeItems=[]
   let quoteReadFailure=null
@@ -137,9 +140,13 @@ try{
    assert.equal(body.lines[0].current_stock,changed?0:1)
    await route.fulfill({json:{ok:true,count_no:changed?'035':'034',requirements_created:0,purchase_orders:[],rfqs:[],stock_outcomes:[{description:item.description,current_stock:changed?0:1,shortage_qty:changed?20:19,committed_qty:19,uncovered_qty:changed?1:0,needs_review:changed,reason:changed?'Stock need changed while an order is outstanding. Additional purchasing needs manual review.':'Covered by existing purchase orders.',orders:[{id:po.id,number:'001',status:'sent',qty:19}],rfqs:[]}]}})
   })
+  const routingMode=process.env.GH_UI_ROUTING==='1'
+  let setupRoute={id:'routing-fixture',company_id:'company-fixture',section_id:null,route_mode:'rfq',auto_send:true,updated_at:'2026-10-16T00:00:00Z',assigned_supplier_ids:[supplier.id]}
+  let setupDefaultId=newSupplier.id,setupRecipients=[supplier.id],setupFailure=false
+  const setupSaves=[]
   let groupRoute=null,groupRouteSaves=[],groupPreparations=0,groupContactIds=[],groupNoShortages=false
   const groupSection={id:'00000000-0000-4000-8000-000000000090',company_id:'company-fixture',name:'ALCATHINE HOSE',active:true,parent_id:null}
-  let directory=[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
+  let directory=routingMode?[supplier,newSupplier]:[supplier],invitations=[{id:'invite-fixture',rfq_id:rfq.id,supplier_id:supplier.id,status:'pending'}],addFailure=true,rfqStatus='prepared'
   page.on('console',m=>{if(m.type()==='error'&&/ReferenceError|TypeError|Minified React error/.test(m.text()))errors.push(m.text())})
   page.on('pageerror',e=>errors.push(e.message))
   await context.route('https://*.supabase.co/**',async route=>{
@@ -173,6 +180,17 @@ try{
    else if(name==='proc_admin_record_preview_v1'){const b=req.postDataJSON();data={label:b.p_table==='proc_rfqs'?rfq.rfq_no:b.p_table==='proc_suppliers'?supplier.supplier_code:po.po_no,counts:{[b.p_table]:1},token:'fixture-record-token'}}
    else if(['proc_admin_delete_record_v1','proc_admin_reset_data_v1','proc_admin_delete_item_v1','proc_admin_clear_po_v1'].includes(name)){destructiveRequests.push({name,body:req.postDataJSON()});return route.fulfill({status:400,json:{message:'Fixture operation blocked'}})}
    else if(name==='proc_quick_add_item_v1')data={existing:false,item:{...item,item_code:'QA-FIXTURE',description:req.postDataJSON().p_item.description}}
+   else if(name==='proc_company_section_routes'&&routingMode)data=[setupRoute]
+   else if(name==='proc_company_section_route_suppliers'&&routingMode)data=setupRecipients.map((id,i)=>({route_id:setupRoute.id,supplier_id:id,sort_order:i+1}))
+   else if(name==='proc_company_save_supplier_setup'&&routingMode){
+    const b=req.postDataJSON();setupSaves.push(b)
+    if(setupFailure)return route.fulfill({status:503,json:{message:'Fixture atomic save failure'}})
+    assert.equal(b.p_expected_route_id,setupRoute.id);assert.equal(b.p_expected_updated_at,setupRoute.updated_at)
+    setupRecipients=b.p_recipient_ids
+    setupDefaultId=b.p_assigned_ids.length===1?b.p_assigned_ids[0]:null
+    setupRoute={...setupRoute,route_mode:b.p_action.startsWith('direct')?'direct':'rfq',auto_send:['rfq','direct'].includes(b.p_action),assigned_supplier_ids:b.p_assigned_ids,updated_at:'2026-10-16T00:00:0'+setupSaves.length+'Z'}
+    data={id:setupRoute.id,updated_at:setupRoute.updated_at}
+   }
    else if(name==='proc_company_sections'&&process.env.GH_UI_GROUP_SEND==='1')data=[groupSection]
    else if(name==='proc_company_section_routes'&&process.env.GH_UI_GROUP_SEND==='1')data=groupRoute?[groupRoute]:[]
    else if(name==='proc_company_group_contacts'&&process.env.GH_UI_GROUP_SEND==='1')data=groupContactIds.map((id,idx)=>({company_id:'company-fixture',section_id:groupSection.id,supplier_id:id,sort_order:idx+1}))
@@ -188,7 +206,7 @@ try{
    }
    else if(name==='proc_company_direct_po_history')data=process.env.GH_UI_COMPANY_PO==='1'?[{po_id:companyPo.id,po_no:companyPo.po_no,company_id:'company-fixture',company_name:'Fixture company',po_status:'sent',created_at:new Date().toISOString(),item_count:1,sent_count:1,failed_count:0}]:[]
    else if(name==='proc_company_rfq_history')data=[{rfq_id:rfq.id,rfq_no:rfq.rfq_no,company_id:'company-fixture',company_name:'Fixture company',rfq_status:'prepared',created_at:new Date().toISOString(),item_count:2,supplier_count:2,sent_count:1,failed_count:1}]
-   else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
+   else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(routingMode?{default_supplier_id:setupDefaultId,updated_at:setupRoute.updated_at}:process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
@@ -215,7 +233,11 @@ try{
     }
    }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
+   else if(name==='proc_requirements'&&req.method()==='HEAD'&&dashboardReviewFailure)return route.fulfill({status:503,json:{message:'Fixture dashboard queue unavailable'}})
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
+   else if(receivingMode&&name==='proc_v_rejection_cases'){if(followupFailure)return route.fulfill({status:503,json:{message:'Fixture follow-up unavailable'}});data=receivingCase&&receivingCase.status!=='resolved'?[receivingCase]:[]}
+   else if(receivingMode&&name==='proc_resolve_rejection_case_v1'){const b=req.postDataJSON();caseWrites.push(b);if(b.p_action==='replacement_received'){receivingAccepted+=receivingCase.rejected_qty;receivingCase.status='resolved'}else receivingCase.status=b.p_action==='replacement_requested'?'replacement_due':'resolved';data={status:receivingCase.status}}
+   else if(receivingMode&&name==='proc_close_po_v1'){closureWrites.push(req.postDataJSON());poFixtureStatus='closed';data={status:'closed'}}
    else if(exceptionFixtures&&['proc_v_urgent_actions','proc_automation_jobs','proc_v_rejection_cases'].includes(name)){
     const count=name==='proc_v_urgent_actions'?1011:601
     const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||500)
@@ -252,12 +274,18 @@ try{
    else if(name==='proc_set_rfq_supplier_items_v1'){const p=req.postDataJSON();invitations=invitations.map(x=>x.supplier_id===p.p_supplier_id?{...x,requested_item_ids:p.p_item_ids}:x);data=invitations.find(x=>x.supplier_id===p.p_supplier_id)}
    else if(name==='proc_finalize_award_with_variations_v1')data=[{po_id:po.id,po_no:po.po_no,supplier_id:supplier.id}]
    else if(name==='proc_approve_po_v2'||name==='proc_mark_po_sent_v2'){assert.equal(req.postDataJSON().p_po_id,po.id);poFixtureStatus=name==='proc_approve_po_v2'?'approved':'sent';data=true}
-   else if(name==='proc_purchase_orders'){data=process.env.GH_UI_COMPANY_PO==='1'?[po,companyPo,companyQuotedPo]:[{...po,status:poFixtureStatus},otherPo];if(process.env.GH_UI_COMPANY_PO==='1'){const type=url.searchParams.get('proc_po_is_company');if(type==='eq.false')data=data.filter(x=>!x.company_id&&!x.proc_po_is_company);if(type==='eq.true')data=data.filter(x=>x.company_id||x.proc_po_is_company)}const scope=url.searchParams.get('id');if(scope?.startsWith('in.'))data=data.filter(x=>scope.includes(x.id));if(scope?.startsWith('eq.'))data=data.find(x=>x.id===scope.slice(3));if(Array.isArray(data)&&url.searchParams.get('status')==='eq.approved')data=data.filter(x=>x.status==='approved')}
+   else if(name==='proc_purchase_orders'){data=process.env.GH_UI_COMPANY_PO==='1'?[po,companyPo,companyQuotedPo]:[{...po,status:poFixtureStatus},otherPo];if(process.env.GH_UI_COMPANY_PO==='1'){const type=url.searchParams.get('proc_po_is_company');if(type==='eq.false')data=data.filter(x=>!x.company_id&&!x.proc_po_is_company);if(type==='eq.true')data=data.filter(x=>x.company_id||x.proc_po_is_company)}const scope=url.searchParams.get('id');if(scope?.startsWith('in.'))data=data.filter(x=>scope.includes(x.id));if(scope?.startsWith('eq.'))data=data.find(x=>x.id===scope.slice(3));if(Array.isArray(data)&&url.searchParams.get('status')==='eq.approved')data=data.filter(x=>x.status==='approved');if(receivingMode&&Array.isArray(data)&&url.searchParams.get('status')?.startsWith('in.'))data=data.filter(x=>url.searchParams.get('status').includes(x.status))}
+   else if(name==='proc_receive_po_v3'&&receivingMode){
+    const b=req.postDataJSON();receipts.push(b);if(b.p_receipt_key===receivingReplayKey){await route.fulfill({status:200,json:{grn_no:'GRN-RECOVERED',replayed:true}});return}receivingAccepted+=b.p_lines.reduce((n,l)=>n+l.accepted_qty,0);poFixtureStatus=receivingAccepted===10?'received':'partially_received'
+    const damaged=b.p_lines.find(l=>l.rejected_qty>0);if(damaged)receivingCase={id:'rejection-fixture',po_id:po.id,po_no:po.po_no,grn_no:'GRN-FIXTURE',description:item.description,size:item.size,supplier_name:supplier.name,rejected_qty:damaged.rejected_qty,rejection_reason:damaged.rejection_reason,status:'open'}
+    data={grn_no:'GRN-FIXTURE-'+receipts.length,replayed:false}
+   }
    else if(name==='proc_receive_po_v3'){receipts.push(req.postDataJSON());await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Fixture receipt retry'})});return}
    else if(name==='proc_supplier_invoices')data=[{id:'invoice-fixture',invoice_no:'INV-VARIANCE',status:'variance',total:1000,supplier,po}]
    else if(name==='proc_po_lines'&&url.searchParams.has('source_quote_line_id'))data=[{po_id:po.id,po:{...po,status:poFixtureStatus}}]
    else if(name==='proc_po_lines'){
     const first={id:'00000000-0000-4000-8000-000000000009',po_id:url.searchParams.get('po_id')?.slice(3)||po.id,item_id:item.id,item,qty:10,unit_price:100,line_total:1000}
+    if(receivingMode&&first.po_id===po.id)first.grn=[{accepted_qty:receivingAccepted,receipt:{status:'posted'}}]
     data=poLargeExport?Array.from({length:100},(_,i)=>({id:'po-export-'+i,item:{...item,description:'PO fixture '+String(i+1),size:'2 inch'},qty:i+1,unit_price:123.45,line_total:123.45*(i+1)})):receivingManyRows?[first,...Array.from({length:8},(_,i)=>({...first,id:'receiving-line-'+i,item:{...item,description:'Receiving fixture '+(i+2)}}))]:[first]
    }
    else if(name==='proc_search_item_master_v2')data=[{...item,item_code:'FIXTURE-ITEM',total_count:1}]
@@ -278,7 +306,7 @@ try{
     data=[]
    }
    if(req.headers()['accept']?.includes('vnd.pgrst.object')&&Array.isArray(data))data=data[0]||null
-   await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':'0-0/1'},body:JSON.stringify(data)})
+   await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':'0-0/1','access-control-expose-headers':'content-range'},body:JSON.stringify(data)})
   })
   await context.addInitScript(({id,user})=>{
    const header=btoa(JSON.stringify({alg:'HS256',typ:'JWT'}))
@@ -346,6 +374,259 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(receivingMode){
+   await navigate('PO Orders')
+   await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   await page.getByText('Outstanding delivery balances',{exact:true}).click()
+   await page.getByRole('button',{name:'Cancel balance',exact:true}).click()
+   const cancelDialog=page.getByRole('dialog',{name:'Cancel the outstanding balance',exact:true})
+   await cancelDialog.getByLabel('Warning reason',{exact:true}).fill('Not needed now')
+   await cancelDialog.getByRole('button',{name:'Cancel',exact:true}).click()
+   assert.equal(queries.some(u=>u.pathname.endsWith('/proc_release_po_balance_v1')),false,'Cancelling the balance review makes no RPC')
+   await page.getByRole('button',{name:'Receive this order →',exact:true}).click()
+   const view=page.locator('.content > section:not([hidden])')
+   await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
+   await page.getByLabel('Search receiving items',{exact:true}).waitFor()
+   const mobile=width<=700
+   const row=mobile?view.locator('.receive-entry-row').first():view.locator('.desktop-table tbody tr').first()
+   if(mobile){await row.getByLabel('Received '+item.description+' · '+item.size,{exact:true}).fill('6');await row.locator('summary').click();await row.getByLabel('Rejected '+item.description+' · '+item.size,{exact:true}).fill('2');await row.getByLabel('Rejection reason '+item.description+' · '+item.size,{exact:true}).fill('Broken')}
+   else{await row.locator('input').nth(1).fill('6');await row.locator('input').nth(3).fill('2');await row.locator('input').nth(4).fill('Broken')}
+   const reviewButton=view.getByRole('button',{name:'Review receipt (1) →',exact:true})
+   await reviewButton.click()
+   let review=page.getByRole('dialog',{name:'2. Review receipt',exact:true})
+   await review.getByText('6 received · 4 accepted · 2 rejected',{exact:true}).waitFor()
+   await review.getByRole('button',{name:'Cancel',exact:true}).click();assert.equal(receipts.length,0,'Review cancellation posts nothing')
+   await reviewButton.click();await review.getByRole('button',{name:'Post receipt',exact:true}).click()
+   await page.getByRole('region',{name:'Receipt result',exact:true}).waitFor();assert.equal(receipts.length,1)
+   await page.getByRole('button',{name:'Settle rejected goods →',exact:true}).click()
+   let followups=page.getByRole('tab',{name:'Follow-ups (1)',exact:true});await followups.waitFor()
+   assert.equal(await page.getByRole('button',{name:'Update follow-up →',exact:true}).count(),1)
+   await page.getByRole('button',{name:'Update follow-up →',exact:true}).click()
+   let dialog=page.getByRole('dialog',{name:'1. Settle rejected goods',exact:true})
+   await dialog.getByRole('button',{name:'Cancel',exact:true}).click();assert.equal(caseWrites.length,0,'Cancelling follow-up changes nothing')
+   await page.getByRole('button',{name:'Update follow-up →',exact:true}).click()
+   await dialog.getByLabel('Follow-up date (optional)',{exact:true}).fill('2026-10-20')
+   await dialog.getByRole('button',{name:'Review →',exact:true}).click()
+   dialog=page.getByRole('dialog',{name:'2. Review follow-up',exact:true})
+   await page.screenshot({path:'test-results/receiving-followup-'+width+'.png'})
+   await dialog.getByRole('button',{name:'Save follow-up',exact:true}).click()
+   await page.getByRole('dialog').waitFor({state:'hidden'})
+   assert.equal(caseWrites[0].p_action,'replacement_requested');assert.equal(caseWrites[0].p_due_date,'2026-10-20')
+   await page.getByRole('button',{name:'Update follow-up →',exact:true}).click()
+   dialog=page.getByRole('dialog',{name:'1. Settle rejected goods',exact:true})
+   assert.equal(await dialog.getByLabel('What happens next?',{exact:true}).inputValue(),'replacement_received')
+   await dialog.getByRole('button',{name:'Review →',exact:true}).click()
+   await page.getByRole('dialog',{name:'2. Review follow-up',exact:true}).getByRole('button',{name:'Save follow-up',exact:true}).click()
+   await page.getByText('No unresolved rejected goods.',{exact:true}).waitFor();assert.equal(receivingAccepted,6)
+   followupFailure=true;await page.locator('.content > section:not([hidden])').getByRole('button',{name:'Refresh',exact:true}).click()
+   await page.getByText('Follow-ups unavailable. Retry above.',{exact:true}).waitFor()
+   assert.equal(await page.getByText('No unresolved rejected goods.',{exact:true}).count(),0,'Failure never looks settled')
+   followupFailure=false;await page.getByRole('button',{name:'Retry receiving',exact:true}).click();await page.getByText('No unresolved rejected goods.',{exact:true}).waitFor()
+   await page.getByRole('tab',{name:'Deliveries',exact:true}).click()
+   await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
+   await page.getByText('60% received',{exact:true}).filter({visible:true}).waitFor()
+   await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+   await page.getByRole('button',{name:'Review receipt (1) →',exact:true}).click()
+   await page.getByRole('dialog',{name:'2. Review receipt',exact:true}).getByText('4 received · 4 accepted · 0 rejected',{exact:true}).waitFor()
+   await page.getByRole('dialog').getByRole('button',{name:'Post receipt',exact:true}).click()
+   await page.getByRole('button',{name:'Track / complete order →',exact:true}).click()
+   await page.getByText('100% received',{exact:true}).filter({visible:true}).waitFor()
+   await page.getByRole('button',{name:'Complete order →',exact:true}).click()
+   await page.getByRole('dialog',{name:'Complete this order',exact:true}).getByRole('button',{name:'Close order',exact:true}).click()
+   await page.getByText('Order closed',{exact:true}).filter({visible:true}).first().waitFor()
+   assert.equal(closureWrites.length,1);assert.equal(receipts.length,2);assert.equal(receivingAccepted,10)
+   // Simulate a lost receipt response followed by closure in another browser.
+   receivingReplayKey='00000000-0000-4000-8000-000000000077'
+   const recoveryDraft='gh_receiving_draft_v1:'+profile.id+':'+po.id
+   await page.evaluate(({draft,key,lineId})=>localStorage.setItem(draft,JSON.stringify({receiptKey:key,vals:{[lineId]:{received:'10',accepted:'10',rejected:'0',reason:''}},notes:'Saved before a dropped connection',attempt:{lines:[{po_line_id:lineId,received_qty:10,accepted_qty:10,rejected_qty:0,rejection_reason:null}],notes:'Saved before a dropped connection'}})),{draft:recoveryDraft,key:receivingReplayKey,lineId:'00000000-0000-4000-8000-000000000009'})
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⇩ Receive Goods')
+   await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
+   await page.getByRole('button',{name:'Retry saved receipt',exact:true}).click()
+   await page.getByRole('dialog',{name:'2. Review receipt',exact:true}).getByText(/An already posted receipt will not add stock again/).waitFor()
+   await page.getByRole('dialog').getByRole('button',{name:'Post receipt',exact:true}).click()
+   await page.getByRole('region',{name:'Receipt result',exact:true}).getByText(/GRN-RECOVERED/).waitFor()
+   assert.equal(receivingAccepted,10,'Recovery adds no stock');assert.equal(receipts.length,3);assert.equal(receipts[2].p_receipt_key,receivingReplayKey)
+   assert.equal(await page.evaluate(draft=>localStorage.getItem(draft),recoveryDraft),null,'Confirmed recovery clears the saved attempt')
+   receivingCase={...receivingCase,status:'open'};grantedPermissions=permissions.filter(x=>x!=='receiving.manage')
+   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⇩ Receive Goods')
+   await page.getByRole('tab',{name:'Follow-ups (1)',exact:true}).click()
+   assert.equal(await page.getByRole('button',{name:'Update follow-up →',exact:true}).count(),0,'Read-only users cannot resolve rejected goods')
+   assert.equal(await page.getByRole('button',{name:/^Review receipt/}).filter({visible:true}).count(),0,'Read-only users cannot post receipts')
+   assert.equal(errors.length,0,errors.join('\n'));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+   console.log('PASS reviewed partial delivery, rejection follow-up, replacement, remaining delivery, refresh failure, closure, lost-response recovery and read-only guards at '+width+'px')
+   await context.close();continue
+  }
+  if(routingMode){
+   await navigate('✓ Stock Entry')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   await page.getByRole('button',{name:'Company setup',exact:true}).click()
+   const setup=page.getByLabel('Company supplier automation',{exact:true})
+   await setup.locator('summary').first().click()
+   await setup.getByRole('button',{name:'Next →',exact:true}).click()
+   await setup.getByText(/A previously saved contact differs/).waitFor()
+   await setup.getByRole('checkbox',{name:/Supplier 1: Fixture supplier/}).click()
+   await setup.getByRole('button',{name:'Add saved contact to suppliers',exact:true}).click()
+   await setup.getByRole('button',{name:'Next →',exact:true}).click()
+   await setup.getByRole('radio',{name:/Auto direct PO/}).check()
+   const summary=setup.getByLabel('Sending summary',{exact:true})
+   assert.ok((await summary.innerText()).includes(newSupplier.name))
+   assert.ok((await summary.innerText()).includes(newSupplier.phone))
+   const save=setup.getByRole('button',{name:'Save supplier & automation settings',exact:true})
+   const saveBox=await save.boundingBox();assert.ok(saveBox.x>=0&&saveBox.x+saveBox.width<=width+1,'The complete supplier save button fits the viewport')
+   await page.screenshot({path:'test-results/supplier-summary-'+width+'.png'})
+   setupFailure=true;await save.click()
+   await page.getByText('Fixture atomic save failure',{exact:true}).waitFor()
+   assert.equal(setupRoute.route_mode,'rfq','Failed save keeps the original route')
+   assert.deepEqual(setupRecipients,[supplier.id])
+   setupFailure=false;await save.click()
+   await setup.getByText(/^Saved\./).waitFor()
+   assert.equal(setupSaves.length,2)
+   assert.deepEqual(setupSaves[1].p_assigned_ids,[newSupplier.id]);assert.deepEqual(setupRecipients,[newSupplier.id])
+   assert.equal(setupDefaultId,newSupplier.id)
+   assert.equal(poGatewayRequests.length+rfqGatewayRequests.length,0,'Saving contacts never sends a document')
+   await setup.getByRole('button',{name:'1. Scope',exact:true}).click()
+   await setup.getByRole('button',{name:'Next →',exact:true}).click()
+   assert.equal(await setup.getByText(/A previously saved contact differs/).count(),0,'No stale separate company-contact selection remains')
+   await setup.getByRole('checkbox',{name:/Supplier 1:/}).click()
+   await setup.getByRole('button',{name:'Next →',exact:true}).click()
+   await setup.getByRole('radio',{name:/Manual/}).check()
+   await save.click();await setup.getByText(/^Saved\./).waitFor()
+   assert.equal(setupRoute.auto_send,false);assert.deepEqual(setupRoute.assigned_supplier_ids,[])
+   await page.getByLabel('Advanced company supplier tools',{exact:true}).locator('summary').first().click()
+   const advanced=page.getByLabel('Group supplier routing',{exact:true})
+   await advanced.locator('summary').first().click()
+   await advanced.getByLabel('Advanced: show optional company-wide fallback',{exact:true}).check()
+   const fallback=advanced.locator('.company-section-directory-row').filter({has:page.getByText('Advanced · fallback for unassigned groups',{exact:true})})
+   await fallback.getByRole('button',{name:'Configure',exact:true}).click()
+   await fallback.getByRole('checkbox',{name:/^Fixture supplier/}).first().check()
+   await fallback.getByText('Outgoing image & WhatsApp message',{exact:true}).click()
+   await fallback.getByLabel('Document title',{exact:true}).fill('REVIEW REQUEST')
+   await fallback.getByRole('button',{name:'Save group route',exact:true}).click()
+   await fallback.getByRole('button',{name:'Configure',exact:true}).waitFor()
+   assert.equal(setupSaves.at(-1).p_action,'rfq_manual','Advanced templates use the same atomic endpoint without enabling automatic sending')
+   assert.equal(setupSaves.at(-1).p_template.title,'REVIEW REQUEST')
+   assert.equal(setupRoute.auto_send,false)
+   assert.equal(poGatewayRequests.length+rfqGatewayRequests.length,0)
+   await navigate('PO Orders')
+   await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   await page.getByText('Record the delivery when goods arrive',{exact:true}).waitFor()
+   await page.getByRole('button',{name:'Receive this order →',exact:true}).click()
+   await page.getByText('0% received',{exact:true}).filter({visible:true}).waitFor()
+   assert.equal(errors.length,0,errors.join('\n'))
+   await page.screenshot({path:'test-results/supplier-routing-'+width+'.png'})
+   console.log('PASS contact-conflict resolution, recipient summary, atomic save failure/retry and manual no-contact route at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_DASHBOARD==='1'){
+   const home=page.getByRole('region',{name:'Needs your attention',exact:true})
+   await home.getByRole('button',{name:/Urgent purchases/}).filter({hasText:'1'}).waitFor()
+   assert.equal(await home.locator('.dashboard-task').count(),4,'Home initially shows at most four task groups')
+   assert.equal(await page.locator('.metric-link').filter({visible:true}).count(),0,'Detailed totals stay collapsed')
+   await home.getByRole('button',{name:/All .* task groups/}).click()
+   await home.getByRole('button',{name:/Review shortages/}).click()
+   await requireQuery(url=>url.pathname.endsWith('proc_v_requirements')&&url.searchParams.get('approval_status')==='eq.pending_review','Review action opens pending shortages')
+   await navigate('PO Orders')
+   await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   await page.locator('.po-expanded').filter({visible:true}).waitFor()
+   await navigate('⌂ Home')
+   await home.getByRole('button',{name:/Continue purchase order/}).waitFor()
+   await page.reload()
+   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await home.getByRole('button',{name:/Continue purchase order/}).click()
+   await page.locator('.po-expanded').filter({visible:true}).waitFor()
+   assert.ok((await page.locator('.po-expanded').filter({visible:true}).innerText()).includes('PO-FIXTURE'),'Resume reopens the saved PO identity')
+   await navigate('⇩ Receive Goods')
+   await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
+   await page.getByText('0% received',{exact:true}).filter({visible:true}).waitFor()
+   await navigate('⌂ Home')
+   await home.getByRole('button',{name:/Continue delivery entry/}).click()
+   await page.getByText('0% received',{exact:true}).filter({visible:true}).waitFor()
+   await navigate('⌂ Home')
+   await navigate('✓ Stock Entry')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   await page.getByLabel('Current stock: '+item.description,{exact:true}).fill('0')
+   await page.waitForTimeout(250)
+   await navigate('⌂ Home')
+   await page.reload()
+   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await home.getByRole('button',{name:/Continue stock count/}).click()
+   assert.equal(await page.getByRole('tab',{name:'Company Items',exact:true}).getAttribute('aria-selected'),'true')
+   assert.equal(await page.getByLabel('Current stock: '+item.description,{exact:true}).inputValue(),'0','Company stock draft restores with its selected list')
+   await navigate('⌂ Home')
+   dashboardReviewFailure=true
+   await home.getByRole('button',{name:'Refresh tasks',exact:true}).click()
+   await home.getByRole('button',{name:/All .* task groups/}).click()
+   await home.getByRole('button',{name:/Review shortages.*Retry/}).waitFor()
+   assert.equal(await home.getByText('No pending tasks in your available work queues.',{exact:true}).count(),0)
+   dashboardReviewFailure=false
+   await home.getByRole('button',{name:/Review shortages.*Retry/}).click()
+   await home.getByRole('button',{name:/Review shortages/}).filter({hasNotText:'Retry'}).waitFor()
+   assert.equal(errors.length,0,errors.join('\n'))
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))
+   await page.screenshot({path:'test-results/dashboard-phase-'+width+'.png'})
+   console.log('PASS action-first dashboard, queue failure/retry, exact PO resume and receiving resume at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_REDESIGN==='1'){
+   if(width<=700){
+    const nav=page.getByRole('navigation',{name:'Main navigation',exact:true})
+    assert.equal(await nav.getByRole('button').count(),5)
+    for(const label of ['Home','Stock','Orders','Receive','More'])assert.ok(await nav.getByRole('button',{name:label,exact:true}).isVisible(),label+' missing: '+await nav.innerText())
+   }
+   await navigate('✓ Stock Entry')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   const view=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
+   const current=view.getByLabel('Current stock: '+item.description,{exact:true})
+   await current.waitFor()
+   const dock=view.getByRole('region',{name:'Company count actions',exact:true})
+   assert.ok(await dock.getByRole('button',{name:'Submit 0 items →',exact:true}).isDisabled())
+   await current.fill('0')
+   assert.ok(await dock.getByRole('button',{name:'Submit 1 item →',exact:true}).isEnabled(),'Zero is a counted item')
+   await view.getByLabel('Search company items',{exact:true}).fill('Fixture switch')
+   assert.ok(await dock.getByText('1 of 2 counted',{exact:true}).isVisible(),'Counts include filtered-out entries')
+   await view.getByLabel('Search company items',{exact:true}).fill('')
+   await current.fill('1')
+   await page.screenshot({path:'test-results/mobile-stock-'+width+'.png'})
+   if(width<=700){
+    await page.locator('.content').evaluate(el=>el.scrollTop=el.scrollHeight)
+    const box=await dock.boundingBox(),navBox=await page.locator('.mobile-bottom-nav').boundingBox()
+    assert.ok(box.y>=0&&box.y+box.height<=navBox.y,'Submit remains above navigation at the end of the list')
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Only the workspace scrolls')
+   }
+   await dock.getByRole('button',{name:'Submit 1 item →',exact:true}).click()
+   await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
+   await view.getByText(/Existing purchase orders cover 1 shortage item/).waitFor()
+   assert.equal(companyCountAttempt,1)
+   assert.ok(await dock.getByRole('button',{name:'Submit 0 items →',exact:true}).isDisabled())
+   await view.getByRole('button',{name:'Company setup',exact:true}).click()
+   await view.getByText('Company suppliers & automation',{exact:true}).click()
+   const setup=view.getByLabel('Company supplier automation',{exact:true})
+   await setup.getByRole('navigation',{name:'Supplier setup steps'}).waitFor()
+   await setup.getByRole('button',{name:'Next →',exact:true}).click()
+   assert.ok(await setup.getByText('Supplier contacts (0)',{exact:true}).isVisible())
+   assert.equal(await page.getByText('Designated company contact',{exact:true}).filter({visible:true}).count(),0)
+   await setup.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
+   await setup.locator('.company-simple-directory').getByRole('checkbox').first().check()
+   await setup.getByRole('button',{name:'Next →',exact:true}).click()
+   assert.ok(await setup.getByText('After stock submission',{exact:true}).isVisible())
+   assert.ok(await setup.getByRole('radio',{name:/Auto direct PO/}).isEnabled(),'One supplier enables the direct PO choice')
+   await navigate('PO Orders')
+   await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   await page.getByText('0% received',{exact:true}).filter({visible:true}).waitFor()
+   await page.getByRole('navigation',{name:'Purchasing sections'}).getByRole('button',{name:'Prices',exact:true}).click()
+   await page.getByRole('button',{name:/^RFQ-FIXTURE/}).waitFor()
+   await page.screenshot({path:'test-results/mobile-prices-'+width+'.png'})
+   await navigate('⇩ Receive Goods')
+   await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
+   await page.getByText('0% received',{exact:true}).filter({visible:true}).waitFor()
+   const post=page.getByRole('button',{name:/^(Review receipt \(\d+\) →|Retry saved receipt)$/})
+   if(width<=700){const a=await post.boundingBox(),b=await page.locator('.mobile-bottom-nav').boundingBox();assert.ok(a.y+a.height<=b.y,'Receiving action stays above navigation')}
+   assert.equal(errors.length,0,errors.join('\n'))
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
+   await page.screenshot({path:'test-results/mobile-redesign-'+width+'.png'})
+   console.log('PASS guided mobile navigation, fixed count, zero/blank, filtering, submission, supplier steps and delivery progress at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_COMPANY_PO==='1'){
    await navigate('PO Orders')
@@ -941,7 +1222,7 @@ try{
    await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
    await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
    const guide=page.getByRole('navigation',{name:'Guided procurement navigation',exact:true})
-   assert.ok(await guide.getByText('STAGE 1 OF 3',{exact:true}).isVisible())
+   assert.ok(await guide.getByText('Step 3 of 5 · Prices',{exact:true}).isVisible())
    assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).count(),0,'Sending interface hides prices')
    await page.getByRole('button',{name:'Save & enter received quotes →',exact:true}).click()
    const input=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
@@ -959,18 +1240,18 @@ try{
    assert.ok(await dock.isVisible())
    const bounds=await dock.boundingBox();assert.ok(bounds.y<844,'Main action stays in viewport')
    await page.getByRole('button',{name:'Exit focus',exact:true}).click()
-   assert.ok(await guide.getByText('STAGE 2 OF 3',{exact:true}).isVisible())
+   assert.ok(await guide.getByText('Step 3 of 5 · Prices',{exact:true}).isVisible())
    await page.reload();await page.locator('.app').waitFor()
-   await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.getByRole('button',{name:'Continue supplier request',exact:true}).click()
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
    assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'123.45','Refresh restores unsaved supplier prices')
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('124.50')
-   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue supplier request',exact:true}).click()
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
    assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'124.50','Immediate refresh flushes the latest draft before debounce')
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('123.45');await page.waitForTimeout(400)
    savedQuotes.set(supplier.id,{id:'changed-server-quote',lines:[{id:'changed-line',rfq_item_id:'00000000-0000-4000-8000-000000000008',unit_price:222,notes:null}]})
-   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue supplier request',exact:true}).click()
    await page.getByRole('button',{name:'Restore my draft for review',exact:true}).waitFor()
    assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'222','A newer server quote is never silently overwritten by a stale draft')
    assert.equal(await page.getByRole('button',{name:'Save & Compare Prices →',exact:true}).isDisabled(),true,'Conflict must be resolved before saving')
@@ -987,7 +1268,7 @@ try{
    await page.getByLabel('Minimum order value',{exact:true}).fill('275')
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('123.45')
    await page.waitForTimeout(400)
-   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue order / task →',exact:true}).click()
+   await page.reload();await page.locator('.app').waitFor();await page.getByRole('button',{name:'Continue supplier request',exact:true}).click()
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
    assert.equal(await page.getByLabel('Supplier freight',{exact:true}).inputValue(),'90','Commercial draft restores after refresh')
    assert.equal(await page.locator('[data-rfq-price-item]').filter({visible:true}).first().inputValue(),'123.45')
@@ -1006,7 +1287,7 @@ try{
    await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
    await page.getByText(/Showing the 1 PO\(s\) created for this order/).waitFor()
    assert.ok(queries.some(u=>u.pathname.endsWith('/proc_purchase_orders')&&u.searchParams.get('id')==='in.('+po.id+')'),'Created order list is scoped to this batch')
-   assert.ok(await page.getByText('STAGE 3 OF 3',{exact:true}).isVisible())
+   assert.ok(await page.getByText('Step 4 of 5 · Order',{exact:true}).isVisible())
    await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
    await page.getByRole('region',{name:'Purchase order bill',exact:true}).waitFor().catch(async e=>{console.log('PO FAIL',errors,await page.locator('body').innerText());throw e})
    await page.screenshot({path:'test-results/po-before-approval-'+width+'.png'})
@@ -1713,8 +1994,8 @@ try{
      const savedAttempt=await page.evaluate(id=>JSON.parse(localStorage.getItem('gh_receiving_draft_v1:00000000-0000-4000-8000-000000000002:'+id)||'null')?.attempt,poId)
      if(savedAttempt)await page.getByText('A receipt attempt is saved.',{exact:false}).waitFor()
      else await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
-     await page.getByRole('button',{name:'Post GRN',exact:true}).click()
-     await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+     await page.getByRole('button',{name:/^(Review receipt \(\d+\) →|Retry saved receipt)$/}).click()
+     await page.getByRole('dialog',{name:'2. Review receipt',exact:true}).getByRole('button',{name:'Post receipt',exact:true}).click()
      await page.getByText('Fixture receipt retry',{exact:true}).waitFor()
      await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Posting…'))
      await page.waitForTimeout(100)

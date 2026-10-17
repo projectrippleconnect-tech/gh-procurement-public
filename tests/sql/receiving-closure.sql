@@ -1,0 +1,53 @@
+begin;
+set local statement_timeout='30s';
+create temporary table closure_results(check_name text,passed boolean);
+do $test$
+<<fixture>>
+declare admin_id uuid; item_id uuid:=gen_random_uuid(); supplier_id uuid:=gen_random_uuid(); req_id uuid; po_id uuid; line_id uuid; case_id uuid; loc uuid; failure text; r jsonb; receipt_id uuid:=gen_random_uuid();
+begin
+ select id into strict admin_id from public.proc_profiles where active and role='admin' limit 1;
+ perform set_config('request.jwt.claim.sub',admin_id::text,true);loc:=private.proc_default_location_id();
+ insert into public.proc_items(id,item_code,category,description,uom,max_stock,reorder_level,movement) values(item_id,'CLOSE-'||item_id,'GENERAL','Closure fixture','PCS',100,50,'FAST');
+ insert into public.proc_suppliers(id,supplier_code,name,phone) values(supplier_id,'CLOSE-'||supplier_id,'Closure supplier','+94770000000');
+ insert into public.proc_requirements(requirement_no,item_id,location_id,required_qty,adjusted_qty,ordered_qty,status,approval_status,created_by,source_type) values('CLOSE-'||gen_random_uuid(),item_id,loc,10,10,10,'ordered','approved',admin_id,'manual') returning id into req_id;
+ insert into public.proc_purchase_orders(po_no,supplier_id,status,created_by) values('CLOSE-'||gen_random_uuid(),supplier_id,'sent',admin_id) returning id into po_id;
+ insert into public.proc_po_lines(po_id,requirement_id,item_id,qty,unit_price) values(po_id,req_id,item_id,10,100) returning id into line_id;
+ execute 'set local role authenticated';
+ failure:=null;begin perform public.proc_close_po_v1(po_id);exception when others then failure:=sqlerrm;end;
+ if failure is null then raise exception 'Outstanding order closed';end if;
+ r:=public.proc_receive_po_v3(po_id,receipt_id,jsonb_build_array(jsonb_build_object('po_line_id',line_id,'received_qty',6,'accepted_qty',4,'rejected_qty',2,'rejection_reason','Damaged')));
+ if (select status from public.proc_purchase_orders where id=po_id)<>'partially_received' then raise exception 'Partial receipt status incorrect';end if;
+ if (select qty from public.proc_stock_balances b where b.item_id=fixture.item_id and b.location_id=loc)<>4 then raise exception 'Rejected goods entered stock';end if;
+ r:=public.proc_receive_po_v3(po_id,receipt_id,jsonb_build_array(jsonb_build_object('po_line_id',line_id,'received_qty',6,'accepted_qty',4,'rejected_qty',2,'rejection_reason','Damaged')));
+ if not (r->>'replayed')::boolean then raise exception 'Retry was not replayed';end if;
+ select id into strict case_id from public.proc_rejection_cases c where c.po_id=fixture.po_id;
+ perform public.proc_resolve_rejection_case_v1(case_id,'returned_to_supplier');
+ if (select status from public.proc_rejection_cases where id=case_id)='resolved' then raise exception 'Return incorrectly resolved the case';end if;
+ -- A later normal delivery can fill the balance while the rejection still needs settlement.
+ perform public.proc_receive_po_v3(po_id,gen_random_uuid(),jsonb_build_array(jsonb_build_object('po_line_id',line_id,'received_qty',6,'accepted_qty',6,'rejected_qty',0)));
+ failure:=null;begin perform public.proc_close_po_v1(po_id);exception when others then failure:=sqlerrm;end;
+ if failure is null or failure not like '%Resolve rejected goods%' then raise exception 'Unresolved rejection closure allowed: %',failure;end if;
+ failure:=null;begin update public.proc_purchase_orders set status='closed' where id=po_id;exception when others then failure:=sqlerrm;end;
+ if failure is null then raise exception 'Direct update bypassed closure check';end if;
+ failure:=null;begin perform public.proc_resolve_rejection_case_v1(case_id,'credit_note_received');exception when others then failure:=sqlerrm;end;
+ if failure is null then raise exception 'Credit resolved without a reference';end if;
+ perform public.proc_resolve_rejection_case_v1(case_id,'credit_note_received','Supplier credited returned goods','CREDIT-001');
+ if (select qty from public.proc_stock_balances b where b.item_id=fixture.item_id and b.location_id=loc)<>10 then raise exception 'Credit changed physical stock';end if;
+ r:=public.proc_close_po_v1(po_id);
+ if r->>'status'<>'closed' then raise exception 'Settled order did not close';end if;
+ r:=public.proc_close_po_v1(po_id);
+ if not (r->>'replayed')::boolean then raise exception 'Closure retry failed';end if;
+ execute 'reset role';
+ insert into closure_results values('Partial receipt, retry, return, credit and final closure preserve physical stock',true);
+ insert into auth.users(id,email) values('00000000-0000-4000-8000-000000000123','closure-receiver@example.invalid');
+ insert into public.proc_profiles(id,display_name,role,role_key) values('00000000-0000-4000-8000-000000000123','Closure receiver','receiver','receiver');
+ perform set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000123',true);
+ execute 'set local role authenticated';
+ failure:=null;begin perform public.proc_close_po_v1(po_id);exception when others then failure:=sqlerrm;end;
+ if failure is null or failure not like '%Permission denied%' then raise exception 'Unauthorized closure allowed: %',failure;end if;
+ execute 'reset role';
+ insert into closure_results values('Closure requires edit and approval permissions even on retry',true);
+ if has_function_privilege('anon','public.proc_close_po_v1(uuid)','EXECUTE') then raise exception 'Anonymous closure callable';end if;
+end $test$;
+select * from closure_results;
+rollback;
