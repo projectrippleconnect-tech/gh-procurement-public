@@ -105,9 +105,12 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const resultRef=useRef(null)
  useEffect(()=>{if(submissionResult&&active)resultRef.current?.scrollIntoView({block:'start'})},[submissionResult,active])
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
+ const allCompanies=companyId==='all'
+ const selectedCompanyIds=useMemo(()=>companies.map(c=>c.id),[companies])
+ const companyNames=useMemo(()=>new Map(companies.map(c=>[c.id,c.name])),[companies])
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
- const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length){let saved='';try{saved=localStorage.getItem('gh-company-selection-v1:'+profile.id)||''}catch{};setCompanyId(r.data.some(c=>c.id===saved)?saved:r.data[0].id)}},[companyId,fail])
+ const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length){let saved='';try{saved=localStorage.getItem('gh-company-selection-v1:'+profile.id)||''}catch{};setCompanyId(saved==='all'||r.data.some(c=>c.id===saved)?saved:'all')}},[companyId,fail])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
  const loadRows=useCallback(async()=>{
@@ -115,17 +118,17 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   if(!companyId){setRows([]);setSections([]);return}
   setLoading(true)
   try{
-   const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
+   const scope=q=>allCompanies?q.in('company_id',selectedCompanyIds):q.eq('company_id',companyId)
+   const r=allCompanies&&!selectedCompanyIds.length?{data:[]}:await allRows(()=>scope(supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)')).eq('active',true).order('company_id').order('sort_order').order('id'))
    if(r.error)throw r.error
    if(request!==loadSequence.current)return
    const list=r.data||[]
-   const sectionResult=await supabase.from('proc_company_sections').select('id,company_id,parent_id,name,sort_order,color,active').eq('company_id',companyId).eq('active',true).order('sort_order')
+   const sectionResult=allCompanies&&!selectedCompanyIds.length?{data:[]}:await allRows(()=>scope(supabase.from('proc_company_sections').select('id,company_id,parent_id,name,sort_order,color,active')).eq('active',true).order('sort_order').order('id'))
    if(request!==loadSequence.current)return
    if(sectionResult.error&&!['PGRST205','42P01'].includes(sectionResult.error.code))throw sectionResult.error
    setSections(sectionResult.data||[])
    setRows(list)
-   const ids=list.map(x=>x.item_id)
-   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;if(request!==loadSequence.current)return;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
+   setBalances({})
    if(draftReady.current!==companyId){
     const saved=localStorage.getItem(draftKey)
     setEntry({});setSufficient({});startedAt.current=null
@@ -134,7 +137,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    draftReady.current=companyId
   }catch(e){if(request===loadSequence.current)fail(e)}
   finally{if(request===loadSequence.current)setLoading(false)}
- },[companyId,draftKey,fail])
+ },[companyId,draftKey,fail,allCompanies,selectedCompanyIds])
  useEffect(()=>{if(active)loadRows()},[active,loadRows])
  useEffect(()=>{
   if(!active)return
@@ -163,13 +166,13 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  }
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
- const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
+ const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[companyNames.get(r.company_id),r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand,companyNames])
  const currentCompany=companies.find(c=>c.id===companyId)
  const display=useMemo(()=>normalizeCompanyDisplay(settings?.company_lists_display),[settings?.company_lists_display])
  const visibleFields=display.fields,rowLayout=display.row_layout
  const sectionLabels=useMemo(()=>sectionPaths(sections),[sections])
  const scoped=useMemo(()=>shown.filter(r=>!sectionFilter||r.section_id===sectionFilter||sectionLabels.get(r.section_id)?.startsWith((sectionLabels.get(sectionFilter)||'\u0000')+' /')),[shown,sectionFilter,sectionLabels])
- const tableEntries=useMemo(()=>companySectionRows(scoped,sections,collapsedSections,!!search.trim()),[scoped,sections,collapsedSections,search])
+ const tableEntries=useMemo(()=>allCompanies?companies.flatMap(c=>{const items=scoped.filter(r=>r.company_id===c.id);return items.length?[{type:'section',key:'company:'+c.id,title:c.name,depth:0,count:items.length,legacy:true},...companySectionRows(items,sections.filter(s=>s.company_id===c.id),collapsedSections,!!search.trim()).map(line=>({...line,key:c.id+':'+line.key}))]:[]}):companySectionRows(scoped,sections,collapsedSections,!!search.trim()),[scoped,sections,collapsedSections,search,allCompanies,companies])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
  async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
  async function refreshCompany(){
@@ -230,22 +233,35 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   if(!await confirmAction(t('confirm.company_submit_prefix','Submit')+' '+counted.length+' '+t('confirm.company_submit_suffix','company-list count(s)? The configured company approval and ordering route will apply.')))return
   setBusy(true)
   try{
-   const p=counted.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
-   const submissionKey=draftKey+'-submission'
-   let submissionId=localStorage.getItem(submissionKey)
-   if(!submissionId){submissionId=crypto.randomUUID();localStorage.setItem(submissionKey,submissionId)}
-   const saved=await companyApi('submit',{submissionId,companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()})
-   localStorage.removeItem(submissionKey);localStorage.removeItem(draftKey);setEntry({});setSufficient({});startedAt.current=null
-   setSubmissionResult({...saved,company_id:companyId});flash(companySubmissionMessage(saved));await loadRows();if(saved.dispatch){if(!saved.dispatch.ok)fail(new Error(saved.dispatch.error+' Stock saved. Review the order sending status before retrying.'))}
-   if(saved.rfqDispatch){if(!saved.rfqDispatch.ok)fail(new Error(saved.rfqDispatch.error+' Stock saved. Review RFQ sending status before retrying.'))}
-   if(saved.automation_errors?.length)fail(new Error('Stock saved. Automatic requests need attention: '+saved.automation_errors.map(e=>e.error).join('; ')))
+   const groups=allCompanies?companies.map(c=>({id:c.id,rows:counted.filter(r=>r.company_id===c.id)})).filter(g=>g.rows.length):[{id:companyId,rows:counted}]
+   const results=[]
+   let remainingEntry={...entry},remainingSufficient={...sufficient}
+   for(const group of groups){
+    const p=group.rows.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
+    const submissionKey=draftKey+'-submission'+(allCompanies?':'+group.id:'')
+    let submissionId=localStorage.getItem(submissionKey)
+    if(!submissionId){submissionId=crypto.randomUUID();localStorage.setItem(submissionKey,submissionId)}
+    const saved=await companyApi('submit',{submissionId,companyId:group.id,lines:p,startedAt:startedAt.current||new Date().toISOString()})
+    results.push({...saved,company_id:group.id})
+    localStorage.removeItem(submissionKey)
+    for(const r of group.rows){delete remainingEntry[r.id];delete remainingSufficient[r.id]}
+    localStorage.setItem(draftKey,JSON.stringify({entry:remainingEntry,sufficient:remainingSufficient,startedAt:startedAt.current}))
+    setEntry({...remainingEntry});setSufficient({...remainingSufficient})
+    setSubmissionResult({company_id:companyId,results:[...results]})
+    flash(companySubmissionMessage(saved))
+    if(saved.dispatch&&!saved.dispatch.ok)fail(new Error(saved.dispatch.error+' Stock saved. Review the order sending status before retrying.'))
+    if(saved.rfqDispatch&&!saved.rfqDispatch.ok)fail(new Error(saved.rfqDispatch.error+' Stock saved. Review RFQ sending status before retrying.'))
+    if(saved.automation_errors?.length)fail(new Error('Stock saved. Automatic requests need attention: '+saved.automation_errors.map(e=>e.error).join('; ')))
+   }
+   localStorage.removeItem(draftKey);startedAt.current=null
+   await loadRows()
   }catch(e){fail(e)}finally{setBusy(false)}
  }
 
  return <>
   <div className="company-stock-header">
    <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'…':'↻'}</button>{canManage&&<button className="btn small" aria-label={setupOpen?'Back to stock':'Company setup'} onClick={()=>setSetupOpen(v=>!v)}>{setupOpen?'Back to stock':'Setup'}</button>}</div></div>
-   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);try{localStorage.setItem('gh-company-selection-v1:'+profile.id,e.target.value)}catch{};setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} disabled={busy} onChange={e=>{setCompanyId(e.target.value);try{localStorage.setItem('gh-company-selection-v1:'+profile.id,e.target.value)}catch{};setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="all">All Companies</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={allCompanies?'Search all companies and items':t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
    {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
     <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
     <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
@@ -253,10 +269,11 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
-  <div ref={resultRef}><CompanySubmissionResult result={submissionResult?.company_id===companyId?submissionResult:null} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>
+  <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
   {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
-  {canManage&&companyId&&<CompanyAutomationSimple onChanged={loadCompanies} key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
-  {canManage&&companyId&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
+  {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
+  {canManage&&companyId&&!allCompanies&&<CompanyAutomationSimple onChanged={loadCompanies} key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
+  {canManage&&companyId&&!allCompanies&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
     <p className="muted tiny">Suppliers and sending recipients are managed together in Company suppliers &amp; automation above.</p>
     <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>
    </details>}
@@ -271,7 +288,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <tbody>{tableEntries.map(line=>line.type==='section'
       ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{line.title} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {line.title} <small>({line.count})</small></button>}</th></tr>
       :(()=>{const r=line.row;return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
-     <td><CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
+     <td>{allCompanies&&<small className="muted">{companyNames.get(r.company_id)}</small>}<CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
@@ -286,20 +303,20 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    </table></div>
   </>}</div>}
   {setupOpen&&<>
-  {companyId&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
+  {companyId&&!allCompanies&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
   {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
   <button className="btn small" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button>
   <CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
   {canManage&&<button className="btn small bad" onClick={archiveCompanyList}>Remove company list</button>}
   </div></details>}
-  {canManage&&companyId&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows} superAdmin={(profile.role_key||profile.role)==='admin'}/>}
-  {companyId&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
+  {canManage&&companyId&&!allCompanies&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows} superAdmin={(profile.role_key||profile.role)==='admin'}/>}
+  {companyId&&!allCompanies&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
   {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
    <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>
-   <div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{'Reorder · 50%'}</label><input className="input" readOnly value={target===''?'':reorderFor(target)}/></div></div>
+   {!allCompanies&&<div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{'Reorder · 50%'}</label><input className="input" readOnly value={target===''?'':reorderFor(target)}/></div></div>
     <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{const max=Number(item.max_stock||0);const r=await supabase.from('proc_company_list_items').upsert({company_id:companyId,item_id:item.id,target_stock:max,reorder_level:max*.5,max_stock_review:false,active:true,created_by:profile.id},{onConflict:'company_id,item_id'});if(r.error)throw r.error;await loadRows();flash('Company item created with a 50% reorder level.')}}/>
     {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{i.description}</strong><div className="muted tiny">{[i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
-   </div>
+   </div>}
   </div></details>}
   </>}
   {!setupOpen&&canCount&&companyId&&active&&<StockSubmitAction active={active}><div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
