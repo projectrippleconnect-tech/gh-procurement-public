@@ -177,15 +177,14 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    const verified=[]
    for(const done of completed){
     if(!refreshed)continue
-    const found=readback.find(r=>r.key===done.row.key)
-    const descendants=done.branch?branchOverrideRows(readback,found||done.row):[]
-    const modeCorrect=found?.mode===done.mode
-    const idsCorrect=done.mode==='manual'||equalIds(found?.recipients,done.ids)
-    if(!modeCorrect||!idsCorrect||(done.branch&&descendants.length)){
-     failed.push({name:done.row.company.name+' / '+done.row.path,status:'Check required',reason:'Readback or inherited child settings did not match. Reload and review.'})
-    }else verified.push(done)
+    const verifiedAll=done.expected.every(choice=>{
+     const found=readback.find(r=>r.key===choice.row.key)
+     return found?.mode===choice.mode&&(choice.mode==='manual'||equalIds(found?.recipients,choice.ids))
+    })
+    if(!verifiedAll)failed.push({name:done.row.company.name+' / '+done.row.path,status:'Check required',reason:'A parent or child route did not match saved readback. Reload and review.'})
+    else verified.push(done)
    }
-   setResults([...verified.map(x=>({name:x.row.company.name+' / '+x.row.path,status:'Saved',reason:x.cleared?x.cleared+' child overrides cleared; descendants inherit.':'Verified'})),...skipped,...failed])
+   setResults([...verified.map(x=>({name:x.row.company.name+' / '+x.row.path,status:'Saved',reason:x.updated>1?x.updated+' category routes verified, with designated suppliers preserved.':'Verified'})),...skipped,...failed])
    if(verified.length)setDrafts(prev=>{
     const next={...prev}
     for(const saved of verified)delete next[saved.row.key]
