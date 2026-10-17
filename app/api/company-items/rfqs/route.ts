@@ -44,7 +44,7 @@ export async function POST(request:Request){
    const privateGroupCopies:Array<{status:string;reason:string}>=[]
    if(status==='accepted'&&!finishError){
     accepted++
-    if(privateGroupConfig().ready){
+    if(privateGroupConfig(process.env,'rfq').ready){
      for(let index=0;index<images.length;index++){
       const image=images[index]
       const archive=await mirrorStaffGroupCopy({
