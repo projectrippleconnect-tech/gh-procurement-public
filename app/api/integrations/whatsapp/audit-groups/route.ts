@@ -49,10 +49,10 @@ export async function GET(request:Request){
    {name:'RFQ',id:process.env.GH_WA_AUDIT_RFQ_GROUP_ID},
    {name:'PO',id:process.env.GH_WA_AUDIT_PO_GROUP_ID}
   ]
-  const directChecks:Array<{name:string;ok:boolean;reason:string}>=[]
+  const directChecks:Array<{name:string;ok:boolean;reason:string;shape?:ReturnType<typeof wahaResponseShape>}>=[]
   for(const candidate of configuredTargets){
    const id=String(candidate.id||'')
-   if(!/^[0-9][0-9-]{5,48}@g\\.us$/.test(id)){
+   if(!/^[0-9][0-9-]{5,48}@g\.us$/.test(id)){
     directChecks.push({name:candidate.name,ok:false,reason:'missing_or_invalid_group_id'})
     continue
    }
@@ -61,7 +61,7 @@ export async function GET(request:Request){
     const parsed=parseWahaGroups(meta).items
     const verified=parsed.find(p=>p.id===id&&p.name.toUpperCase()===candidate.name)
     if(verified){found.set(id,verified);directChecks.push({name:candidate.name,ok:true,reason:'direct_id_confirmed'})}
-    else directChecks.push({name:candidate.name,ok:false,reason:'direct_metadata_mismatch'})
+    else directChecks.push({name:candidate.name,ok:false,reason:'direct_metadata_mismatch',shape:wahaResponseShape(meta)})
    }catch{directChecks.push({name:candidate.name,ok:false,reason:'direct_lookup_unavailable'})}
   }
   const seen=new Set<string>()
@@ -69,7 +69,7 @@ export async function GET(request:Request){
   let firstResponseShape:ReturnType<typeof wahaResponseShape>|null=null
   // WAHA GOWS/NOWEB responses vary by engine: array, wrapped list, or a map keyed by group ID.
   // Only interpret a response as genuinely empty after determining its shape.
-  for(let offset=0;offset<500;offset+=50){
+  for(let offset=0;found.size<2&&offset<800;offset+=50){
    const raw=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups?limit=50&offset='+offset+'&sortBy=id&sortOrder=desc&exclude=participants',config.key)
    if(offset===0)firstResponseShape=wahaResponseShape(raw)
    const parsed=parseWahaGroups(raw)
@@ -129,6 +129,7 @@ export async function GET(request:Request){
   const auditDatabaseReady=!auditSchemaError
   const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string;ownerVerified:boolean}>=[]
   for(const item of found.values()){
+   if(item.name!=='RFQ'&&item.name!=='PO')continue
    let count:number|null=null,memberIds:string[]=[],reason='not_verified',ownerVerified=false
    try{
     const p=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(item.id)+'/participants/v2',config.key)
