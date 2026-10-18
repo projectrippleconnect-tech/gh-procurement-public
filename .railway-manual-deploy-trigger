@@ -121,3 +121,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 Manual release: remove stock PDF Choose individual items panel and per-item checkboxes; preserve category/subcategory/movement filters, printable rows, styling, and PDF. No database, WhatsApp or other feature changes. Run security audit, lint, tests and build.
 
 2026-10-18 Manual release: include PR #122 approved manual PO dispatch queue guard and safe override deletion on current stock PDF production branch; preserve stock-printing changes. Full npm audit, lint, test and build, no WhatsApp messages sent in deployment.
+
+2026-10-18 Manual approved GH Procurement release PR #124: admin queue send controls require explicit confirmation and explain all-category scope, WhatsApp gateway and uncertain delivery. Preserve stock PDF, supplier mappings, order history, routes, sending logic, and all other features. Security audit, lint, unit tests, production build, health check.
