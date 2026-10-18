@@ -54,15 +54,17 @@ test('sending existing route rechecks live route and recipient membership before
  assert.doesNotMatch(send,/await save\(/)
 })
 
-test('advanced one-group PO preparation sends only newly created purchase-order IDs',()=>{
+test('prepare-only PO action does not invoke WhatsApp while preserving scoped order IDs',()=>{
  const start=manager.indexOf('async function prepare(s,rule)')
  const end=manager.indexOf('if(!company?.id||!admin)return null',start)
  const body=manager.slice(start,end)
  assert.ok(start>0&&end>start)
  assert.match(body,/const createdIds=createdOrders\.map\(po=>po\?\.id\)\.filter\(Boolean\)/)
  assert.match(body,/if\(!createdIds\.length\)throw/)
- assert.match(body,/companyApi\('orders',\{companyId:company.id,poIds:createdIds\}\)/)
- assert.doesNotMatch(body,/companyApi\('orders',\{companyId:company.id\}\)/)
+ assert.doesNotMatch(body,/companyApi\('orders'/)
+ assert.match(body,/No WhatsApp send was initiated here/)
+ assert.match(body,/Automatic sending may proceed from the existing dispatch queue/)
+ assert.match(body,/navigate\('po'\)/)
 })
 test('advanced actions retain explicit override removal, without resetting any history automatically',()=>{
  assert.match(advanced,/Use inherited \/ company default/)
@@ -72,4 +74,17 @@ test('advanced actions retain explicit override removal, without resetting any h
  assert.match(fn,/proc_company_clear_section_route/)
  assert.match(fn,/await onChanged\(\)/)
  assert.doesNotMatch(fn,/delete\(\)|truncate|DROP TABLE/i)
+})
+
+test('advanced preparation and explicit new-document sending are distinguishable',()=>{
+ assert.match(advanced,/Prepare new RFQ/)
+ assert.match(advanced,/Create approved PO/)
+ assert.match(advanced,/Create & send new RFQ/)
+ assert.match(advanced,/Create & send new PO/)
+ assert.match(advanced,/NEW RFQ\/PO from approved shortages/)
+ assert.match(advanced,/does not resend an existing document/)
+ const prepare=manager.slice(manager.indexOf('async function prepare(s,rule)'),manager.indexOf('if(!company?.id||!admin)return null'))
+ const explicit=manager.slice(manager.indexOf('async function sendConfiguredRoute'),manager.indexOf('async function removeOverride'))
+ assert.doesNotMatch(prepare,/companyApi\('orders'/)
+ assert.match(explicit,/companyApi\('orders',\{companyId:company.id,poIds\}\)/)
 })
