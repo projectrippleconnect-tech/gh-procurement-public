@@ -40,3 +40,6 @@ Execute locked install, audit, TS, tests and build on an isolated release branch
 
 ## Current WhatsApp Community layout
 The user-created community already contains **RFQ**, **PO**, **General**, and **Announcements**. No new groups are required. The automation routes RFQ documents to RFQ and PO documents to PO. General is reserved for future low-sensitivity status reports and exception alerts; it is **not automatically used for sending supplier documents**. Announcements is not used.
+
+## 2026-10-18: owner-provided invite resolution
+The owner supplied three distinct private WhatsApp invitation codes (one other link was repeated). GH Procurement may store these **temporarily in a server-only environment variable** \`GH_WA_AUDIT_PENDING_INVITE_CODES\`, never in public source or browser storage. The signed-in admin \`Check my WhatsApp groups\` action performs \`GET /api/{session}/groups/join-info?code=...\` for each code using the private WAHA connection. This is read-only: it never joins, posts, creates, or changes any WhatsApp group. The API returns the resolved subgroup ID/name and whether WAHA identifies it as a community; the private codes are omitted from responses. The archive remains OFF until destination IDs, actual members, sending ability, and the database migration are verified. Remove the temporary codes from Railway after successful resolution.
