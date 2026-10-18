@@ -90,3 +90,4 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 verify direct configured RFQ/PO group IDs; secure LID owner mapping; GH NEXUS shared procurement audit database migration applied and verified; safe release with no group sends during deploy.
 2026-10-18 safe owner-only WAHA audit release: direct exact RFQ PO subgroup lookup, GOWS LID->PN verified owner match, GH NEXUS audit schema readback confirmed, audit remains disabled.
 2026-10-18 company and general supplier directory: detect repeated +94 phone/WhatsApp numbers, show other contact names/companies, require explicit review for name conflicts; read-only scan; preserve RFQ/PO routes and existing contacts.
+2026-10-18 retry: duplicate-number warnings JSX syntax closure corrected and original company save-guard preserved; run complete validation before rolling out.
