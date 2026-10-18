@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {privateGroupConfig,inspectPrivateGroup,privateGroupCaption,mirrorStaffGroupCopy} from '../lib/whatsapp-private-audit.mjs'
 
-const env={GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_RFQ_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_PO_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_RFQ_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_PO_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,94777712346'}
+const env={GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_OWNER_ONLY:'false',GH_WA_AUDIT_RFQ_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_PO_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_RFQ_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_PO_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,94777712346'}
 const config=privateGroupConfig(env)
 const group={id:'120363123456789@g.us',subject:'GH Procurement'}
 const participants=[{id:'94777712345@c.us',role:'admin'},{id:'94777712346@c.us',role:'participant'}]
