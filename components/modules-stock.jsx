@@ -126,7 +126,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
- const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[explicitRecounts,setExplicitRecounts]=useState(new Set())
+ const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[markersReady,setMarkersReady]=useState(false),[explicitRecounts,setExplicitRecounts]=useState(new Set())
  const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
  const[heldSearch,setHeldSearch]=useState(null)
@@ -525,6 +525,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  }
  async function refreshFinalizedMarkers(){
   const revision=++finalizedRevision.current
+  setMarkersReady(false)
   try{
    const result=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:12})
    if(result.error)throw result.error
@@ -533,11 +534,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    if(revision!==finalizedRevision.current)return
    const latest={}
    own.forEach((h,index)=>{
-    if(detail[index]?.error)return
+    if(detail[index]?.error)throw detail[index].error
     for(const line of detail[index]?.data||[])if(!latest[line.item_id])latest[line.item_id]={count_no:h.count_no,submitted_at:h.submitted_at,count_id:h.count_id,current_stock:line.current_stock}
    })
    setFinalizedMarkers(current=>({...current,...latest}))
-  }catch(e){console.warn('Recently submitted stock markers unavailable',e)}
+   setMarkersReady(true)
+  }catch(e){if(revision===finalizedRevision.current){setMarkersReady(false);console.warn('Recently submitted stock markers unavailable',e)}}
  }
  useEffect(()=>{void refreshFinalizedMarkers();return()=>{finalizedRevision.current++}},[profile.id])
 
@@ -546,6 +548,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   // Acquire synchronously, including during the confirmation dialog, to prevent double taps.
   submissionLock.current=true
   try{
+   if(!markersReady)throw new Error('Recent submissions have not been checked. Retry the history check before finalizing, to prevent duplicate stock counts.')
    const lot=stockLotReview(entry,sufficient,labelMap,finalizedMarkers,explicitRecounts)
    if(!lot.count)throw new Error('Enter at least one stock quantity or mark an item sufficient before reviewing the lot.')
    if(lot.overLimit)throw new Error('This stock lot contains '+lot.count+' items. The server accepts at most 1000 items in one final submission. Contact an administrator before splitting this lot.')
@@ -658,6 +661,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
     <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">One editable draft. Nothing is submitted until final confirmation.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
+    {!markersReady&&<p className="notice" role="alert">Checking recent finalized stock lots is required before final confirmation. <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
     {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
      {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
      {pendingLot.overLimit&&<p className="notice" role="alert">This lot is too large for one server submission (maximum 1000 items). Nothing will be submitted until an administrator helps split it safely.</p>}
@@ -667,7 +671,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
       <button type="button" className="btn small stock-lot-remove" onClick={()=>removeFromLot(row.id)} aria-label={'Remove '+row.description+' from pending lot'}>Remove</button>
      </div>)}</div>
     </>}
-    <div className="stock-lot-actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)}>Back to counting</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}}>Past submissions</button><button type="button" className="btn primary" disabled={busy||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Finalizing…':`Final confirm · ${pendingLot.count}`}</button></div>
+    <div className="stock-lot-actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)}>Save &amp; pause</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}}>Past submissions</button><button type="button" className="btn primary" disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Finalizing…':`Final confirm · ${pendingLot.count}`}</button></div>
     <p className="muted tiny">Draft edits save automatically. Final confirmation creates one stock count and sends any shortages to the existing procurement workflow.</p>
    </div>
   </div>}
