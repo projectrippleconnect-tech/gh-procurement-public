@@ -1221,3 +1221,83 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .stock-already-submitted .stock-dense-meta{row-gap:1px}
  .stock-recount-action{width:100%}
 }
+
+
+/* Stock lot review: keep actions in a single thin row, never over item inputs.
+   The scrollable region is the item list, not the entire dialog. */
+.stock-lot-modal{
+ display:flex;
+ flex-direction:column;
+ min-height:0;
+ overflow:hidden;
+ overscroll-behavior:contain;
+}
+.stock-lot-modal .modal-head{
+ position:static;
+ flex:0 0 auto;
+ margin:0;
+ padding:0 0 4px;
+}
+.stock-lot-modal>.notice{flex:0 0 auto;margin:0;padding:7px 10px;font-size:12px;line-height:1.35}
+.stock-lot-modal>.stock-lot-rows{
+ flex:1 1 auto;
+ min-height:0;
+ overflow-y:auto;
+ overflow-x:hidden;
+ overscroll-behavior:contain;
+ -webkit-overflow-scrolling:touch;
+}
+.stock-lot-modal>.stock-lot-actions{
+ position:static;
+ flex:0 0 auto;
+ display:grid;
+ grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.18fr);
+ align-items:stretch;
+ gap:5px;
+ width:100%;
+ margin:0;
+ padding:5px 0;
+ border-top:0;
+ border-bottom:1px solid var(--line);
+ box-shadow:none;
+}
+.stock-lot-modal .stock-lot-actions .btn,
+.stock-lot-modal .stock-lot-actions .btn.primary{
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ min-width:0;
+ min-height:35px;
+ height:35px;
+ padding:5px 6px;
+ font-size:11px;
+ line-height:1.2;
+ white-space:nowrap;
+ border-radius:8px;
+}
+.stock-lot-qty{scroll-margin-block:28px}
+@media(max-width:700px){
+ .modal.card.stock-lot-modal{
+  max-height:min(86dvh,calc(100dvh - 12px));
+  overflow:hidden;
+  padding:10px 9px;
+  gap:6px;
+ }
+ .stock-lot-modal>.stock-lot-actions{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,.85fr) minmax(0,1.08fr);
+  gap:4px;
+  padding:3px 0 6px;
+ }
+ .stock-lot-modal .stock-lot-actions .btn,
+ .stock-lot-modal .stock-lot-actions .btn.primary{
+  grid-column:auto;
+  height:34px;
+  min-height:34px;
+  padding:4px;
+  font-size:10.5px;
+  border-radius:8px;
+ }
+ .stock-lot-modal>.muted.tiny{display:none}
+ .stock-lot-modal>.stock-lot-rows{min-height:65px}
+}
