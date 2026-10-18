@@ -101,7 +101,8 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  }
  async function saveContact(e){
   e.preventDefault()
-  if(!selected||!complete||savingLock.current||(needsAddReview&&!reviewedAddConflict))return
+  if(!selected||!complete||savingLock.current)return
+  if(needsAddReview&&!reviewedAddConflict)return
   savingLock.current=true
   setSaving(true);setError('');setStatus('');setEditingId(null);setDeleteTargetId(null)
   try{
