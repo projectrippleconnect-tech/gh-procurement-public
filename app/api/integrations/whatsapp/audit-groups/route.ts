@@ -6,7 +6,7 @@ import {inspectPrivateGroup,resolveOwnerMemberAliases} from '@/lib/whatsapp-priv
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
-const desired=['RFQ','PO','General']
+const desired=['RFQ','PO']
 const tidy=(data:any):any[]=>Array.isArray(data)?data:Array.isArray(data?.participants)?data.participants:Array.isArray(data?.items)?data.items:Array.isArray(data?.data)?data.data:[]
 function gateway(){
  const raw=process.env.WAHA_BASE_URL||'',key=process.env.WAHA_API_KEY||'',session=process.env.WAHA_SESSION||'default'
@@ -81,7 +81,7 @@ export async function GET(request:Request){
    for(const item of groupMatches(fresh,desired))if(!found.has(item.id))found.set(item.id,item)
    if(parsed.items.length<50)break
   }
-  if(!found.size&&nameless>0){
+  if(found.size<2&&nameless>0){
    // WAHA may list newly-created community subgroups without subjects.
    // Re-fetch only a small number of incomplete records; never mutate the group.
    for(const id of [...seen].slice(0,20)){
@@ -92,7 +92,7 @@ export async function GET(request:Request){
     }catch{}
    }
   }
-  if(!found.size){
+  if(found.size<2){
    // Chats can contain subgroup names after WhatsApp creation even before group
    // metadata has synchronized. Inspect only read-only chat names, never messages.
    try{
