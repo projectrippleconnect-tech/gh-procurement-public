@@ -18,7 +18,7 @@ test('stock PDF cleans only repeated printed brand metadata and retains catalog 
  const snapshot=JSON.stringify(item)
  assert.equal(stockPrintDescription(item),'1 GANG 1-WAY SWITCH WHITE KEVILTON')
  assert.equal(stockPrintDescription(item,{removeRepeatedSuffix:false}),item.description)
- assert.equal(stockPrintDescription({description:'STEEL BAR 6mm - 8mm'}),'STEEL BAR 6mm · 8mm')
+ assert.equal(stockPrintDescription({description:'STEEL BAR 6mm - 8mm'}),'STEEL BAR 6mm - 8mm')
  assert.equal(stockPrintDescription({description:'KEVILTON 1-WAY SWITCH - BLACK'}),'KEVILTON 1-WAY SWITCH - BLACK')
  assert.equal(JSON.stringify(item),snapshot,'Source catalog row must remain unchanged')
  const clean=buildCustomStockPdf({items:[item],options:{tablesPerPage:1}})
