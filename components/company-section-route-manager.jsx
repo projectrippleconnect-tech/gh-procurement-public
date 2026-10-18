@@ -222,12 +222,23 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   }
  }
  async function removeOverride(section){
-  const r=await supabase.rpc('proc_company_clear_section_route',{p_company_id:company.id,p_section_id:section.id===companyScope?null:section.id})
+  const current=routeIndex.get(section.id)
+  if(!current?.id||!current.updated_at)throw new Error('This saved route is no longer available. Refresh the advanced panel before removing it.')
+  const sectionId=section.id===companyScope?null:section.id
+  const r=await supabase.rpc('proc_company_clear_section_route_checked',{
+   p_company_id:company.id,p_section_id:sectionId,
+   p_expected_route_id:current.id,p_expected_updated_at:current.updated_at
+  })
   if(r.error)throw r.error
+  if(!r.data?.removed||r.data.id!==current.id)throw new Error('The route removal was not confirmed. Refresh before trying again.')
+  const query=supabase.from('proc_company_section_routes').select('id').eq('company_id',company.id)
+  const checked=await (sectionId===null?query.is('section_id',null):query.eq('section_id',sectionId)).limit(1)
+  if(checked.error)throw checked.error
+  if(checked.data?.length)throw new Error('Another group route exists for this category. Refresh and review; do not assume the override is cleared.')
   await load()
   await onChanged()
   setEditing('')
-  flash('Custom group route cleared. The parent or company fallback now applies.')
+  flash('Selected group route override removed and verified. Existing RFQs and POs remain intact.')
  }
  async function contactSaved(id){
   // Save the supplier independently, but only save the group assignment on Save group route.
