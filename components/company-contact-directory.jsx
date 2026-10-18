@@ -5,6 +5,7 @@ import {supabase} from '@/lib/supabase'
 import {isCompleteCompanyContact,normalizeCompanyMobile} from '@/lib/company-contact-directory.mjs'
 import {ALL_DIRECTORY_COMPANIES,companyDirectoryView} from '@/lib/company-contact-directory-view.mjs'
 import {allRows} from '@/lib/query-pages'
+import {supplierNumberConflicts,otherNamesForNumber} from '@/lib/company-contact-conflicts.mjs'
 
 /** One contact per save. Directory membership never changes RFQ or PO recipients. */
 export function CompanyContactDirectory({companies=[],active=true,can=()=>false,flash=()=>{},fail=()=>{}}){
@@ -14,6 +15,8 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const [contactSearch,setContactSearch]=useState('')
  const [saved,setSaved]=useState([])
  const [assigned,setAssigned]=useState([])
+ const [supplierNumbers,setSupplierNumbers]=useState([])
+ const [numberScanComplete,setNumberScanComplete]=useState(true)
  const [name,setName]=useState('')
  const [phone,setPhone]=useState('')
  const [loading,setLoading]=useState(false)
@@ -34,6 +37,8 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const {savedRows:scopedSaved,assignedRows:scopedAssigned,companyNames}=useMemo(()=>
   companyDirectoryView({saved,assigned,companies:sorted,companyId,query:contactSearch}),
   [saved,assigned,sorted,companyId,contactSearch])
+ const duplicateNumbers=useMemo(()=>supplierNumberConflicts([...supplierNumbers,...saved.map(c=>({...c,kind:'directory'}))]),[supplierNumbers,saved])
+ const knownContactRecords=[...supplierNumbers,...saved]
  const complete=isCompleteCompanyContact(name,phone)&&name.trim().length<=200
  const canonical=normalizeCompanyMobile(phone)
  const editCanonical=normalizeCompanyMobile(editPhone)
@@ -47,9 +52,10 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
   if(!canManage)return
   setLoading(true)
   try{
-   const [dir,groups]=await Promise.all([
+   const [dir,groups,allSuppliers]=await Promise.all([
     allRows(()=>supabase.from('proc_company_contact_directory').select('id,company_id,supplier_id,display_name,created_at,updated_at').order('created_at').order('id')),
-    allRows(()=>supabase.from('proc_company_group_contacts').select('company_id,supplier_id').order('company_id').order('supplier_id'))
+    allRows(()=>supabase.from('proc_company_group_contacts').select('company_id,supplier_id').order('company_id').order('supplier_id')),
+    allRows(()=>supabase.from('proc_suppliers').select('id,name,phone,whatsapp,supplier_kind,active').order('name'))
    ])
    if(dir.error)throw dir.error
    if(groups.error)throw groups.error
@@ -58,12 +64,16 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     ...(groups.data||[]).map(r=>r.supplier_id),
     ...sorted.map(c=>c.default_supplier_id)
    ].filter(Boolean))]
-   const supplierMap=new Map()
-   for(let i=0;i<ids.length;i+=100){
-    const r=await supabase.from('proc_suppliers').select('id,name,whatsapp,phone').in('id',ids.slice(i,i+100))
-    if(r.error)throw r.error
-    for(const supplier of r.data||[])supplierMap.set(supplier.id,supplier)
+   const supplierMap=new Map((allSuppliers.error?[]:allSuppliers.data||[]).map(s=>[s.id,s]))
+   if(allSuppliers.error){
+    for(let i=0;i<ids.length;i+=100){
+     const r=await supabase.from('proc_suppliers').select('id,name,whatsapp,phone').in('id',ids.slice(i,i+100))
+     if(r.error)throw r.error
+     for(const supplier of r.data||[])supplierMap.set(supplier.id,supplier)
+    }
    }
+   setSupplierNumbers([...supplierMap.values()])
+   setNumberScanComplete(!allSuppliers.error)
    const mapped=(dir.data||[]).map(d=>({...d,name:d.display_name,phone:supplierMap.get(d.supplier_id)?.whatsapp||supplierMap.get(d.supplier_id)?.phone||''}))
    setSaved(mapped)
    const asg=new Map()
@@ -164,6 +174,12 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
   </button>
   {expanded&&<div className="company-directory-body section">
    <p className="muted tiny">Each Save Contact writes directly to the database. Draft entries are NOT saved until you press Save. Existing RFQ/PO routes are not changed.</p>
+    {!numberScanComplete&&<p className="notice" role="status">Number checks are limited to linked supplier records; the full directory could not be scanned.</p>}
+    {duplicateNumbers.length>0&&<div className="notice bad company-directory-duplicate-warning" role="alert"><strong>Duplicate number warning · {duplicateNumbers.length} number{duplicateNumbers.length===1?'':'s'} with different names</strong>
+     {duplicateNumbers.slice(0,8).map(c=><p key={c.phone} className="tiny"><strong>{c.phone}</strong> · {[...new Set(c.entries.map(e=>e.name))].join(' / ')}</p>)}
+     {duplicateNumbers.length>8&&<p className="tiny">{duplicateNumbers.length-8} more number conflicts need review.</p>}
+     <p className="muted tiny">Shared numbers may be intentional; no suppliers or routes were merged.</p>
+    </div>}
    <label className="field" htmlFor="company-directory-search">Find a company</label>
    <input id="company-directory-search" className="input" placeholder="Search all companies…" value={search} onChange={e=>setSearch(e.target.value)}/>
    <button type="button" className={'btn small company-directory-all-button '+(companyId===ALL_DIRECTORY_COMPANIES?'company-directory-selected':'')} onClick={()=>selectCompany(ALL_DIRECTORY_COMPANIES)} aria-pressed={companyId===ALL_DIRECTORY_COMPANIES}>All Companies <span className="muted">· {sorted.length} companies · {saved.length} saved</span></button>
@@ -182,6 +198,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     <label className="field" htmlFor="company-directory-phone">WhatsApp number</label>
     <input id="company-directory-phone" className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="076 360 9930 or +94763609930" value={phone} onChange={e=>{setPhone(e.target.value);setStatus('');setError('')}}/>
     <p className="muted tiny company-directory-number-preview" aria-live="polite">{phone?'Number entered: '+phone+(canonical?' · Save as '+canonical:' · Check the number'):'The full number will appear here as you type.'}</p>
+     {canonical&&otherNamesForNumber(canonical,knownContactRecords,name).length>0&&<p className="notice bad tiny" role="status">Warning: This number already appears under {otherNamesForNumber(canonical,knownContactRecords,name).slice(0,5).join(' / ')}. Please verify before saving; no existing contact will be merged.</p>}
     <button type="submit" className="btn primary company-directory-save" disabled={!selected||!complete||saving}>{saving?'Saving…':'Save Contact & Add Next'}</button>
    </form>}
    {status&&<p className="success" role="status">{status}</p>}
@@ -207,6 +224,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
       <label className="field" htmlFor={'company-edit-number-'+c.id}>WhatsApp number</label>
       <input id={'company-edit-number-'+c.id} className="input" type="tel" inputMode="tel" value={editPhone} onChange={e=>setEditPhone(e.target.value)}/>
       <p className="muted tiny company-directory-number-preview" aria-live="polite">{editPhone?'Number entered: '+editPhone+(editCanonical?' · Save as '+editCanonical:' · Invalid number'):'Enter the contact number.'}</p>
+       {editCanonical&&otherNamesForNumber(editCanonical,[...supplierNumbers,...saved.filter(x=>x.id!==c.id)],editName).length>0&&<p className="notice bad tiny" role="status">Warning: Another contact uses this number as {otherNamesForNumber(editCanonical,[...supplierNumbers,...saved.filter(x=>x.id!==c.id)],editName).slice(0,5).join(' / ')}. Review before changing it.</p>}
       <p className="muted tiny">Edits change this company’s directory entry only. Existing RFQ/PO recipients and historical orders are not changed.</p>
       <div className="company-directory-inline-actions">
        <button className="btn primary" type="submit" disabled={!canSaveEdit||changing}>{changing?'Saving…':'Save Changes'}</button>
