@@ -19,8 +19,8 @@ test('Company Lists mounts advanced document actions instead of second routing e
  assert.doesNotMatch(advanced,/toggleGroupContact|toggleRecipient|Save group route|Save &amp; send PO now/)
 })
 test('advanced panel preserves all unique capabilities without duplicate setting updates',()=>{
- for(const term of ['Image &amp; caption','Save image &amp; caption only','Send RFQ image now',
-  'Send PO image now','Prepare approved RFQ','Create approved PO','Resume eligible RFQ images',
+ for(const term of ['Image &amp; caption','Save image &amp; caption only','Create & send new RFQ',
+  'Create & send new PO','Prepare new RFQ','Create approved PO','Resume eligible RFQ images',
   'Outgoing','WhatsApp caption','Blank unit-rate column']){
   if(term==='Outgoing')continue
   assert.ok(advanced.includes(term),'missing '+term)
@@ -54,22 +54,59 @@ test('sending existing route rechecks live route and recipient membership before
  assert.doesNotMatch(send,/await save\(/)
 })
 
-test('advanced one-group PO preparation sends only newly created purchase-order IDs',()=>{
+test('prepare-only PO action does not invoke WhatsApp while preserving scoped order IDs',()=>{
  const start=manager.indexOf('async function prepare(s,rule)')
  const end=manager.indexOf('if(!company?.id||!admin)return null',start)
  const body=manager.slice(start,end)
  assert.ok(start>0&&end>start)
  assert.match(body,/const createdIds=createdOrders\.map\(po=>po\?\.id\)\.filter\(Boolean\)/)
  assert.match(body,/if\(!createdIds\.length\)throw/)
- assert.match(body,/companyApi\('orders',\{companyId:company.id,poIds:createdIds\}\)/)
- assert.doesNotMatch(body,/companyApi\('orders',\{companyId:company.id\}\)/)
+ assert.doesNotMatch(body,/companyApi\('orders'/)
+ assert.match(body,/No WhatsApp send was initiated here/)
+ assert.match(body,/Automatic sending may proceed from the existing dispatch queue/)
+ assert.match(body,/navigate\('po'\)/)
 })
 test('advanced actions retain explicit override removal, without resetting any history automatically',()=>{
  assert.match(advanced,/Use inherited \/ company default/)
  assert.match(advanced,/Existing RFQs and POs and their history are retained/)
  assert.match(advanced,/onConfirm:\(\)=>run\(\(\)=>removeOverride\(section\)\)/)
  const fn=manager.slice(manager.indexOf('async function removeOverride'),manager.indexOf('async function contactSaved'))
- assert.match(fn,/proc_company_clear_section_route/)
+ assert.match(fn,/proc_company_clear_section_route_checked/)
+ assert.match(fn,/p_expected_route_id:current.id/)
+ assert.match(fn,/p_expected_updated_at:current.updated_at/)
+ assert.match(fn,/if\(!r.data\?\.removed\|\|r.data.id!==current.id\)/)
+ assert.match(fn,/Another group route exists for this category/)
+ assert.doesNotMatch(fn,/proc_company_clear_section_route'/)
  assert.match(fn,/await onChanged\(\)/)
  assert.doesNotMatch(fn,/delete\(\)|truncate|DROP TABLE/i)
+})
+
+test('advanced preparation and explicit new-document sending are distinguishable',()=>{
+ assert.match(advanced,/Prepare new RFQ/)
+ assert.match(advanced,/Create approved PO/)
+ assert.match(advanced,/Create & send new RFQ/)
+ assert.match(advanced,/Create & send new PO/)
+ assert.match(advanced,/NEW RFQ\/PO from approved shortages/)
+ assert.match(advanced,/does not resend an existing document/)
+ const prepare=manager.slice(manager.indexOf('async function prepare(s,rule)'),manager.indexOf('if(!company?.id||!admin)return null'))
+ const explicit=manager.slice(manager.indexOf('async function sendConfiguredRoute'),manager.indexOf('async function removeOverride'))
+ assert.doesNotMatch(prepare,/companyApi\('orders'/)
+ assert.match(explicit,/companyApi\('orders',\{companyId:company.id,poIds\}\)/)
+})
+
+test('route override deletion is admin-only, version-checked and preserves other groups',()=>{
+ const migration=readFileSync('supabase/migrations/20261018153000_company_safe_route_override_delete.sql','utf8')
+ assert.match(migration,/CREATE OR REPLACE FUNCTION public\.proc_company_clear_section_route_checked/)
+ assert.match(migration,/private\.proc_assert_access\(\)/)
+ assert.match(migration,/company_lists\.manage/)
+ assert.match(migration,/p_expected_route_id uuid/)
+ assert.match(migration,/p_expected_updated_at timestamptz/)
+ assert.match(migration,/FOR UPDATE OF r/)
+ assert.match(migration,/r\.id=p_expected_route_id/)
+ assert.match(migration,/r\.company_id=p_company_id/)
+ assert.match(migration,/r\.section_id IS NOT DISTINCT FROM p_section_id/)
+ assert.match(migration,/current_v\.updated_at IS DISTINCT FROM p_expected_updated_at/)
+ assert.match(migration,/DELETE FROM public\.proc_company_section_routes WHERE id=current_v\.id/)
+ assert.match(migration,/REVOKE ALL ON FUNCTION public\.proc_company_clear_section_route_checked/)
+ assert.doesNotMatch(migration,/DELETE FROM public\.proc_requirements|DELETE FROM public\.proc_purchase_orders|TRUNCATE/i)
 })

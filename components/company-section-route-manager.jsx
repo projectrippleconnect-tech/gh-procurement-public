@@ -214,20 +214,35 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
     }
     throw new Error('PO preparation failed: '+result.error.message)
    }
-   const poIds=(result.data||[]).map(po=>po.id)
+   const poIds=Array.isArray(result.data)?result.data.map(po=>po?.id).filter(Boolean):[]
    if(!poIds.length)throw new Error('No new PO IDs were returned. Check order history before retrying.')
+   const queued=await supabase.rpc('proc_company_queue_selected_po_send',{p_company_id:company.id,p_po_ids:poIds})
+   if(queued.error)throw new Error('PO created but not sent: '+queued.error.message+' Check Order history before attempting another action.')
+   if(!queued.data?.ok||queued.data.selected!==poIds.length)
+    throw new Error('PO created but sending could not be verified. Check Orders before retrying.')
    const sent=await companyApi('orders',{companyId:company.id,poIds})
    setSendResults((sent.outcomes||[]).map(outcome=>({...outcome,supplierId:outcome.id,message:outcome.error||'Accepted by WhatsApp gateway; delivery is not guaranteed.'})))
    setRouteNotice('Purchase-order sending attempted. Check individual results and the audit record before retrying.')
   }
  }
  async function removeOverride(section){
-  const r=await supabase.rpc('proc_company_clear_section_route',{p_company_id:company.id,p_section_id:section.id===companyScope?null:section.id})
+  const current=routeIndex.get(section.id)
+  if(!current?.id||!current.updated_at)throw new Error('This saved route is no longer available. Refresh the advanced panel before removing it.')
+  const sectionId=section.id===companyScope?null:section.id
+  const r=await supabase.rpc('proc_company_clear_section_route_checked',{
+   p_company_id:company.id,p_section_id:sectionId,
+   p_expected_route_id:current.id,p_expected_updated_at:current.updated_at
+  })
   if(r.error)throw r.error
+  if(!r.data?.removed||r.data.id!==current.id)throw new Error('The route removal was not confirmed. Refresh before trying again.')
+  const query=supabase.from('proc_company_section_routes').select('id').eq('company_id',company.id)
+  const checked=await (sectionId===null?query.is('section_id',null):query.eq('section_id',sectionId)).limit(1)
+  if(checked.error)throw checked.error
+  if(checked.data?.length)throw new Error('Another group route exists for this category. Refresh and review; do not assume the override is cleared.')
   await load()
   await onChanged()
   setEditing('')
-  flash('Custom group route cleared. The parent or company fallback now applies.')
+  flash('Selected group route override removed and verified. Existing RFQs and POs remain intact.')
  }
  async function contactSaved(id){
   // Save the supplier independently, but only save the group assignment on Save group route.
@@ -264,14 +279,10 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
    const createdOrders=Array.isArray(r.data)?r.data:[]
    const createdIds=createdOrders.map(po=>po?.id).filter(Boolean)
    if(!createdIds.length)throw new Error('No new purchase-order IDs were returned. Check PO history before attempting any send.')
-   flash(createdIds.length+' approved direct purchase order(s) created.')
-   if(rule.auto_send){
-    try{
-     // Never dispatch every pending company order just because one group was prepared.
-     const sent=await companyApi('orders',{companyId:company.id,poIds:createdIds})
-     flash(sent.message||'Check sending results for the newly created purchase orders.')
-    }catch(e){fail(new Error('Purchase orders were created, but their WhatsApp sending needs review: '+e.message))}
-   }
+   // Preparing an order is not the same as explicitly sending it now.
+   // The stored rule may queue automatic dispatch separately; this button
+   // must not start a second WhatsApp gateway attempt itself.
+   flash(createdIds.length+' direct purchase order(s) created.'+(rule.auto_send?' Automatic sending may proceed from the existing dispatch queue; check PO status before any manual send.':' No WhatsApp send was initiated here.'))
    navigate('po')
   }
  }
@@ -298,21 +309,21 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
      {own?<button type="button" className="btn small" disabled={busy} aria-expanded={editing===section.id} onClick={()=>editing===section.id?setEditing(''):openEditor(section)}>{editing===section.id?'Close template':'Image &amp; caption'}</button>:<span className="muted tiny">{effective?'Edit template at parent group':'Set up in workflow checklist'}</span>}
     </div>
     {own&&<div className="toolbar section" style={{flexWrap:'wrap',gap:6}}>
-      <button className="btn small" type="button" disabled={busy||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({
-       title:own.route_mode==='rfq'?'Prepare approved-shortage RFQ':'Prepare approved-shortage PO',
+      {!(own.route_mode==='direct'&&own.auto_send)&&<button className="btn small" type="button" disabled={busy||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({
+       title:own.route_mode==='rfq'?'Prepare new RFQ for approval':'Create new approved PO',
        message:'Prepare '+(own.route_mode==='rfq'?'an RFQ':'a direct purchase order')+' for approved outstanding shortages for '+(paths.get(section.id)||section.name)+' using its currently saved route?',
-       warning:own.route_mode==='rfq'?'Review and send from the RFQ page; this button does not send RFQ images.':'This creates a purchase order. If this saved route has auto-send enabled, its existing sending behavior may dispatch the order.',
+       warning:own.route_mode==='rfq'?'Review and send from the RFQ page; this button does not send RFQ images.':'This creates a purchase order but does not call WhatsApp directly. If the saved auto-send route is enabled, the queued order may still be dispatched by the automatic processor. Check PO status before manually sending.',
        confirmLabel:own.route_mode==='rfq'?'Prepare RFQ':'Create PO',
        onConfirm:()=>run(()=>prepare(section,own))
-      })}>{own.route_mode==='rfq'?'Prepare approved RFQ':'Create approved PO'}</button>
+      })}>{own.route_mode==='rfq'?'Prepare new RFQ':'Create approved PO (no direct send)'}</button>}
       <button className="btn small" type="button" disabled={busy||recipientIds.length===0||(own.route_mode==='direct'&&recipientIds.length!==1)||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')}
        onClick={()=>confirm({
-        title:own.route_mode==='rfq'?'Send approved RFQ images':'Send approved PO images',
+        title:own.route_mode==='rfq'?'Create & send new RFQ images':'Create & send new PO images',
         message:'Use the '+recipientIds.length+' saved recipient'+(recipientIds.length===1?'':'s')+' for '+(paths.get(section.id)||section.name)+'? Only approved uncovered shortages may be prepared.',
-        warning:'This creates a new RFQ/PO when eligible and attempts sending via WhatsApp. It does not change supplier routing. Check the audit and sending status before retrying.',
-        confirmLabel:own.route_mode==='rfq'?'Prepare & send RFQ':'Prepare & send PO',
+        warning:'This creates a NEW RFQ/PO from approved shortages and attempts WhatsApp sending. It does not resend an existing document or change supplier routing. Check the audit and sending status before retrying.',
+        confirmLabel:own.route_mode==='rfq'?'Create & send RFQ':'Create & send PO',
         onConfirm:()=>run(()=>sendConfiguredRoute(section,own))
-       })}>{own.route_mode==='rfq'?'Send RFQ image now':'Send PO image now'}</button>
+       })}>{own.route_mode==='rfq'?'Create & send new RFQ':'Create & send new PO'}</button>
       <button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
        title:'Remove saved category routing override',
        message:'Remove the saved '+(paths.get(section.id)||section.name)+' routing override and use its inherited / company fallback for future requirements?',
