@@ -424,14 +424,15 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
   </div>}
   {!setupOpen&&<div className="card pad section company-count-workspace">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
-   <div className="muted tiny">{scoped.length} item(s) · entered quantities are saved locally until submission.</div>
+   <div className="muted tiny">{scoped.length} item(s) · {countTotal} in saved draft · review before final submission.</div>
    <div className="tablewrap section company-items-grid" style={companyRowStyle(rowLayout)}><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Stock</th><th>Enough</th></tr></thead>
     <tbody>{tableEntries.map(line=>line.type==='section'
       ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{line.title} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {line.title} <small>({line.count})</small></button>}</th></tr>
-      :(()=>{const r=line.row;return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
+      :(()=>{const r=line.row;const last=companyMarker(r);const alreadyFinalized=!!last&&!companyRecounts.has(r.id);return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row ':'')+(alreadyFinalized?'company-stock-finalized':'')}>
      <td>{allCompanies&&<small className="muted">{companyNames.get(r.company_id)}</small>}<CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
+      {last&&<small className="company-count-last" title={'Last submitted '+companyDateTime(last.submitted_at)}>{alreadyFinalized?'✓ Submitted':'↺ Recounting'} · {last.count_no} · {companyDateTime(last.submitted_at)}</small>}
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
@@ -440,8 +441,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
      </td>
-     <td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>
-     <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
+     <td>{!canCount?'—':alreadyFinalized?<button className="btn small company-recount-btn" type="button" onClick={()=>void allowCompanyRecount(r)}>Recount</button>:<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>}</td>
+     <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount||alreadyFinalized} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
     </tr>})())}</tbody>
    </table></div>
   </>}</div>}
