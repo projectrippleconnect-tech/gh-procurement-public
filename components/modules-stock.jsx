@@ -537,38 +537,60 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  useEffect(()=>{void refreshFinalizedMarkers();return()=>{finalizedRevision.current++}},[profile.id])
 
  async function submit(){
-  if(busy)return
-  const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
-  if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one stock quantity or mark an item sufficient.')))
-  if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
-  const canSeeReview=canNavigate('requirements')
-  const submitSuffix=canSeeReview?t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.'):(checked.length===1?'item?':'items?')
-  const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
-  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:canSeeReview?t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.'):'The submitted stock quantities will be saved.'}))return
-
-  setBusy(true)
+  if(busy||submissionLock.current)return
+  // Acquire synchronously, including during the confirmation dialog, to prevent double taps.
+  submissionLock.current=true
   try{
+   const lot=stockLotReview(entry,sufficient,labelMap,finalizedMarkers,explicitRecounts)
+   if(!lot.count)throw new Error('Enter at least one stock quantity or mark an item sufficient before reviewing the lot.')
+   if(lot.overLimit)throw new Error('This stock lot contains '+lot.count+' items. The server accepts at most 1000 items in one final submission. Contact an administrator before splitting this lot.')
+   if(lot.blocked.length)throw new Error(lot.blocked.length+' item(s) were already finalized. Review their Previous Submission markers and explicitly allow a recount, or remove them from this lot.')
+   const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
+   if(remaining||checked.length!==lot.count)throw new Error('The entire stock lot must be finalized together. No partial submissions were made.')
+   if(counted.some(([,v])=>!isQuantityInput(v)))throw new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.'))
+   const canSeeReview=canNavigate('requirements')
+   const details=canSeeReview?'The complete lot will become ONE submitted count. Shortages will move to Procurement Review.':'The complete lot will be saved as ONE submitted stock count.'
+   const approved=await confirmAction('Finalize the entire '+lot.count+'-item stock lot now? This locks this count in history. Subsequent corrections require an intentional new recount.',{title:'Final confirmation · '+lot.count+' items',confirmLabel:'Finalize entire lot',details})
+   if(!approved)return
+   setBusy(true)
    await draftWrites.current
    await ensureServerCountStart()
    const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v)})
+   // This RPC creates one stock count. It is never called by Save Draft or Review.
    const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:null})
    if(r.error)throw r.error
    const automation=r.data?.automation||null
-   const next={...entry},nextSufficient={...sufficient};checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
-   setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
-   if(!Object.keys(next).length&&!Object.keys(nextSufficient).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
-   let message='Stock submitted. '
-   if(!canSeeReview)message+=checked.length+' item(s) saved.'
-   else if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
-   else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
-   else message+=checked.length+' item(s) saved for procurement review.'
-   setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
+   const now=new Date().toISOString()
+   const marker={count_id:r.data?.count_id||null,count_no:r.data?.count_no||'Finalized lot',submitted_at:now}
+   setFinalizedMarkers(prev=>{
+    const next={...prev}
+    for(const line of lines)next[line.item_id]={...marker,current_stock:line.current_stock}
+    return next
+   })
+   // Server RPC deletes its draft transactionally. Do not let a stale zero-item
+   // autosave recreate the previous lot after the successful final submission.
+   skipEmptyDraft.current=true
+   try{localStorage.removeItem(draftKey)}catch{}
+   if(serverDrafts){
+    try{await draftWrites.current;const removed=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id);if(removed.error)console.warn('Completed lot draft cleanup delayed',removed.error)}catch(e){console.warn('Completed lot draft cleanup delayed',e)}
+   }
+   setEntry({});setSufficient({});setSkipped(new Set());setCursor(0);setExplicitRecounts(new Set());startedAt.current=null;setLotReviewOpen(false)
+   let message='One stock lot finalized. '
+   if(!canSeeReview)message+=lot.count+' item(s) saved.'
+   else if(automation?.status==='review_required')message+=lot.count+' item(s) saved · '+(automation.requirements||0)+' shortage(s) await Procurement Review.'
+   else if(automation?.status==='no_requirements')message+=lot.count+' item(s) saved · no purchase is needed.'
+   else message+=lot.count+' item(s) saved for procurement review.'
+   setSubmission({message,remaining:0,needsReview:automation?.status!=='no_requirements'})
    await load()
    if(historyOpen)await loadStockHistory()
-   if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
+   void refreshFinalizedMarkers()
+   if(automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
   }catch(e){
    fail(e)
-  }finally{setBusy(false)}
+  }finally{
+   submissionLock.current=false
+   setBusy(false)
+  }
  }
 
  async function discardDraft(){
