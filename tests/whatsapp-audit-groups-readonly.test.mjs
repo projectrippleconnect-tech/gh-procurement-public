@@ -23,3 +23,16 @@ test('Company Setup offers a manual, read-only group check rather than auto enab
  assert.match(company,/WhatsAppAuditGroups/)
  assert.doesNotMatch(ui,/method:['"]POST['"]|GH_WA_AUDIT_ENABLED.*true/)
 });
+
+
+test('Only exact configured RFQ and PO group IDs are accepted; read-only owner verification handles linked IDs',()=>{
+ const api=file('app/api/integrations/whatsapp/audit-groups/route.ts')
+ const ui=file('components/whatsapp-audit-groups.jsx')
+ assert.match(api,/GH_WA_AUDIT_RFQ_GROUP_ID/)
+ assert.match(api,/GH_WA_AUDIT_PO_GROUP_ID/)
+ assert.match(api,/exactTarget\(/)
+ assert.match(api,/resolveOwnerMemberAliases\(/)
+ assert.match(api,/auditDatabaseReady/)
+ assert.match(ui,/Configured WhatsApp destinations/)
+ assert.match(ui,/Still unverified:/)
+});
