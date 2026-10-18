@@ -46,3 +46,13 @@ test('advanced saved routes trigger main workflow reload; no documents are sent 
  assert.match(company,/const syncCompanySupplierPanels=useCallback/)
  assert.doesNotMatch(directory,/companyApi\('orders'/)
 })
+
+test('saving a verified workflow refreshes advanced supplier panels, never prior to readback',()=>{
+ const workflowSave=workflow.slice(workflow.indexOf('async function runSave'),workflow.indexOf('function stagePreferences'))
+ const verification=workflowSave.indexOf('const verified=[]')
+ const refresh=workflowSave.indexOf('await onRoutesChanged()')
+ assert.ok(verification>=0&&refresh>verification)
+ assert.match(workflowSave,/if\(verified.length\)\{/)
+ assert.match(workflowSave,/Refresh needed/)
+ assert.doesNotMatch(workflowSave,/companyApi\('orders'/)
+})
