@@ -366,6 +366,37 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  }
 
  return <>
+
+  {companyReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
+   <div className="modal card stock-lot-modal company-lot-modal" role="dialog" aria-modal="true" aria-label="Review company stock lot">
+    <div className="modal-head"><div><h3>{companyHistoryOpen?'Company stock history':'Review company lot · '+countTotal+' items'}</h3><p className="muted tiny">Saved draft · one final confirmation</p></div><button type="button" className="btn small" aria-label="Close review" onClick={()=>setCompanyReviewOpen(false)}>✕</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Company stock lot actions">
+     <button type="button" className="btn" onClick={saveCompanyDraftNow}>Save draft</button>
+     <button type="button" className="btn" onClick={()=>{setCompanyHistoryOpen(x=>!x);if(!companyHistoryReady)void loadCompanyHistory()}}>{companyHistoryOpen?'Review':'History'}</button>
+     <button type="button" className="btn primary" disabled={busy||loading||companyHistoryOpen||!companyHistoryReady||!countTotal||!!companyLotBlocked.length||oversizedCompanyLot} onClick={submit}>{busy?'Finalizing…':'Finalize · '+countTotal}</button>
+    </div>
+    {!companyHistoryReady&&<p className="notice" role="alert">{companyHistoryError||'Checking previous company counts…'} <button type="button" className="btn small" disabled={companyHistoryLoading} onClick={()=>void loadCompanyHistory()}>Retry</button></p>}
+    {!companyHistoryOpen&&!!companyLotBlocked.length&&<p className="notice" role="alert">{companyLotBlocked.length} previously submitted item(s). Remove or explicitly choose Recount before final confirmation.</p>}
+    {!companyHistoryOpen&&oversizedCompanyLot&&<p className="notice" role="alert">More than 1,000 items in one company. Final submission is blocked until the lot is safely split.</p>}
+    {!companyHistoryOpen&&lotGroups.length>1&&<p className="muted tiny company-lot-group-hint">{lotGroups.length} company-specific lots will be processed separately. Successfully submitted company lots cannot be rolled back by later failures.</p>}
+    {companyHistoryOpen?<div className="stock-lot-rows company-lot-history" aria-label="Past company stock submissions">
+      {companyHistoryLoading?<p className="muted tiny">Loading submitted counts…</p>:!companyHistory.filter(h=>allCompanies||h.company.id===companyId).length?<p className="muted tiny">No recent submitted company counts found.</p>:companyHistory.filter(h=>allCompanies||h.company.id===companyId).map(h=><div key={h.count_id} className="company-lot-history-entry">
+       <button type="button" className="company-history-trigger" onClick={()=>void openCompanyHistoryRecord(h.count_id)} aria-expanded={expandedHistoryId===h.count_id}><strong>{h.company.name} · {h.count_no}</strong><small>{companyDateTime(h.submitted_at)} · {h.item_count} items</small><span aria-hidden="true">{expandedHistoryId===h.count_id?'▴':'▾'}</span></button>
+       {expandedHistoryId===h.count_id&&<div className="company-lot-history-lines">{!companyHistoryDetails[h.count_id]?<p className="muted tiny">Loading item details…</p>:companyHistoryDetails[h.count_id].map(line=><div key={line.line_id}><span>{line.description}{line.size?' · '+line.size:''}</span><b>{line.current_stock===null?'Enough':qty(line.current_stock)} {line.current_stock===null?'':line.uom||''}</b></div>)}</div>}
+      </div>)}
+     </div>:<div className="stock-lot-rows company-lot-review-rows" aria-label="Company stock items for review">
+      {!countTotal?<p className="muted tiny">No company items counted yet. Save draft and return to counting.</p>:lotGroups.map(g=><div key={g.companyId}>
+       <div className="company-lot-group-heading">{companyNames.get(g.companyId)||'Company'} <small>({g.count} items)</small></div>
+       {g.lines.map(line=><div className="stock-lot-row" key={line.id}>
+        <div className="stock-lot-item"><strong>{line.row.item?.description||line.row.item?.item_code||'Item'}{line.row.item?.size?' · '+line.row.item.size:''}</strong><small>{line.row.item?.uom||''}{line.previous?' · Submitted '+line.previous.count_no:''}</small></div>
+        {line.blocked?<button className="btn small" onClick={()=>void allowCompanyRecount(line.row)}>Recount</button>:<><input aria-label={'Stock quantity for '+(line.row.item?.description||'company item')} className="input stock-lot-qty" inputMode="decimal" disabled={line.sufficient} value={line.sufficient?'':line.quantity??''} onChange={e=>setCount(line.id,e.target.value)}/><label className="stock-lot-enough"><input type="checkbox" checked={line.sufficient} onChange={e=>setEnough(line.id,e.target.checked)}/>Enough</label></>}
+        <button type="button" className="btn small stock-lot-remove" onClick={()=>removeFromCompanyLot(line.id)}>Remove</button>
+       </div>)}
+      </div>)}
+     </div>}
+    <p className="muted tiny company-lot-footnote">Draft only until final confirmation. Company automatic RFQ/PO rules apply after finalization.</p>
+   </div>
+  </div>}
   <div className="company-stock-header">
    <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'…':'↻'}</button>{canManage&&<button className="btn small" aria-label={setupOpen?'Back to stock':'Company setup'} onClick={()=>setSetupOpen(v=>!v)}>{setupOpen?'Back to stock':'Setup'}</button>}</div></div>
    <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} disabled={busy} onChange={e=>{setCompanyId(e.target.value);try{localStorage.setItem('gh-company-selection-v1:'+profile.id,e.target.value)}catch{};setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="all">All Companies</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={allCompanies?'Search all companies and items':t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
@@ -437,7 +468,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </>}
   {!setupOpen&&canCount&&companyId&&active&&<StockSubmitAction active={active}><div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
    <div className="count-dock-summary" role="status"><strong>{countTotal} of {rows.length} counted</strong><small>{search||category||subgroup||brand||sectionFilter?'Includes counted items outside filters':'Zero counts as entered · blank items are skipped'}</small></div>
-   <button className="btn primary" aria-label={busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`} disabled={busy||loading||!countTotal} onClick={submit}><span className="stock-submit-full">{busy?'Submitting…':`Submit ${countTotal} item${countTotal===1?'':'s'} →`}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${countTotal}`}</span></button>
+   <button className="btn primary" aria-label={'Review company stock lot with '+countTotal+' items'} disabled={busy||loading} onClick={()=>{setCompanyHistoryOpen(false);setCompanyReviewOpen(true)}}><span className="stock-submit-full">Review Lot · {countTotal}</span><span className="stock-submit-compact" aria-hidden="true">Review · {countTotal}</span></button>
   </div></StockSubmitAction>}
  </>
 }
