@@ -1,7 +1,7 @@
 'use client'
 
 import {useState} from 'react'
-import {getAllHelpTopics,getHelpTopic} from '@/lib/help'
+import {getVisibleHelpTopics,getHelpTopic} from '@/lib/help'
 
 export function InfoButton({topic,language='en',className=''}) {
  const[open,setOpen]=useState(false)
@@ -13,9 +13,9 @@ export function InfoButton({topic,language='en',className=''}) {
  </span>
 }
 
-export function HelpCenter({open,onClose,language='en',t=(k,f)=>f||k}){
+export function HelpCenter({open,onClose,language='en',t=(k,f)=>f||k,can=()=>false,canNavigate=()=>false}){
  if(!open)return null
- const topics=getAllHelpTopics(language)
+ const topics=getVisibleHelpTopics(language,canNavigate,can)
  return <div className="modal-backdrop help-center-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose?.()}>
   <div className="modal card wide help-center">
    <div className="modal-head"><div><h3>{t('help.center','Information Center')}</h3><p className="muted tiny">{t('help.subtitle','Short explanations for important functions.')}</p></div><button className="btn small" onClick={onClose}>{t('common.close','Close')}</button></div>

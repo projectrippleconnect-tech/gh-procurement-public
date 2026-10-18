@@ -120,7 +120,7 @@ export function LoginScreen({initialError=''}) {
  if(mode==='done')return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>Password updated</h1><p>Your password is now changed.</p><div className="success">{notice}</div><button className="btn primary section" onClick={()=>window.location.replace('/')}>Continue</button></div></div>
 
  return <div className="login-shell"><div className="card login">
-   <div className="logo">GH</div><h1>GH Procurement</h1><p>Secure procurement, supplier comparison, purchase orders and stock receiving.</p>
+   <div className="logo">GH</div><h1>General Hardware</h1><p>Secure staff workspace. Sign in to access your assigned duties.</p>
    <div className="stack">
     <input className="input" type="email" autoComplete="username" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)}/>
     {mode==='login'&&<><input className="input" type={showPasswords?'text':'password'} autoComplete="current-password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&signIn()}/><label className="password-visibility"><input type="checkbox" checked={showPasswords} onChange={e=>setShowPasswords(e.target.checked)}/> Show password</label></>}
