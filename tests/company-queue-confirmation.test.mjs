@@ -32,5 +32,5 @@ test('queue dispatch is invoked only from the confirmation callback, never from 
  assert.ok(queue.lastIndexOf("onConfirm:()=>run",rfq)>=0)
  assert.match(queue,/confirmLabel:'Send eligible queued POs'/)
  assert.match(queue,/confirmLabel:'Send eligible queued RFQs'/)
- assert.match(queue,/\{admin&&<>/)
+ assert.match(controls,/\{admin&&<><details className="section"><summary>Automatic RFQ \/ PO sending/)
 })
