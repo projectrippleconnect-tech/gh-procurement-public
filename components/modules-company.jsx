@@ -324,12 +324,17 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   try{const result=await supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:id});if(result.error)throw result.error;setCompanyHistoryDetails(previous=>({...previous,[id]:result.data||[]}))}catch(e){fail(e)}
  }
  async function submit(){
-  if(!canCount||busy)return
+  if(!canCount||busy||submitLock.current)return
+  if(!companyHistoryReady)return fail(new Error('Recent company stock submissions have not been verified. Retry History before finalizing.'))
+  if(companyLotBlocked.length)return fail(new Error('Previously submitted item(s) are included. Remove them or explicitly allow recount before finalizing.'))
+  if(oversizedCompanyLot)return fail(new Error('A company has more than 1000 counted items. Each company lot must stay within the server limit.'))
   const counted=rows.filter(r=>sufficient[r.id]||(entry[r.id]!==undefined&&entry[r.id]!==''))
   if(!counted.length)return fail(new Error(t('company_lists.enter_one','Enter at least one stock quantity.')))
   if(counted.some(r=>!sufficient[r.id]&&!isQuantityInput(entry[r.id])))return fail(new Error(t('company_lists.stock_error','Stock quantities must be zero or positive.')))
   if(counted.some(r=>r.max_stock_review&&!sufficient[r.id]))return fail(new Error('An admin must enter the maximum stock for items marked Review before procurement.'))
-  if(!await confirmAction(t('confirm.company_submit_prefix','Submit')+' '+counted.length+' '+t('confirm.company_submit_suffix','company-list count(s)? The configured company approval and ordering route will apply.')))return
+  if(!await confirmAction('Finalize '+counted.length+' company stock item(s)'+(lotGroups.length>1?' across '+lotGroups.length+' company lots':'')+'? This is the only step that may generate or send configured RFQs / Direct POs.',{title:'Final confirm · Company stock',confirmLabel:'Finalize company lot',details:lotGroups.length>1?'Each company is finalized separately. A failure preserves unfinished companies for retry.':'One final stock count will be created for this company. Save draft if counting is not complete.'}))return
+  if(submitLock.current)return
+  submitLock.current=true
   setBusy(true)
   try{
    const groups=allCompanies?companies.map(c=>({id:c.id,rows:counted.filter(r=>r.company_id===c.id)})).filter(g=>g.rows.length):[{id:companyId,rows:counted}]
@@ -344,6 +349,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     results.push({...saved,company_id:group.id})
     localStorage.removeItem(submissionKey)
     for(const r of group.rows){delete remainingEntry[r.id];delete remainingSufficient[r.id]}
+    setRecentFinalized(previous=>{const next={...previous};for(const row of group.rows)next[row.company_id+'|'+row.item_id]={count_id:saved.count_id,count_no:saved.count_no,submitted_at:new Date().toISOString(),quantity:sufficient[row.id]?null:Number(entry[row.id])};return next})
     localStorage.setItem(draftKey,JSON.stringify({entry:remainingEntry,sufficient:remainingSufficient,startedAt:startedAt.current}))
     setEntry({...remainingEntry});setSufficient({...remainingSufficient})
     setSubmissionResult({company_id:companyId,results:[...results]})
@@ -353,8 +359,10 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     if(saved.automation_errors?.length)fail(new Error('Stock saved. Automatic requests need attention: '+saved.automation_errors.map(e=>e.error).join('; ')))
    }
    localStorage.removeItem(draftKey);startedAt.current=null
+   setCompanyReviewOpen(false);setCompanyRecounts(new Set())
    await loadRows()
-  }catch(e){fail(e)}finally{setBusy(false)}
+   void loadCompanyHistory()
+  }catch(e){fail(e)}finally{setBusy(false);submitLock.current=false}
  }
 
  return <>
