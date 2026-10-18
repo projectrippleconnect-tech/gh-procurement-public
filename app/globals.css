@@ -932,6 +932,14 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .app .stock-header-action .stock-submit-dock{position:static;inset:auto;width:auto;max-width:150px;margin:0;padding:0;border:0;background:transparent;box-shadow:none}
  .app .stock-header-action .company-count-dock>.btn,
  .app .stock-header-action .stock-submit-dock{height:44px;min-height:44px;padding:6px 10px;font-size:12px}
+ /* General's submit action is the button itself. Restore its primary surface
+    after the shared dock reset, which otherwise leaves dark text on dark UI. */
+ .app .stock-header-action button.btn.primary.stock-submit-dock{
+  background:linear-gradient(145deg,var(--brand),var(--brand2));
+  color:#18130a;
+  border:1px solid var(--brand2);
+  box-shadow:0 2px 10px color-mix(in srgb,var(--brand) 22%,transparent);
+ }
  .app .content .company-count-dock,.app .content .stock-submit-dock{display:none}
  .app.workflow-active:has(.stock-header-action:not(:empty)) .content{padding-bottom:25px;scroll-padding-bottom:20px}
 }
