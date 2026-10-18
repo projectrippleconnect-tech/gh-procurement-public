@@ -11,7 +11,7 @@ const equalIds=(a=[],b=[])=>[...a].sort().join('|')===[...b].sort().join('|')
 const phone=s=>s?.whatsapp||s?.phone||'No number'
 
 // Settings-only screen. Configuring routes MUST NOT create an RFQ, PO or WAHA dispatch.
-export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true,flash=()=>{},fail=()=>{},embedded=false}){
+export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true,flash=()=>{},fail=()=>{},embedded=false,directoryRevision=0,reviewRequest=null}){
  const [data,setData]=useState(null)
  const [query,setQuery]=useState('')
  const [drafts,setDrafts]=useState({})
@@ -24,10 +24,12 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  const [refresh,setRefresh]=useState(0)
  const lock=useRef(false)
  const runVersion=useRef(0)
+ const loadVersion=useRef(0)
  const companyIds=useMemo(()=>companies.map(c=>c.id),[companies])
  const signature=companyIds.join(',')
 
  const load=useCallback(async()=>{
+  const loadToken=++loadVersion.current
   if(!companyIds.length){const empty={sections:[],routes:[],links:[],pool:[],suppliers:[],directory:[],items:[]};setData(empty);return empty}
   const scope=q=>q.in('company_id',companyIds)
   const [sections,routes,pool,suppliers,directory,items]=await Promise.all([
@@ -48,7 +50,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    links.push(...q.data)
   }
   const next={sections:sections.data||[],routes:routes.data||[],pool:pool.data||[],suppliers:suppliers.data||[],directory:directory.data||[],items:items.data||[],links}
-  setData(next)
+  if(loadToken===loadVersion.current)setData(next)
   return next
  },[signature])
 
@@ -58,7 +60,16 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   load().then(()=>{if(current&&version===runVersion.current)setError('')})
    .catch(e=>{if(current&&version===runVersion.current){setError(e.message||'Cannot load company workflow');fail(e)}})
   return()=>{current=false}
- },[active,load,refresh])
+ },[active,load,refresh,directoryRevision])
+
+ useEffect(()=>{
+  if(!reviewRequest?.sequence||!reviewRequest.companyId)return
+  const company=companies.find(c=>c.id===reviewRequest.companyId)
+  if(!company)return
+  setQuery(company.name)
+  setExpanded(prev=>({...prev,[company.id]:true}))
+  setContactsOpen(company.id+':company')
+ },[reviewRequest?.sequence,companies])
 
  const rows=useMemo(()=>data?workflowRows(companies,data.sections,data.routes,data.links,data.pool):[],[companies,data])
  const rowByKey=useMemo(()=>new Map(rows.map(r=>[r.key,r])),[rows])
