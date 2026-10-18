@@ -48,6 +48,18 @@ export function WhatsAppAuditGroups(){
      {p.status!=='recognized'?' · '+(p.status==='lookup_unavailable'?'WAHA lookup unavailable':p.status==='unrecognized_reply'?'WAHA returned unknown group format':'Review identity before use'):''}
     </p>)}
    </div>}
+   {(result.discovery?.responseShape||result.invitePreviews?.some(p=>p.responseShape))&&<details style={{border:'1px solid var(--line)',borderRadius:8,padding:8,marginTop:8}}>
+    <summary>WAHA response diagnostics (privacy-safe)</summary>
+    <p className="muted tiny">Only data types and field names are displayed. No invitation codes, phone numbers, messages or raw group records.</p>
+    {result.discovery?.responseShape&&<div className="muted tiny">
+     <strong>Group-list response structure</strong>
+     <pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',fontSize:11}}>{JSON.stringify(result.discovery.responseShape,null,2)}</pre>
+    </div>}
+    {(result.invitePreviews||[]).filter(p=>p.responseShape).map(p=><div key={'shape'+p.slot} className="muted tiny">
+     <strong>Invite {p.slot} response structure</strong>
+     <pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',fontSize:11}}>{JSON.stringify(p.responseShape,null,2)}</pre>
+    </div>)}
+   </details>}
    {!!result.missing?.length&&<p className="muted tiny">Not found: {result.missing.join(', ')}. These groups must appear in WAHA before an audit destination can be enabled.</p>}
    <p className="muted tiny">No messages were sent by this check. A successful lookup does not confirm that a one-person group accepts messages; verify in WhatsApp first.</p>
   </>}
