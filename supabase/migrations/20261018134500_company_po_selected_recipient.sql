@@ -2,6 +2,8 @@
 -- exactly one Direct PO delivery recipient. Keep every permission, lock, version
 -- guard and historic document reference from the existing RPC.
 -- Idempotent: CREATE OR REPLACE changes logic only, with no data migration.
+-- If multiple company-wide suppliers are assigned, preserve the previous
+-- legacy default instead of silently setting it to NULL.
 CREATE OR REPLACE FUNCTION private.proc_company_save_supplier_setup(
  p_company_id uuid,p_section_id uuid,p_action text,p_assigned_ids uuid[],p_recipient_ids uuid[],p_template jsonb,
  p_expected_route_id uuid,p_expected_updated_at timestamptz
@@ -57,7 +59,7 @@ BEGIN
   VALUES(route_v.id,sid,array_position(recipients,sid));END LOOP;
  -- Only an explicitly saved company-wide list updates the legacy default. Category overrides stay independent.
  IF p_section_id IS NULL THEN
-  UPDATE public.proc_companies SET default_supplier_id=CASE WHEN cardinality(ids)=1 THEN ids[1] ELSE NULL END,updated_at=clock_timestamp() WHERE id=p_company_id;
+  UPDATE public.proc_companies SET default_supplier_id=CASE WHEN cardinality(ids)=1 THEN ids[1] WHEN cardinality(ids)>1 THEN default_supplier_id ELSE NULL END,updated_at=clock_timestamp() WHERE id=p_company_id;
  END IF;
  IF send_v THEN UPDATE public.proc_companies SET group_auto_approve=true,automation_admin_id=auth.uid(),updated_at=clock_timestamp() WHERE id=p_company_id;END IF;
  UPDATE public.proc_companies SET updated_at=clock_timestamp() WHERE id=p_company_id;
