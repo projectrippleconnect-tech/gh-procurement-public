@@ -67,7 +67,8 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  const treeByCompany=useMemo(()=>new Map(companies.map(c=>[c.id,companyScopeTree(rows,c.id)])),[rows,companies])
  const rowDraft=row=>drafts[row.key]||null
  const ownMode=row=>rowDraft(row)?.mode??row.mode
- const ownIds=row=>rowDraft(row)?.ids??(row.recipients.length?row.recipients:row.assigned)
+ const ownIds=row=>rowDraft(row)?.ids??row.recipients
+ const ownAssigned=row=>rowDraft(row)?.assignedIds??row.assigned
  const activeAncestorDraft=row=>{
   if(rowDraft(row))return null
   let current=row.section,seen=new Set()
@@ -82,10 +83,10 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  }
  const preview=row=>{
   const inherited=activeAncestorDraft(row)
-  if(!inherited)return {mode:ownMode(row),ids:ownIds(row),from:null}
+  if(!inherited)return {mode:ownMode(row),ids:ownIds(row),assigned:ownAssigned(row),from:null}
   const ownContacts=uniqueIds((data?.pool||[]).filter(x=>x.company_id===row.company.id&&x.section_id===row.section_id).map(x=>x.supplier_id))
   const ids=row.own?row.recipients:ownContacts.length?ownContacts:inherited.draft.ids
-  return {mode:inherited.draft.mode,ids,from:inherited.row?.path}
+  return {mode:inherited.draft.mode,ids,assigned:uniqueIds([...row.assigned,...ids]),from:inherited.row?.path}
  }
  const contactChoices=row=>{
   const owned=(data?.directory||[]).filter(x=>x.company_id===row.company.id)
@@ -93,7 +94,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   return ids.map(id=>({id,supplier:supplierMap.get(id),label:owned.find(x=>x.supplier_id===id)?.display_name||supplierMap.get(id)?.name||'Unavailable'}))
  }
  const update=(row,patch)=>{
-  setDrafts(old=>({...old,[row.key]:{mode:old[row.key]?.mode??row.mode,ids:old[row.key]?.ids??(row.recipients.length?row.recipients:row.assigned),applyChildren:old[row.key]?.applyChildren??false,...patch}}))
+  setDrafts(old=>({...old,[row.key]:{mode:old[row.key]?.mode??row.mode,ids:old[row.key]?.ids??row.recipients,assignedIds:old[row.key]?.assignedIds??row.assigned,applyChildren:old[row.key]?.applyChildren??false,...patch}}))
   setNotice('');setResults([])
  }
  const matches=row=>{
@@ -108,7 +109,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  const clearDraft=row=>setDrafts(old=>{const next={...old};delete next[row.key];return next})
 
  function planFor(row){
-  if(rowDraft(row)?.applyChildren)return planBranchMode(rows,row,ownMode(row),ownIds(row),data?.pool||[])
+  if(rowDraft(row)?.applyChildren)return planBranchMode(rows,row,ownMode(row),ownIds(row),data?.pool||[],ownAssigned(row))
   return {actions:[{row,mode:ownMode(row),ids:ownIds(row)}],expected:[{row,mode:ownMode(row),ids:ownIds(row)}],conflicts:[],descendantSections:0}
  }
  function checkRow(row){
@@ -119,7 +120,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
     return {valid:false,error:'Document approval permission required.'}
    const v=workflowValidation(choice.mode,choice.ids,data?.suppliers||[])
    if(!v.valid)return {valid:false,error:choice.row.path+': '+v.error}
-   const p=supplierSetupPlan({assigned:choice.ids,recipients:choice.ids,mode:choice.mode,suppliers:data?.suppliers||[]})
+   const p=supplierSetupPlan({assigned:choice.assigned,recipients:choice.mode==='manual'?choice.assigned:choice.ids,mode:choice.mode,suppliers:data?.suppliers||[]})
    if(!p.valid)return {valid:false,error:choice.row.path+': '+p.error}
   }
   return {valid:true,error:''}
@@ -127,7 +128,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  function changed(row){
   const draft=rowDraft(row)
   if(!draft)return false
-  if(draft.mode!==row.mode||!equalIds(draft.ids,row.recipients))return true
+  if(draft.mode!==row.mode||!equalIds(draft.ids,row.recipients)||!equalIds(draft.assignedIds,row.assigned))return true
   const plan=planFor(row)
   return plan.actions.length>1||plan.expected.some(x=>x.row.mode!==draft.mode)
  }
@@ -140,14 +141,14 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    const current=choice.row
    const res=await supabase.rpc('proc_company_save_supplier_setup',{
     p_company_id:current.company.id,p_section_id:current.section_id,p_action:choice.mode,
-    p_assigned_ids:choice.ids,p_recipient_ids:choice.ids,
+    p_assigned_ids:choice.assigned,p_recipient_ids:choice.mode==='manual'?choice.assigned:choice.ids,
     p_template:switchRouteTemplate(current.effective?.document_template||{},current.effective?.route_mode||'rfq',choice.mode==='direct'?'direct':'rfq'),
     p_expected_route_id:current.own?.id||null,p_expected_updated_at:current.own?.updated_at||null
    })
    if(res.error)throw new Error((updated?'Previous group(s) saved; ':'')+current.path+': '+res.error.message)
    updated++
   }
-  return {row,mode:ownMode(row),ids:ownIds(row),updated,expected:plan.expected,branch:!!rowDraft(row)?.applyChildren}
+  return {row,mode:ownMode(row),ids:ownIds(row),assigned:ownAssigned(row),updated,expected:plan.expected,branch:!!rowDraft(row)?.applyChildren}
  }
  async function runSave(requested,{batch=false}={}){
   if(lock.current||!requested.length)return
@@ -181,7 +182,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
     if(!refreshed)continue
     const verifiedAll=done.expected.every(choice=>{
      const found=readback.find(r=>r.key===choice.row.key)
-     return found?.mode===choice.mode&&(choice.mode==='manual'||equalIds(found?.recipients,choice.ids))
+     return found?.mode===choice.mode&&equalIds(found?.recipients,choice.mode==='manual'?choice.assigned:choice.ids)&&choice.assigned.every(id=>found?.assigned?.includes(id))
     })
     if(!verifiedAll)failed.push({name:done.row.company.name+' / '+done.row.path,status:'Check required',reason:'A parent or child route did not match saved readback. Reload and review.'})
     else verified.push(done)
@@ -204,7 +205,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   for(const row of rows.filter(r=>!r.section)){
    const mode=requestedModeFor(row.company.name)
    if(!mode)continue
-   next[row.key]={mode,ids:uniqueIds(row.assigned.length?row.assigned:row.recipients),applyChildren:true}
+   next[row.key]={mode,assignedIds:uniqueIds(row.assigned),ids:uniqueIds(row.recipients),applyChildren:true}
    matched++
   }
   setDrafts(next);setError('');setResults([])
@@ -224,7 +225,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   const openKey=isCompany?row.company.id:row.key
   const canExpand=isCompany?!!treeByCompany.get(row.company.id)?.sections.length:rows.some(r=>r.company.id===row.company.id&&r.section?.parent_id===row.section_id)
   const expandedNow=!!query.trim()||!!expanded[openKey]
-  const chosen=preview(row),selected=ownIds(row)
+  const chosen=preview(row),selected=ownIds(row),assigned=ownAssigned(row)
   const draft=rowDraft(row)
   const inherited=!!chosen.from
   const dirty=changed(row)
@@ -241,7 +242,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
       <span className="company-workflow-label" title={row.company.name+' / '+row.path}>{label}</span>
       <span className="company-workflow-subline">
        <span>{count} items</span>
-       <button className="company-workflow-supplier-link" type="button" disabled={busy} aria-expanded={contactsOpen===row.key} aria-label={'Select supplier contacts for '+row.company.name+' / '+row.path} title={supplierNames.join(', ')||'No supplier'} onClick={()=>setContactsOpen(x=>x===row.key?'':row.key)}>Suppliers: {chosen.ids.length}</button>
+       <button className="company-workflow-supplier-link" type="button" disabled={busy} aria-expanded={contactsOpen===row.key} aria-label={'Review supplier assignments and sending recipients for '+row.company.name+' / '+row.path} title={supplierNames.join(', ')||'No recipients'} onClick={()=>setContactsOpen(x=>x===row.key?'':row.key)}>Assigned: {chosen.assigned.length} · Send: {chosen.mode==='manual'?'Manual':chosen.ids.length}</button>
        {dirty&&<span className="company-workflow-changed">Unsaved</span>}
        {!dirty&&inherited&&<span>Parent pending</span>}
       </span>
@@ -262,7 +263,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
       <span>{contact.label} · {phone(contact.supplier)}</span>
      </label>):<p className="muted tiny">No company contacts. Add a number in Supplier Directory first.</p>}
     </div>}
-    {inherited&&<button className="btn small" type="button" disabled={busy} onClick={()=>update(row,{mode:row.mode,ids:row.recipients,applyChildren:true})}>Set a separate rule for this category</button>}
+    {inherited&&<button className="btn small" type="button" disabled={busy} onClick={()=>update(row,{mode:row.mode,assignedIds:row.assigned,ids:row.recipients,applyChildren:true})}>Set a separate rule for this category</button>}
     {dirty&&<div className="company-workflow-check-actions">
      {canExpand&&draft?.applyChildren&&<span className="muted tiny">Applies to {planFor(row).descendantSections} subcategories below; preserves their assigned suppliers</span>}
      <button className="btn small primary" type="button" disabled={busy||!check.valid} onClick={()=>runSave([row])}>{busy?'Saving…':'Save this selection'}</button>
