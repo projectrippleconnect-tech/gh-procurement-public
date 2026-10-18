@@ -90,3 +90,22 @@ test('single owner is allowed, and RFQ / PO destinations are separate',()=>{
  assert.equal(inspectPrivateGroup({group,participants,config:rfq}).ok,false)
  assert.equal(privateGroupConfig({...one,GH_WA_AUDIT_RFQ_GROUP_ID:''},'rfq').ready,false)
 });
+
+test('owner-only verification matches the sole WAHA session account and no other members',()=>{
+ const owner={...env,GH_WA_AUDIT_OWNER_ONLY:'true',GH_WA_AUDIT_ALLOWED_MEMBERS:''}
+ const policy=privateGroupConfig(owner,'rfq')
+ assert.equal(policy.ready,true)
+ assert.equal(policy.ownerOnly,true)
+ const me={id:'94777712345@c.us'}
+ assert.deepEqual(inspectPrivateGroup({group,participants:[participants[0]],config:policy,sessionMe:me}),{ok:true,reason:'verified_owner_only'})
+ assert.equal(inspectPrivateGroup({group,participants,config:policy,sessionMe:me}).reason,'not_exclusive_owner_group')
+ assert.equal(inspectPrivateGroup({group,participants:[participants[1]],config:policy,sessionMe:me}).reason,'not_exclusive_owner_group')
+ assert.equal(inspectPrivateGroup({group,participants:[participants[0]],config:policy}).reason,'linked_account_unknown')
+ assert.equal(privateGroupConfig({...owner,GH_WA_AUDIT_ALLOWED_MEMBERS:'94777712345'},'po').ready,false)
+});
+test('GOWS raw group fields JID and Name are allowed only with exact expected identity',()=>{
+ const policy=privateGroupConfig({...env,GH_WA_AUDIT_OWNER_ONLY:'true',GH_WA_AUDIT_ALLOWED_MEMBERS:''})
+ const gows={JID:'120363123456789@g.us',Name:'GH Procurement'}
+ assert.equal(inspectPrivateGroup({group:gows,participants:[participants[0]],config:policy,sessionMe:{id:'94777712345@c.us'}}).ok,true)
+ assert.equal(inspectPrivateGroup({group:{...gows,Name:'Other'},participants:[participants[0]],config:policy,sessionMe:{id:'94777712345@c.us'}}).ok,false)
+});
