@@ -13,7 +13,7 @@ import {useDangerConfirmation} from './danger-confirmation'
 const initial={mode:'rfq',auto_send:false,supplier_ids:[]}
 const companyScope='company-default'
 const uniq=ids=>[...new Set(ids.filter(Boolean))]
-export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{},directoryRevision=0}){
+export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{},directoryRevision=0,toolsOnly=false}){
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
  const [groupContactLinks,setGroupContactLinks]=useState([]),[groupIds,setGroupIds]=useState([]),[poolDirty,setPoolDirty]=useState(false),[showFallback,setShowFallback]=useState(false)
@@ -152,6 +152,75 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   }
   setEditing('')
  }
+ // The advanced panel deliberately does NOT edit route assignment or sending modes.
+ // A template write uses a dedicated RPC so even a stale UI cannot silently
+ // change the supplier pool, recipient list or automatic sending preference.
+ async function saveTemplateOnly(){
+  if(!editorVersion.id||!editorVersion.updated_at)throw new Error('Choose an explicitly saved route. An inherited template must be edited at its parent group.')
+  const payload=routeTemplate(template,draft.mode)
+  const result=await supabase.rpc('proc_company_update_route_template',{
+   p_route_id:editorVersion.id,p_template:payload,
+   p_expected_updated_at:editorVersion.updated_at
+  })
+  if(result.error)throw result.error
+  if(result.data?.id!==editorVersion.id||!result.data.updated_at)throw new Error('The template update could not be verified; reload before editing again.')
+  const updatedId=result.data.id
+  await load()
+  setEditorVersion({id:updatedId,updated_at:result.data.updated_at})
+  await onChanged()
+  setEditing('')
+  setRouteNotice('Document template saved. Supplier assignments, RFQ/PO mode and WhatsApp automatic sending settings remain unchanged.')
+  flash('Document image and caption template saved. No WhatsApp message sent.')
+ }
+ async function sendConfiguredRoute(section,rule){
+  const recipientIds=members.get(rule?.id)||[]
+  if(!rule?.id)throw new Error('Select an explicitly saved RFQ/PO route.')
+  const latest=await supabase.from('proc_company_section_routes').select('id,updated_at,route_mode,auto_send').eq('id',rule.id).eq('company_id',company.id).single()
+  if(latest.error)throw latest.error
+  if(latest.data.updated_at!==rule.updated_at||latest.data.route_mode!==rule.route_mode||latest.data.auto_send!==rule.auto_send)
+   throw new Error('This group route changed since it was loaded. Refresh before sending any document.')
+  const savedRecipients=await supabase.from('proc_company_section_route_suppliers').select('supplier_id,sort_order').eq('route_id',rule.id).order('sort_order')
+  if(savedRecipients.error)throw savedRecipients.error
+  const currentRecipientIds=(savedRecipients.data||[]).map(row=>row.supplier_id)
+  if(currentRecipientIds.length!==recipientIds.length||currentRecipientIds.some((id,index)=>id!==recipientIds[index]))
+   throw new Error('Recipient selections changed since this screen opened. Refresh and review before sending.')
+  const mode=rule.route_mode
+  if(mode==='direct'&&recipientIds.length!==1)throw new Error('Direct PO must have exactly one saved sending recipient. Correct this in RFQ & PO Workflow Settings.')
+  if(!recipientIds.length)throw new Error('No saved recipients for this route. Correct this in RFQ & PO Workflow Settings.')
+  if(!can(mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve'))throw new Error('Document preparation permission required.')
+  const gateway=await gatewayRequest('/api/integrations/whatsapp/'+(mode==='rfq'?'rfq':'po'))
+  if(!gateway.connected||!gateway.sendingEnabled)throw new Error('WhatsApp sending is not connected and enabled. No new document was prepared.')
+  const sectionId=section.id===companyScope?null:section.id
+  setDispatchNotice(null);setSendResults([])
+  if(mode==='rfq'){
+   const result=await supabase.rpc('proc_company_prepare_route_rfq',{p_company_id:company.id,p_section_id:sectionId,p_due_date:null})
+   if(result.error){
+    if(/No approved unquoted shortages remain for this group/i.test(result.error.message||'')){
+     setDispatchNotice({groupId:section.id,text:'Nothing sent: no approved, unquoted shortage remains for this group. Check existing RFQs.'})
+     return
+    }
+    throw new Error('RFQ preparation failed: '+result.error.message)
+   }
+   setPendingRfq(result.data)
+   setRouteNotice('RFQ '+result.data.rfq_no+' prepared. Sending images to saved recipients…')
+   await sendRfq(result.data)
+   setRouteNotice('RFQ '+result.data.rfq_no+' — review each supplier result below before retrying.')
+  }else{
+   const result=await supabase.rpc('proc_company_prepare_route_po',{p_company_id:company.id,p_section_id:sectionId})
+   if(result.error){
+    if(/No approved un-ordered shortages remain for this group/i.test(result.error.message||'')){
+     setDispatchNotice({groupId:section.id,text:'Nothing sent: no approved un-ordered shortage remains for this group. Check existing POs.'})
+     return
+    }
+    throw new Error('PO preparation failed: '+result.error.message)
+   }
+   const poIds=(result.data||[]).map(po=>po.id)
+   if(!poIds.length)throw new Error('No new PO IDs were returned. Check order history before retrying.')
+   const sent=await companyApi('orders',{companyId:company.id,poIds})
+   setSendResults((sent.outcomes||[]).map(outcome=>({...outcome,supplierId:outcome.id,message:outcome.error||'Accepted by WhatsApp gateway; delivery is not guaranteed.'})))
+   setRouteNotice('Purchase-order sending attempted. Check individual results and the audit record before retrying.')
+  }
+ }
  async function removeOverride(section){
   const r=await supabase.rpc('proc_company_clear_section_route',{p_company_id:company.id,p_section_id:section.id===companyScope?null:section.id})
   if(r.error)throw r.error
@@ -201,6 +270,57 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   }
  }
  if(!company?.id||!admin)return null
+ if(toolsOnly)return <section aria-label="Advanced company document tools" className="section company-advanced-document-tools">
+  <p className="muted tiny">Supplier assignment, recipient selection and RFQ/PO automation are edited only in RFQ &amp; PO Workflow Settings above. Here you can edit a saved route’s outgoing image and caption, prepare an approved shortage, or send it to its already-selected recipients.</p>
+  {routeNotice&&<p role="status" className="notice">{routeNotice}</p>}
+  {sendResults.length>0&&<div aria-label="Group WhatsApp sending results" className="section">{sendResults.map((result,i)=><p key={result.supplierId||i} className="tiny">{result.name||'Purchase order'} · <strong>{result.status}</strong> · {result.message}</p>)}</div>}
+  {pendingRfq&&<div className="toolbar section"><button className="btn small" disabled={busy} onClick={()=>confirm({title:'Resume RFQ sending',message:'Retry only the unconfirmed recipient images for '+pendingRfq.rfq_no+'?',warning:'Check individual dispatch results first; never resend recipients with accepted or uncertain delivery.',confirmLabel:'Resume eligible RFQ recipients',onConfirm:()=>run(()=>sendRfq(pendingRfq))})}>Resume eligible RFQ images</button><button className="btn small" type="button" onClick={()=>navigate('rfq',pendingRfq.rfq_id,3)}>Open {pendingRfq.rfq_no}</button></div>}
+  <label className="field section">Find group or subgroup<input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search category or subgroup…"/></label>
+  <label className="checkline section"><input type="checkbox" checked={showFallback} onChange={e=>setShowFallback(e.target.checked)}/>Show company-wide fallback template</label>
+  <div className="company-section-directory section">
+  {groups.map(section=>{
+   const own=routeIndex.get(section.id)
+   const inherited=nearestSectionRoute(section,routeSections,routes)
+   const effective=own||inherited?.rule
+   const recipientIds=effective?members.get(effective.id)||[]:[]
+   const scope=coverage.get(section.id)||{totalItems:0,coveredItems:0,overriddenItems:0}
+   return <div key={section.id} className="company-section-directory-row section">
+    <div className="toolbar" style={{justifyContent:'space-between',alignItems:'center',gap:8}}>
+     <div style={{minWidth:0,flex:1}}><strong>{paths.get(section.id)||section.name}</strong>
+      <div className="muted tiny">{scope.coveredItems} catalogue items covered · {effective?(effective.route_mode==='rfq'?'RFQ':'Direct PO')+(effective.auto_send?' · auto-send':' · manual'):'No saved route'} · {recipientIds.length} saved recipient{recipientIds.length===1?'':'s'}{!own&&effective?' · inherited':''}</div>
+     </div>
+     {own?<button type="button" className="btn small" disabled={busy} aria-expanded={editing===section.id} onClick={()=>editing===section.id?setEditing(''):openEditor(section)}>{editing===section.id?'Close template':'Image &amp; caption'}</button>:<span className="muted tiny">{effective?'Edit template at parent group':'Set up in workflow checklist'}</span>}
+    </div>
+    {own&&<div className="toolbar section" style={{flexWrap:'wrap',gap:6}}>
+      <button className="btn small" type="button" disabled={busy||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({
+       title:own.route_mode==='rfq'?'Prepare approved-shortage RFQ':'Prepare approved-shortage PO',
+       message:'Prepare '+(own.route_mode==='rfq'?'an RFQ':'a direct purchase order')+' for approved outstanding shortages for '+(paths.get(section.id)||section.name)+' using its currently saved route?',
+       warning:own.route_mode==='rfq'?'Review and send from the RFQ page; this button does not send RFQ images.':'This creates a purchase order. If this saved route has auto-send enabled, its existing sending behavior may dispatch the order.',
+       confirmLabel:own.route_mode==='rfq'?'Prepare RFQ':'Create PO',
+       onConfirm:()=>run(()=>prepare(section,own))
+      })}>{own.route_mode==='rfq'?'Prepare approved RFQ':'Create approved PO'}</button>
+      <button className="btn small" type="button" disabled={busy||recipientIds.length===0||(own.route_mode==='direct'&&recipientIds.length!==1)||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')}
+       onClick={()=>confirm({
+        title:own.route_mode==='rfq'?'Send approved RFQ images':'Send approved PO images',
+        message:'Use the '+recipientIds.length+' saved recipient'+(recipientIds.length===1?'':'s')+' for '+(paths.get(section.id)||section.name)+'? Only approved uncovered shortages may be prepared.',
+        warning:'This creates a new RFQ/PO when eligible and attempts sending via WhatsApp. It does not change supplier routing. Check the audit and sending status before retrying.',
+        confirmLabel:own.route_mode==='rfq'?'Prepare & send RFQ':'Prepare & send PO',
+        onConfirm:()=>run(()=>sendConfiguredRoute(section,own))
+       })}>{own.route_mode==='rfq'?'Send RFQ image now':'Send PO image now'}</button>
+    </div>}
+    {dispatchNotice?.groupId===section.id&&<p role="status" className="notice group-route-feedback">{dispatchNotice.text}</p>}
+    {editing===section.id&&own&&<div className="section" aria-label="Document image and WhatsApp caption template">
+      <p className="muted tiny">Template only · RFQ/PO type, assigned contacts, recipients and automatic sending cannot be changed here.</p>
+      <div className="formgrid section">{[['name','Business heading',80],['title','Document title',60],['note','Remarks / instructions',300],['caption','WhatsApp caption',2000]].map(([key,label,max])=><label key={key} className="field">{label}<textarea aria-label={label} className="input" rows={key==='caption'?4:2} maxLength={max} value={template[key]} onChange={e=>setTemplate(v=>({...v,[key]:e.target.value}))}/></label>)}</div>
+      <div className="pillrow section">{[['no','Row number'],['uom','Unit of measure'],['rate','Blank unit-rate column'],['remarks','Item remarks']].map(([key,label])=><label key={key} className="choice-pill"><input type="checkbox" checked={template.fields[key]!==false} onChange={e=>setTemplate(v=>({...v,fields:{...v.fields,[key]:e.target.checked}}))}/>{label}</label>)}</div>
+      <p className="muted tiny">Item description and quantity remain included. Supported caption placeholders: {'{company_name}, {supplier_name}, {rfq_number}, {po_number}'}.</p>
+      <div className="toolbar"><button className="btn primary" disabled={busy} type="button" onClick={()=>run(saveTemplateOnly)}>{busy?'Saving…':'Save image &amp; caption only'}</button><button type="button" className="btn small" disabled={busy} onClick={()=>setEditing('')}>Cancel</button></div>
+    </div>}
+   </div>
+  })}
+  {!groups.length&&<p className="muted tiny">No company category matches your search.</p>}
+  </div>
+ </section>
  return <details className="card pad section" aria-label="Group supplier routing">
   <summary>Group supplier contacts · RFQ / PO</summary>
   <p className="muted tiny">Assign Supplier 1, Supplier 2 and more to each main group. Subgroups inherit those contacts unless you override them. Next, select which assigned contacts will receive RFQs, or choose one contact for purchase orders. Automatic sending uses the saved routing selection, not every contact in your directory.</p>

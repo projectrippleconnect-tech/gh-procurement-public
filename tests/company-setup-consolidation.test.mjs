@@ -15,7 +15,8 @@ test('four company setup panels remain without the duplicated supplier wizard',(
  assert.doesNotMatch(block,/<CompanyAutomationSimple\b/)
  assert.match(block,/RFQ &amp; PO Workflow Settings/)
  assert.match(block,/CompanySectionRouteManager/)
- assert.match(block,/Advanced group sending &amp; document templates/)
+ assert.match(block,/Advanced document templates &amp; approved sending/)
+ assert.match(block,/\btoolsOnly\b/)
  assert.match(block,/<CompanyWorkflowDirectory\b[^>]*\bembedded\b/)
 })
 test('workflow checklist can be embedded without rendering a second title',()=>{
