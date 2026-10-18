@@ -2,7 +2,7 @@
 import {createClient} from '@supabase/supabase-js'
 import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '@/lib/waha-group-discovery.mjs'
 import {inviteCodes,normalizeInviteInfo,preferredInviteRoles} from '@/lib/waha-invite-info.mjs'
-import {inspectPrivateGroup} from '@/lib/whatsapp-private-audit.mjs'
+import {inspectPrivateGroup,resolveOwnerMemberAliases} from '@/lib/whatsapp-private-audit.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
@@ -45,6 +45,25 @@ export async function GET(request:Request){
    if(Number.isInteger(count?.count)&&count.count>=0)groupCount=count.count
   }catch{}
   const found=new Map<string,{id:string;name:string}>()
+  const configuredTargets=[
+   {name:'RFQ',id:process.env.GH_WA_AUDIT_RFQ_GROUP_ID},
+   {name:'PO',id:process.env.GH_WA_AUDIT_PO_GROUP_ID}
+  ]
+  const directChecks:Array<{name:string;ok:boolean;reason:string}>=[]
+  for(const candidate of configuredTargets){
+   const id=String(candidate.id||'')
+   if(!/^[0-9][0-9-]{5,48}@g\\.us$/.test(id)){
+    directChecks.push({name:candidate.name,ok:false,reason:'missing_or_invalid_group_id'})
+    continue
+   }
+   try{
+    const meta=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(id),config.key)
+    const parsed=parseWahaGroups(meta).items
+    const verified=parsed.find(p=>p.id===id&&p.name.toUpperCase()===candidate.name)
+    if(verified){found.set(id,verified);directChecks.push({name:candidate.name,ok:true,reason:'direct_id_confirmed'})}
+    else directChecks.push({name:candidate.name,ok:false,reason:'direct_metadata_mismatch'})
+   }catch{directChecks.push({name:candidate.name,ok:false,reason:'direct_lookup_unavailable'})}
+  }
   const seen=new Set<string>()
   let totalListed=0,nameless=0,recognized=false,source='groups'
   let firstResponseShape:ReturnType<typeof wahaResponseShape>|null=null
@@ -119,11 +138,18 @@ export async function GET(request:Request){
     const ownerCheck=inspectPrivateGroup({group:{id:item.id,subject:item.name},participants:p,config:{ready:true,groupId:item.id,groupName:item.name,ownerOnly:true,approved:[]},sessionMe:ownerSession})
     ownerVerified=ownerCheck.ok
     reason=ownerCheck.ok?'verified_owner_only':count===0?'no_members_returned':count===1?ownerCheck.reason:'check_each_member'
+    if(!ownerVerified&&count===1&&ownerCheck.reason==='not_exclusive_owner_group'){
+     const alias=await resolveOwnerMemberAliases({
+      base:config.base,session:config.session,key:config.key,sessionMe:ownerSession,memberIds
+     })
+     if(alias.ok){ownerVerified=true;reason='verified_owner_only'}
+     else reason=alias.reason
+    }
    }catch{reason='participant_check_unavailable'}
    results.push({name:item.name,id:item.id,memberCount:count,memberIds,reason,ownerVerified})
   }
   results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
   return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
-   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),auditDatabaseReady,discovery:{source,listed:totalListed,nameless,recognized,groupCount,responseShape:firstResponseShape},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
+   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),auditDatabaseReady,directChecks,discovery:{source,listed:totalListed,nameless,recognized,groupCount,responseShape:firstResponseShape},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
  }catch{return reply({ok:false,connected:false,error:'Unable to read WAHA groups. Try again after the WhatsApp session has synchronized.'},503)}
 }
