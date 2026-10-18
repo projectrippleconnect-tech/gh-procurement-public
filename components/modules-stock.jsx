@@ -16,6 +16,7 @@ import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
 import {StockItemEditor} from './stock-item-editor'
+import {ITEM_UOMS,itemOptionValues} from '@/lib/item-editor-options.mjs'
 import {StockPrintDialog} from './stock-print-dialog'
 import dynamic from 'next/dynamic'
 const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:()=> <div className="card pad">Loading Company Items…</div>})
@@ -722,6 +723,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
  const[rows,setRows]=useState([]),[q,setQ]=useState(''),[cat,setCat]=useState(''),[cats,setCats]=useState([]),[status,setStatus]=useState('active'),[loading,setLoading]=useState(true),[page,setPage]=useState(0),[total,setTotal]=useState(0)
  const pageSize=100
+ const[groups,setMasterGroups]=useState([]),[uoms,setMasterUoms]=useState(ITEM_UOMS)
  const canEdit=can('items.edit')
 
  const load=useCallback(async()=>{setLoading(true);try{
@@ -734,7 +736,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  }catch(e){fail(e)}finally{setLoading(false)}},[cat,status,q,page,fail])
  useEffect(()=>{const t=setTimeout(load,180);return()=>clearTimeout(t)},[load])
  useEffect(()=>{setPage(0)},[q,cat,status])
- useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error)setCats(r.data?.categories||[])})()},[])
+ useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error){setCats(r.data?.categories||[]);setMasterGroups(itemOptionValues(r.data?.main_groups));setMasterUoms(itemOptionValues(ITEM_UOMS,r.data?.uoms))}})()},[])
 
  const filtered=rows
 
@@ -746,7 +748,8 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
    if(!Number.isFinite(value)||value<0)return fail(new Error(t('items.max_error','Max Stock must be zero or positive.')))
   }
   if(k==='description'&&!String(v||'').trim())return fail(new Error(t('items.description_error','Description cannot be blank.')))
-  const x=await supabase.rpc('proc_update_item_master_v1',{p_item_id:r.id,p_patch:{[k]:value}})
+  const patch=k==='category'&&value!==r.category?{category:value,main_group:'',subgroup:''}:k==='main_group'&&value!==r.main_group?{main_group:value,subgroup:''}:{[k]:value}
+  const x=await supabase.rpc('proc_update_item_master_v1',{p_item_id:r.id,p_patch:patch})
   if(x.error)return fail(x.error)
   flash(k==='active'?(value?t('items.enabled_msg','Item enabled.'):t('items.disabled_msg','Item disabled.')):t('items.updated_msg','Item updated successfully.'))
   await load()
@@ -759,19 +762,19 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
    const result=await supabase.rpc('proc_admin_delete_item_v1',{p_item_id:r.id,p_confirmation:confirmation});if(result.error)throw result.error;flash('Item deleted.');await load()
   }})
  }
+ const editableSelect=(r,key,values,allowEmpty=false)=>canEdit?<ModernSelect className="select compact-select" aria-label={key.replaceAll('_',' ')} value={r[key]||''} allowCustom customOptionLabel={key.replaceAll('_',' ')} onChange={e=>save(r,key,e.target.value)}>{allowEmpty&&<option value="">None</option>}{itemOptionValues(values,r[key]).map(value=><option key={value} value={value}>{value}</option>)}</ModernSelect>:(r[key]||'—')
  const editableText=(r,key,wide=false)=>
   canEdit?<input className={'input item-inline-edit '+(wide?'wide':'')} defaultValue={r[key]||''} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(String(e.target.value??'')!==String(r[key]??''))save(r,key,e.target.value)}}/>:(r[key]||'—')
 
  const defaults=[
   {key:'active',label:'Enabled',render:r=>canEdit?<button className={'btn small '+(r.active?'good':'')} onClick={()=>save(r,'active',!r.active)}>{r.active?'Enabled':'Disabled'}</button>:<Badge>{r.active?'enabled':'disabled'}</Badge>},
   {key:'item_code',label:'Code',render:r=><span className="mono">{r.item_code}</span>},
-  {key:'category',label:'Category',render:r=>editableText(r,'category')},
-  {key:'brand',label:'Brand',render:r=>editableText(r,'brand')},
+  {key:'category',label:'Category',render:r=>editableSelect(r,'category',cats)},
   {key:'description',label:'Description',render:r=><div className="item-master-title"><strong>{itemTitle(r)}</strong>{canEdit&&<input className="input item-inline-edit" defaultValue={r.description||''} onBlur={e=>{if(e.target.value!==r.description)save(r,'description',e.target.value)}}/>}</div>},
-  {key:'main_group',label:'Main Group',render:r=>editableText(r,'main_group')},
+  {key:'main_group',label:'Main Group',render:r=>editableSelect(r,'main_group',groups,true)},
   {key:'subgroup',label:'Subgroup',render:r=>editableText(r,'subgroup')},
   {key:'size',label:'Size',render:r=>editableText(r,'size')},
-  {key:'uom',label:'UOM',render:r=>editableText(r,'uom')},
+  {key:'uom',label:'UOM',render:r=>editableSelect(r,'uom',uoms)},
   {key:'movement',label:'Movement',render:r=>canEdit?<ModernSelect className="select compact-select" value={r.movement} onChange={e=>save(r,'movement',e.target.value)}><option>FAST</option><option>NORMAL</option><option>SLOW</option></ModernSelect>:<Badge>{r.movement}</Badge>},
   {key:'max_stock',label:'Max Stock',render:r=>canEdit?<input className="input stock-entry" defaultValue={r.max_stock} inputMode="decimal" onBlur={e=>save(r,'max_stock',e.target.value)}/>:qty(r.max_stock)},
   {key:'reorder_level',label:'Reorder At',render:r=>qty(r.reorder_level)},
@@ -783,7 +786,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
   <datalist id="item-master-categories">{cats.map(c=><option key={c} value={c}/>)}</datalist>
   <div className="sectionhead"><div><h3>{t('items.title','Item Master')}</h3><p>{t('items.subtitle','Edit approved item details, move items between categories or FAST/NORMAL/SLOW, and enable/disable products without deleting their history.')}</p></div><div className="toolbar"><input className="input toolbar-input" placeholder={t('items.search','Search item, size, brand or group')} value={q} onChange={e=>setQ(e.target.value)}/><ModernSelect className="select toolbar-select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(c=><option key={c}>{c}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={status} onChange={e=>setStatus(e.target.value)}><option value="active">{t('items.enabled_items','Enabled items')}</option><option value="inactive">{t('items.disabled_items','Disabled items')}</option><option value="all">{t('items.all_items','All items')}</option></ModernSelect></div></div>
   <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async()=>{setQ('');setCat('');setPage(0);await load()}}/>
-  {canEdit&&<div className="notice"><b>{t('items.quick_edit','Quick edit is on.')}</b> {t('items.quick_edit_hint','Change Description, Size, Category, Movement or Max Stock directly. Reorder level remains formula-controlled by movement.')}</div>}
+  {canEdit&&<div className="notice"><b>{t('items.quick_edit','Quick edit is on.')}</b> {t('items.quick_edit_hint','Change Description, Size, Category, Group, UOM, Movement or Max Stock directly. Changing a parent category clears previous child groups. Reorder level remains formula-controlled by movement.')}</div>}
   {loading?<Empty>{t('items.loading','Loading item master…')}</Empty>:<><div className="section"><DataTable columns={cols} rows={filtered} mobileCards/></div><div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?((page*pageSize)+1):0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}
  </div>
 }
