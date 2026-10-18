@@ -86,3 +86,4 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 verified safety-test correction: read-only WAHA join-info allowed, group joining/posting still prohibited; three invite codes server-only.
 2026-10-18 read-only WAHA group list 753/0 investigation: structured JID and wrapper parser, redacted diagnostics, no sends or joins, archive remains off.
 2026-10-18 verified staff audit group destination IDs and owner-only session JID safety; migration read-only check; forwarding OFF.
+2026-10-18 owner-only test isolation fix; group IDs set, owner JID verify and DB migration check, audit forwarding remains disabled.
