@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {parseWahaGroups,parseWahaChats,groupMatches} from '../lib/waha-group-discovery.mjs'
+import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '../lib/waha-group-discovery.mjs'
 const RFQ='120363111111111@g.us',PO='120363222222222@g.us'
 test('GOWS and NOWEB keyed group objects retain group identity and subject',()=>{
  const data={[RFQ]:{id:RFQ,subject:'RFQ'},[PO]:{id:PO,subject:'PO'},'nonsense':{id:'999@c.us',subject:'Unknown'}}
@@ -32,4 +32,26 @@ test('read-only chats can discover named groups without returning direct chats',
  const input={items:[{id:RFQ,name:'rfq '},{id:PO,name:'PO'},{id:'94770000001@c.us',name:'Private'}]}
  const entries=groupMatches(parseWahaChats(input))
  assert.deepEqual(entries.map(x=>x.id),[RFQ,PO])
+});
+
+
+test('WAHA nested results and GOWS JID object both produce real group IDs',()=>{
+ const raw={results:[{group:{id:{user:'120363444444444',server:'g.us'},subject:'RFQ'}},{groupInfo:{JID:{User:'120363555555555',Server:'g.us'},Subject:'PO'}}]}
+ const ids=groupMatches(parseWahaGroups(raw).items)
+ assert.deepEqual(ids.map(x=>x.id),['120363444444444@g.us','120363555555555@g.us'])
+});
+test('Response-shape diagnostics reveal only field names, masking invitation and identity keys',()=>{
+ const secret='120363345678901@g.us'
+ const shape=wahaResponseShape({[secret]:{id:secret,subject:'RFQ',participants:[{phone:'+94770000000'}]}})
+ const text=JSON.stringify(shape)
+ assert.ok(!text.includes(secret))
+ assert.ok(!text.includes('94770000000'))
+ assert.match(text,/identifier/)
+ assert.match(text,/subject/)
+});
+test('Groups with unknown wrappers are classified as recognized shape, but not mistaken for named groups',()=>{
+ const parsed=parseWahaGroups({count:753,results:{records:[{id:{user:'120363333333333',server:'g.us'}}]}})
+ assert.equal(parsed.recognized,true)
+ assert.equal(parsed.items.length,1)
+ assert.equal(parsed.items[0].name,'')
 });
