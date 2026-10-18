@@ -5,6 +5,7 @@ import {supabase} from '@/lib/supabase'
 import {isCompleteCompanyContact,normalizeCompanyMobile} from '@/lib/company-contact-directory.mjs'
 import {ALL_DIRECTORY_COMPANIES,companyDirectoryView} from '@/lib/company-contact-directory-view.mjs'
 import {allRows} from '@/lib/query-pages'
+import {contactNameKey,matchContactPhone,duplicateContactNumbers} from '@/lib/contact-duplicates.mjs'
 
 /** One contact per save. Directory membership never changes RFQ or PO recipients. */
 export function CompanyContactDirectory({companies=[],active=true,can=()=>false,flash=()=>{},fail=()=>{}}){
@@ -25,6 +26,8 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const [deleteTargetId,setDeleteTargetId]=useState(null)
  const [changing,setChanging]=useState(false)
  const [error,setError]=useState('')
+ const [reviewedAddConflict,setReviewedAddConflict]=useState(false)
+ const [reviewedEditConflict,setReviewedEditConflict]=useState(false)
  const nameInput=useRef(null)
  const savingLock=useRef(false)
  const canManage=can('company_lists.manage')
@@ -34,6 +37,17 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const {savedRows:scopedSaved,assignedRows:scopedAssigned,companyNames}=useMemo(()=>
   companyDirectoryView({saved,assigned,companies:sorted,companyId,query:contactSearch}),
   [saved,assigned,sorted,companyId,contactSearch])
+ const allContacts=useMemo(()=>{
+  const view=companyDirectoryView({saved,assigned,companies:sorted,companyId:ALL_DIRECTORY_COMPANIES,query:''})
+  return [...view.savedRows,...view.assignedRows].map(c=>({...c,company_name:view.companyNames.get(c.company_id)||'Unknown company'}))
+ },[saved,assigned,sorted])
+ const duplicateNumbers=useMemo(()=>duplicateContactNumbers(allContacts),[allContacts])
+ const addPhoneMatches=matchContactPhone(allContacts,phone)
+ const addNameConflicts=name.trim()?addPhoneMatches.filter(c=>contactNameKey(c.name)!==contactNameKey(name)):[]
+ const needsAddReview=addNameConflicts.length>0
+ const editPhoneMatches=matchContactPhone(allContacts,editPhone).filter(c=>c.id!==editingId)
+ const editNameConflicts=editName.trim()?editPhoneMatches.filter(c=>contactNameKey(c.name)!==contactNameKey(editName)):[]
+ const needsEditReview=editNameConflicts.length>0
  const complete=isCompleteCompanyContact(name,phone)&&name.trim().length<=200
  const canonical=normalizeCompanyMobile(phone)
  const editCanonical=normalizeCompanyMobile(editPhone)
@@ -83,11 +97,11 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
 
  function selectCompany(id){
   if(savingLock.current)return
-  setCompanyId(id);setName('');setPhone('');setStatus('');setError('');setEditingId(null);setDeleteTargetId(null)
+  setCompanyId(id);setName('');setPhone('');setStatus('');setError('');setEditingId(null);setDeleteTargetId(null);setReviewedAddConflict(false);setReviewedEditConflict(false)
  }
  async function saveContact(e){
   e.preventDefault()
-  if(!selected||!complete||savingLock.current)return
+  if(!selected||!complete||savingLock.current||(needsAddReview&&!reviewedAddConflict))return
   savingLock.current=true
   setSaving(true);setError('');setStatus('');setEditingId(null);setDeleteTargetId(null)
   try{
@@ -98,7 +112,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    if(!result.data?.id||result.data.company_id!==selected.id||result.data.phone!==canonical)throw new Error('The contact save was not confirmed. Check the directory before retrying.')
    await load(true)
    setStatus((result.data.already_saved?'Contact updated: ':'Saved to database: ')+result.data.name+' · '+result.data.phone)
-   setName('');setPhone('')
+   setName('');setPhone('');setReviewedAddConflict(false)
    flash?.('Contact saved to GH Procurement.')
    nameInput.current?.focus()
   }catch(e){setError(e.message||String(e));fail?.(e)}
@@ -107,17 +121,17 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
 
  function beginEdit(c){
   if(savingLock.current)return
-  setEditingId(c.id);setEditName(c.name);setEditPhone(c.phone)
+  setEditingId(c.id);setEditName(c.name);setEditPhone(c.phone);setReviewedEditConflict(false)
   setDeleteTargetId(null);setStatus('');setError('')
  }
  function cancelEdit(){
   if(savingLock.current)return
-  setEditingId(null);setEditName('');setEditPhone('');setError('')
+  setEditingId(null);setEditName('');setEditPhone('');setError('');setReviewedEditConflict(false)
  }
  async function saveEdit(e){
   e.preventDefault()
   const original=saved.find(c=>c.id===editingId&&(c.company_id===companyId||companyId===ALL_DIRECTORY_COMPANIES))
-  if(!original||!canSaveEdit||savingLock.current)return
+  if(!original||!canSaveEdit||savingLock.current||(needsEditReview&&!reviewedEditConflict))return
   savingLock.current=true
   setChanging(true);setError('');setStatus('')
   try{
@@ -128,7 +142,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    if(result.error)throw result.error
    if(!result.data?.id||result.data.id!==original.id||result.data.phone!==editCanonical)throw new Error('The update was not verified; refresh before retrying.')
    await load(true)
-   setEditingId(null);setEditName('');setEditPhone('')
+   setEditingId(null);setEditName('');setEditPhone('');setReviewedEditConflict(false)
    setStatus(result.data.routing_unchanged
     ?'Contact updated. This number changed only in the directory. An existing RFQ/PO route still uses the old number—review the company supplier route separately.'
     :'Contact updated and saved in GH Procurement.')
@@ -171,6 +185,15 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     {visible.map(c=><button type="button" key={c.id} className={'btn small '+(c.id===companyId?'company-directory-selected':'')} onClick={()=>selectCompany(c.id)} aria-pressed={c.id===companyId}>{c.name} <span className="muted">{saved.filter(r=>r.company_id===c.id).length}</span></button>)}
     {!visible.length&&<span className="muted tiny">No matching company</span>}
    </div>
+   {duplicateNumbers.length>0&&<details className="notice section company-directory-duplicate-warnings">
+    <summary role="alert"><strong>⚠️ {duplicateNumbers.length} repeated number{duplicateNumbers.length===1?'':'s'} across the supplier directory</strong> · Tap to inspect names and companies</summary>
+    <div className="stack section">
+     {duplicateNumbers.map(group=><div className="company-directory-record" key={group.phone}>
+      <strong>{group.differentNames?'⚠️ Same number, different names':'Possible duplicate / shared contact'} · {group.phone}</strong>
+      {group.contacts.map((c,i)=><span key={(c.company_id||'')+':'+(c.supplier_id||c.id||i)}>{c.name} — {c.company_name}</span>)}
+     </div>)}
+    </div>
+   </details>}
    <label className="field" htmlFor="company-directory-contact-search">Search directory contacts</label>
    <input id="company-directory-contact-search" className="input" type="search" placeholder="Search name, number or company…" value={contactSearch} onChange={e=>setContactSearch(e.target.value)}/>
    {companyId===ALL_DIRECTORY_COMPANIES
@@ -178,11 +201,17 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     : <form onSubmit={saveContact} className="company-directory-form">
     <h4>{selected?.name||'Select a company'}</h4>
     <label className="field" htmlFor="company-directory-name">Contact name</label>
-    <input id="company-directory-name" ref={nameInput} className="input" type="text" maxLength={200} autoComplete="off" placeholder="Enter contact person's name" value={name} onChange={e=>{setName(e.target.value);setStatus('');setError('')}}/>
+    <input id="company-directory-name" ref={nameInput} className="input" type="text" maxLength={200} autoComplete="off" placeholder="Enter contact person's name" value={name} onChange={e=>{setName(e.target.value);setStatus('');setError('');setReviewedAddConflict(false)}}/>
     <label className="field" htmlFor="company-directory-phone">WhatsApp number</label>
-    <input id="company-directory-phone" className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="076 360 9930 or +94763609930" value={phone} onChange={e=>{setPhone(e.target.value);setStatus('');setError('')}}/>
+    <input id="company-directory-phone" className="input" type="tel" inputMode="tel" autoComplete="tel" placeholder="076 360 9930 or +94763609930" value={phone} onChange={e=>{setPhone(e.target.value);setStatus('');setError('');setReviewedAddConflict(false)}}/>
     <p className="muted tiny company-directory-number-preview" aria-live="polite">{phone?'Number entered: '+phone+(canonical?' · Save as '+canonical:' · Check the number'):'The full number will appear here as you type.'}</p>
-    <button type="submit" className="btn primary company-directory-save" disabled={!selected||!complete||saving}>{saving?'Saving…':'Save Contact & Add Next'}</button>
+    {addPhoneMatches.length>0&&<div className="notice section" role="alert">
+     <strong>{needsAddReview?'⚠️ Warning: this number is already saved under a different name.':'This number is already in the supplier directory.'}</strong>
+     {addPhoneMatches.map((c,i)=><div className="muted tiny" key={(c.company_id||'')+':'+(c.supplier_id||c.id||i)}>{c.name} · {c.company_name} · {normalizeCompanyMobile(c.phone||c.whatsapp)}</div>)}
+     {needsAddReview&&<><p className="muted tiny">Review the contact before saving. If this is the same number within this company, saving can replace its directory display name. Existing supplier routing will not be changed.</p>
+      <label className="field"><input type="checkbox" checked={reviewedAddConflict} onChange={e=>setReviewedAddConflict(e.target.checked)}/> I reviewed the existing number and still want to save this name.</label></>}
+    </div>}
+    <button type="submit" className="btn primary company-directory-save" disabled={!selected||!complete||saving||(needsAddReview&&!reviewedAddConflict)}>{saving?'Saving…':'Save Contact & Add Next'}</button>
    </form>}
    {status&&<p className="success" role="status">{status}</p>}
    {error&&<p className="error" role="alert">{error} Review the existing directory before retrying.</p>}
@@ -193,7 +222,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     {scopedSaved.map((c,index)=><div className="company-directory-entry" key={c.id}>
      {companyId===ALL_DIRECTORY_COMPANIES&&(index===0||scopedSaved[index-1].company_id!==c.company_id)&&<h5 className="company-directory-group-heading">{companyNames.get(c.company_id)||'Other company'}</h5>}
      <div className="company-directory-record company-directory-compact-row">
-      <strong className="company-directory-contact-name" title={c.name}>{c.name}</strong>
+      <strong className="company-directory-contact-name" title={c.name}>{c.name}{duplicateNumbers.some(g=>g.contacts.some(x=>x.company_id===c.company_id&&x.supplier_id===c.supplier_id))&&<small title="This number appears on multiple contact records"> ⚠️</small>}</strong>
       <span className="company-directory-contact-phone" title={c.phone}>{c.phone}</span>
       <div className="company-directory-record-actions">
        <button type="button" className="btn small company-directory-icon-button" aria-label={'Edit '+c.name} title={'Edit '+c.name} disabled={changing} onClick={()=>beginEdit(c)}>✎</button>
@@ -203,13 +232,18 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
      {editingId===c.id&&<form className="company-directory-form company-directory-edit-form" onSubmit={saveEdit}>
       <h5>Edit {c.name}</h5>
       <label className="field" htmlFor={'company-edit-name-'+c.id}>Contact name / title</label>
-      <input id={'company-edit-name-'+c.id} className="input" type="text" maxLength={200} value={editName} onChange={e=>setEditName(e.target.value)}/>
+      <input id={'company-edit-name-'+c.id} className="input" type="text" maxLength={200} value={editName} onChange={e=>{setEditName(e.target.value);setReviewedEditConflict(false)}}/>
       <label className="field" htmlFor={'company-edit-number-'+c.id}>WhatsApp number</label>
-      <input id={'company-edit-number-'+c.id} className="input" type="tel" inputMode="tel" value={editPhone} onChange={e=>setEditPhone(e.target.value)}/>
+      <input id={'company-edit-number-'+c.id} className="input" type="tel" inputMode="tel" value={editPhone} onChange={e=>{setEditPhone(e.target.value);setReviewedEditConflict(false)}}/>
       <p className="muted tiny company-directory-number-preview" aria-live="polite">{editPhone?'Number entered: '+editPhone+(editCanonical?' · Save as '+editCanonical:' · Invalid number'):'Enter the contact number.'}</p>
+      {editPhoneMatches.length>0&&<div className="notice section" role="alert">
+       <strong>{needsEditReview?'⚠️ Warning: this number is already used under another contact name.':'This number already appears elsewhere in the directory.'}</strong>
+       {editPhoneMatches.map((x,i)=><div className="muted tiny" key={(x.company_id||'')+':'+(x.supplier_id||x.id||i)}>{x.name} · {x.company_name} · {normalizeCompanyMobile(x.phone||x.whatsapp)}</div>)}
+       {needsEditReview&&<label className="field"><input type="checkbox" checked={reviewedEditConflict} onChange={e=>setReviewedEditConflict(e.target.checked)}/> I reviewed the existing number and still want to save this edit.</label>}
+      </div>}
       <p className="muted tiny">Edits change this company’s directory entry only. Existing RFQ/PO recipients and historical orders are not changed.</p>
       <div className="company-directory-inline-actions">
-       <button className="btn primary" type="submit" disabled={!canSaveEdit||changing}>{changing?'Saving…':'Save Changes'}</button>
+       <button className="btn primary" type="submit" disabled={!canSaveEdit||changing||(needsEditReview&&!reviewedEditConflict)}>{changing?'Saving…':'Save Changes'}</button>
        <button type="button" className="btn" disabled={changing} onClick={cancelEdit}>Cancel</button>
       </div>
      </form>}
