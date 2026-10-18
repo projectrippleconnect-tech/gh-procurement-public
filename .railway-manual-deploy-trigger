@@ -107,3 +107,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 stock PDF follow-up release: preserve whole column headings when printable while retaining two side-by-side wrapped-description panels. Fix regression found by the full Railway test suite. Commit e5ead05ced7360a478e01c82a6ba0c2909b6db8f.
 
 2026-10-18 PR #115 supplier directory workflow readback sync and targeted review. No supplier writes/messages on navigation; run full validation and deploy.
+
+2026-10-18 Corrected company routing panels (PR #115 live refresh and #116 real recipient links only), consolidated contract test and hard build gate. No schema changes or auto WhatsApp sends.
