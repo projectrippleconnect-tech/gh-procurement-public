@@ -41,6 +41,8 @@ test('workflow reloads on verified directory writes and displays targeted suppli
 test('advanced saved routes trigger main workflow reload; no documents are sent by directory review',()=>{
  assert.match(advanced,/directoryRevision=0/)
  assert.match(advanced,/\[company\?\.id,company\?\.updated_at,directoryRevision\]/)
- assert.match(company,/onChanged=\{async\(\)=>\{await loadCompanies\(\);setDirectoryRevision\(v=>v\+1\)\}\}/)
+ assert.match(company,/onChanged=\{syncCompanySupplierPanels\}/)
+ assert.match(company,/onRoutesChanged=\{syncCompanySupplierPanels\}/)
+ assert.match(company,/const syncCompanySupplierPanels=useCallback/)
  assert.doesNotMatch(directory,/companyApi\('orders'/)
 })
