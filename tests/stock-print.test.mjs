@@ -9,6 +9,8 @@ test('stock printing filters selected categories and movement; company default i
  assert.deepEqual(stockPrintRows(rows,{category:'GENERAL',subgroup:'Pumps'}).map(x=>x.id),['b'])
  assert.deepEqual(stockPrintRows(rows,{movement:'FAST',selectedIds:['b']}).map(x=>x.id),[])
  assert.equal(resolveStockPrint({tablesPerPage:9}).tablesPerPage,3)
+ assert.equal(resolveStockPrint({}).splitLongTables,true)
+ assert.equal(resolveStockPrint({splitLongTables:false}).splitLongTables,false)
  assert.throws(()=>resolveStockPrint({columns:['no']}),/Description/)
 })
 test('custom stock PDF includes all 150 rows without modifying source data',()=>{
@@ -23,6 +25,21 @@ test('custom stock PDF includes all 150 rows without modifying source data',()=>
  }
  assert.equal(JSON.stringify(rows),snapshot)
 })
+
+test('A4 portrait 2-table stock setup renders side-by-side columns without losing rows',()=>{
+ const rows=Array.from({length:54},(_,n)=>({id:String(n),description:'1 GANG 1-WAY SWITCH WHITE KEVILTON - KEVILTON - WHITE #'+(n+1),size:'',uom:'PCS',reorder_level:10}))
+ const original=JSON.stringify(rows)
+ const settings={orientation:'portrait',layout:'columns',tablesPerPage:2,splitLongTables:true,fontSize:6.5,rowHeight:5,rowsPerTable:0}
+ const pdf=buildCustomStockPdf({items:rows,company:{name:'General Hardware'},options:settings,subtitle:'KEVILTON'})
+ const firstPage=pdf.internal.pages[1].join(' ')
+ assert.equal((firstPage.match(/\\(Description\\)\\s*Tj/g)||[]).length,2,'Long rows must be split into two visible tables on the first page')
+ const output=pdf.output()
+ for(let n=1;n<=54;n++)assert.ok(output.includes('WHITE #'+n+')'),'All stock items must remain printable: '+n)
+ assert.equal(JSON.stringify(rows),original,'Printing must not alter catalog data')
+ const single=buildCustomStockPdf({items:rows,options:{...settings,splitLongTables:false}})
+ assert.equal((single.internal.pages[1].join(' ').match(/\\(Description\\)\\s*Tj/g)||[]).length,1,'Disabling the split should use one full-width table')
+})
+
 test('supplier wording and template edits preserve authoritative order quantities and values',()=>{
  const original=[{id:'line',qty:6,unit_price:40,item:{description:'Cycle lock',size:'2 ft',uom:'PCS'}}]
  const template=defaultSupplierTemplate('po');template.name='General Ceramics';template.overrides.line={description:'Supplier cycle lock',qty:999,unit_price:1};template.caption='{company_name} {po_number} {supplier_name}'
