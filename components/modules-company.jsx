@@ -282,9 +282,9 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <summary><strong>RFQ &amp; PO Workflow Settings</strong></summary>
     <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded directoryRevision={directoryRevision} reviewRequest={workflowReviewRequest} onRoutesChanged={syncCompanySupplierPanels}/>
     {companyId&&!allCompanies&&<details className="section" aria-label="Advanced group sending and templates">
-      <summary>Advanced group sending &amp; document templates</summary>
-      <p className="muted tiny">Use the checklist above for standard RFQ/PO preferences. Open advanced tools only to edit a document template, manage an exception or send a request already approved.</p>
-      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={syncCompanySupplierPanels} directoryRevision={directoryRevision}/>
+      <summary>Advanced document templates &amp; approved sending</summary>
+      <p className="muted tiny">Edit outgoing RFQ/PO images and captions, or prepare and send documents for approved outstanding shortages. Supplier assignments, recipients and automatic-send rules are managed only in the checklist above.</p>
+      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={syncCompanySupplierPanels} directoryRevision={directoryRevision} toolsOnly/>
     </details>}
   </details>}
   {canManage&&<WhatsAppAuditGroups/>}
