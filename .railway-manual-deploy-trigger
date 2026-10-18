@@ -131,3 +131,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 Post-build font heading release retry: queue commit after category-wise PDF production build completed successfully; CSS-only company print/list heading readability update.
 
 2026-10-18 GH Procurement UOM selector release: quick add item UOM now uses existing searchable dropdown with common units and a + Add custom UOM action inside the selector. Existing item UOM data and movement, supplier, PDF, stock flows, and all other functions unchanged. Run locked install, security audit, lint, tests, build and healthcheck; no WhatsApp dispatch.
+
+2026-10-18 GH Procurement manual release: long-press item name on Stock Entry to confirm and edit master item name, movement, UOM, categories, size and maximum stock. Permission guarded and count drafts/history unchanged. Based on successful 06b933 UOM dropdown release; run audit, lint, tests, build and healthcheck. No data reset or WhatsApp dispatch.
