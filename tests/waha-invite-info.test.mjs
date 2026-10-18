@@ -30,3 +30,11 @@ test('Read-only invite path never calls WAHA join nor sends messages',()=>{
  assert.doesNotMatch(source,/method:\s*['"]POST['"]|\/groups\/join['"]|sendImage|sendText/)
  assert.match(source,/process\.env\.GH_WA_AUDIT_PENDING_INVITE_CODES/)
 });
+
+test('Read-only invite metadata supports nested GOWS group JID and alternative wrapper fields',()=>{
+ const response={data:{result:{group:{id:{user:'120363123456789',server:'g.us'},Subject:'RFQ',size:1}}}}
+ const parsed=normalizeInviteInfo(response)
+ assert.equal(parsed.id,'120363123456789@g.us')
+ assert.equal(parsed.name,'RFQ')
+ assert.equal(preferredInviteRoles(parsed),'RFQ')
+});
