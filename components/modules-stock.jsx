@@ -442,9 +442,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
   if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one stock quantity or mark an item sufficient.')))
   if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
-  const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
+  const canSeeReview=canNavigate('requirements')
+  const submitSuffix=canSeeReview?t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.'):(checked.length===1?'item?':'items?')
   const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
-  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
+  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:canSeeReview?t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.'):'The submitted stock quantities will be saved.'}))return
 
   setBusy(true)
   try{
@@ -458,7 +459,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
    if(!Object.keys(next).length&&!Object.keys(nextSufficient).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
    let message='Stock submitted. '
-   if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
+   if(!canSeeReview)message+=checked.length+' item(s) saved.'
+   else if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
    else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
    else message+=checked.length+' item(s) saved for procurement review.'
    setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
@@ -526,7 +528,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
-  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
+  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
    <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy} onClick={submit}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?t('stock.submitting','Submitting…'):`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
