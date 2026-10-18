@@ -35,8 +35,13 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const visible=useMemo(()=>{
   const q=search.trim().toLocaleLowerCase()
   if(!q)return sorted
+  const digits=q.replace(/\D/g,'')
+  const numberPart=digits.startsWith('0')?digits.slice(1):digits
   return sorted.filter(c=>c.name.toLocaleLowerCase().includes(q)||
-   [...saved,...assigned].some(item=>item.company_id===c.id&&[item.name,item.phone].some(v=>String(v||'').toLocaleLowerCase().includes(q))))
+   [...saved,...assigned].some(item=>item.company_id===c.id&&(
+    [item.name,item.phone].some(v=>String(v||'').toLocaleLowerCase().includes(q))||
+    (numberPart.length>=6&&String(item.phone||'').replace(/\D/g,'').endsWith(numberPart))
+   )))
  },[sorted,search,saved,assigned])
  const selected=sorted.find(c=>c.id===companyId)||null
  const {savedRows:scopedSaved,assignedRows:scopedAssigned,companyNames}=useMemo(()=>
