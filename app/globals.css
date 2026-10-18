@@ -1301,3 +1301,33 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .stock-lot-modal>.muted.tiny{display:none}
  .stock-lot-modal>.stock-lot-rows{min-height:65px}
 }
+
+
+/* Company Stock uses the same compact, accessible lot review as General Stock. */
+.company-lot-modal{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.company-lot-modal>.stock-lot-rows{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scroll-padding-bottom:16px}
+.company-lot-modal>.stock-lot-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr) minmax(0,1.2fr);gap:4px}
+.company-lot-modal>.stock-lot-actions .btn{font-size:11px;min-height:35px;height:35px;white-space:nowrap;padding:4px 6px;min-width:0}
+.company-lot-modal>.notice,.company-lot-modal>.company-lot-group-hint{margin:0;flex:0 0 auto;padding:5px 8px;font-size:11px;line-height:1.35}
+.company-lot-modal>.company-lot-footnote{margin:0;flex:0 0 auto;font-size:10px}
+.company-lot-group-heading{font-size:12px;font-weight:800;background:var(--panel2);color:var(--brand2);padding:6px 9px;border-bottom:1px solid var(--line)}
+.company-lot-group-heading small{font-size:10px;color:var(--muted);margin-left:5px}
+.company-stock-finalized{background:color-mix(in srgb,var(--good) 6%,var(--panel))}
+.company-count-last{display:block;color:var(--good);font-size:10px;font-weight:750;margin-top:2px;overflow-wrap:anywhere;line-height:1.25}
+.company-recount-btn{min-height:30px!important;padding:3px 5px!important;font-size:10px!important;max-width:100%}
+.company-lot-history-entry{border-bottom:1px solid var(--line)}
+.company-history-trigger{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 18px;grid-template-rows:auto auto;gap:3px;padding:9px 8px;background:transparent;color:var(--text);border:0;text-align:left;align-items:center}
+.company-history-trigger strong{font-size:12px;overflow-wrap:anywhere}
+.company-history-trigger small{grid-column:1;font-size:10px;color:var(--muted)}
+.company-history-trigger>span{grid-column:2;grid-row:1 / span 2}
+.company-lot-history-lines{padding:5px 8px 10px 14px;background:color-mix(in srgb,var(--panel2) 65%,transparent)}
+.company-lot-history-lines>div{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:11px}
+.company-lot-history-lines span{min-width:0;overflow-wrap:anywhere}
+.company-lot-history-lines b{flex:0 0 auto}
+@media(max-width:700px){
+ .modal.card.company-lot-modal{display:flex;flex-direction:column;max-height:86dvh;overflow:hidden;padding:10px 9px;gap:6px}
+ .company-lot-modal>.stock-lot-actions{grid-template-columns:minmax(0,1fr) minmax(0,.82fr) minmax(0,1.12fr);gap:4px}
+ .company-lot-modal>.stock-lot-actions .btn,.company-lot-modal>.stock-lot-actions .btn.primary{grid-column:auto;font-size:10.5px;min-height:34px;height:34px;padding:4px}
+ .company-lot-modal>.stock-lot-rows{min-height:62px}
+ .company-count-last{font-size:9px}
+}
