@@ -24,6 +24,7 @@ import {InfoButton} from './help-ui'
 import {ItemActivity} from './item-activity'
 import {nextRequirementAction} from '@/lib/procurement-flow'
 import {extractPriceListFile} from '@/lib/price-list-extract'
+import {contactNameKey,matchContactPhone,duplicateContactNumbers} from '@/lib/contact-duplicates.mjs'
 import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
 
@@ -347,6 +348,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const smartEnabled=features.find(x=>x.feature_key==='suppliers.smart_suggestions')?.enabled!==false
  const[rows,setRows]=useState([]),[q,setQ]=useState(''),[form,setForm]=useState({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''}),[coverageSupplier,setCoverageSupplier]=useState(null),[scopes,setScopes]=useState([]),[categories,setCategories]=useState([]),[mainGroups,setMainGroups]=useState([]),[subgroups,setSubgroups]=useState([]),[scopeType,setScopeType]=useState('category'),[scopeValue,setScopeValue]=useState(''),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([])
  const[directoryKind,setDirectoryKind]=useState('general')
+ const[reviewedSupplierConflict,setReviewedSupplierConflict]=useState(false)
  const[performance,setPerformance]=useState({})
  const load=useCallback(async()=>{
   const [r,p,d]=await Promise.all([supabase.from('proc_suppliers').select('*').order('name'),supabase.from('proc_v_supplier_performance_v2').select('*'),supabase.from('proc_v_supplier_delivery_evidence_v1').select('*')])
@@ -396,6 +398,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  }
 
  async function add(){
+  if(newSupplierNameConflict&&!reviewedSupplierConflict)return fail(new Error('Review the duplicate number warning before saving.'))
   if(!canAdd)return fail(new Error(t('suppliers.add_denied','You do not have permission to add suppliers.')))
   if(!form.name.trim())return fail(new Error(t('suppliers.name_required','Supplier name is required.')))
   const phone=toSriLankaSupplierPhone(form.phone)
@@ -405,7 +408,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
   const code=form.supplier_code.trim()||'S'+String(Math.max(rows.length+101,101)).padStart(3,'0')
   const r=await supabase.from('proc_suppliers').insert({...form,name:form.name.trim(),supplier_code:code,phone:phone||null,whatsapp:whatsapp||phone||null})
   if(r.error)return fail(r.error)
-  flash(form.name+' added.');setForm({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''});load()
+  flash(form.name+' added.');setForm({supplier_code:'',name:'',contact_person:'',phone:'+94',whatsapp:'+94',email:'',address:'',payment_terms:''});setReviewedSupplierConflict(false);load()
  }
  const canDelete=(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')
  async function deleteSupplier(s){
@@ -425,6 +428,14 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
    (email&&String(r.email||'').trim().toLowerCase()===email)
   ).slice(0,5)
  },[rows,form.name,form.phone,form.email,smartEnabled])
+ const duplicateNumbers=useMemo(()=>duplicateContactNumbers(rows.map(r=>({...r,name:[r.name,r.contact_person].filter(Boolean).join(' · ')}))),[rows])
+ const newSupplierMatches=useMemo(()=>{
+  const matches=new Map()
+  for(const phone of [form.phone,form.whatsapp])for(const r of matchContactPhone(rows,phone))matches.set(r.id,r)
+  return [...matches.values()]
+ },[rows,form.phone,form.whatsapp])
+ const newSupplierLabel=[form.name,form.contact_person].filter(Boolean).join(' · ')
+ const newSupplierNameConflict=Boolean(form.name.trim()&&newSupplierMatches.some(r=>contactNameKey([r.name,r.contact_person].filter(Boolean).join(' · '))!==contactNameKey(newSupplierLabel)))
  const paymentSuggestions=useMemo(()=>[...new Set(rows.map(r=>r.payment_terms).filter(Boolean))].sort(),[rows])
 
  const filtered=useMemo(()=>rows.filter(r=>directoryKind==='all'||(r.supplier_kind||'general')===directoryKind).filter(r=>(r.name+' '+r.supplier_code+' '+(r.phone||'')+' '+(r.contact_person||'')).toLowerCase().includes(q.toLowerCase())),[rows,q,directoryKind])
@@ -443,12 +454,16 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const cols=configuredColumns(fields,'suppliers',defaults)
  const scopeLabel=sc=>sc.scope_type==='item'?[sc.item?.description,sc.item?.size].filter(Boolean).join(' · '):`${sc.scope_type.replace('_',' ')}: ${sc.scope_value}`
  return <div className="split">
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><ModernSelect aria-label="Supplier directory type" className="select section" value={directoryKind} onChange={e=>setDirectoryKind(e.target.value)}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect><input className="input section" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section supplier-directory-list" aria-label="Supplier directory">
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('suppliers.directory','Supplier Directory')}</h3><p>{t('suppliers.directory_hint','Supplier details, contacts and payment terms.')}</p></div></div><ModernSelect aria-label="Supplier directory type" className="select section" value={directoryKind} onChange={e=>setDirectoryKind(e.target.value)}><option value="general">General suppliers</option><option value="company">Company suppliers</option><option value="all">All suppliers</option></ModernSelect>
+  {duplicateNumbers.length>0&&<details className="notice section"><summary role="alert"><strong>⚠️ {duplicateNumbers.length} repeated phone number{duplicateNumbers.length===1?'':'s'} in supplier directory</strong> · Review contacts</summary>
+   <div className="stack section">{duplicateNumbers.map(g=><div key={g.phone} className="company-directory-record"><strong>{g.differentNames?'⚠️ Different names':'Shared number / possible duplicate'} · {g.phone}</strong>{g.contacts.map(r=><span key={r.id}>{r.name}</span>)}</div>)}</div>
+  </details>}
+  <input className="input section" placeholder={t('suppliers.search','Search suppliers')} value={q} onChange={e=>setQ(e.target.value)}/><div className="section supplier-directory-list" aria-label="Supplier directory">
    {filtered.length===0?<Empty/>:filtered.map(s=><details className="supplier-directory-row" key={s.id}>
     <summary className="supplier-directory-summary">
      <span className="supplier-directory-identity">
       <strong className="supplier-directory-name" title={s.name}>{s.name}</strong>
-      <span className="supplier-directory-subtitle">{[fieldEnabled(fields,'suppliers','supplier_code')?s.supplier_code:null,fieldEnabled(fields,'suppliers','phone')?(toSriLankaSupplierPhone(s.phone)||s.phone):null].filter(Boolean).join(' · ')||'Supplier'}</span>
+      <span className="supplier-directory-subtitle">{[fieldEnabled(fields,'suppliers','supplier_code')?s.supplier_code:null,fieldEnabled(fields,'suppliers','phone')?(toSriLankaSupplierPhone(s.phone)||s.phone):null].filter(Boolean).join(' · ')||'Supplier'}{duplicateNumbers.some(g=>g.contacts.some(r=>r.id===s.id))?' · ⚠️ Number repeated':''}</span>
      </span>
      {fieldEnabled(fields,'suppliers','status')&&<span className="supplier-directory-status"><Badge>{s.active?'active':'inactive'}</Badge></span>}
      <span className="supplier-directory-chevron" aria-hidden="true">⌄</span>
@@ -472,12 +487,17 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
     {[
      ['supplier_code','Supplier code'],['name','Supplier name'],['contact_person','Contact person'],['phone','Phone'],
      ['whatsapp','WhatsApp'],['email','Email'],['address','Address'],['payment_terms','Payment terms']
-    ].filter(([k])=>!fields?.some(f=>f.module_key==='suppliers'&&f.field_key===k&&!f.enabled)).map(([k,l])=><div className="field" key={k}><label>{fields?.find(f=>f.module_key==='suppliers'&&f.field_key===k)?.label||l}</label><input className="input" inputMode={k==='phone'||k==='whatsapp'?'tel':undefined} list={k==='payment_terms'?'supplier-payment-terms':undefined} value={form[k]} placeholder={k==='phone'||k==='whatsapp'?'+94 77 123 4567':undefined} onChange={e=>{const value=e.target.value;setForm(x=>{if(k==='phone'||k==='whatsapp'){const next=formatSriLankaSupplierPhoneInput(value);if(k==='phone'&&smartEnabled&&(!x.whatsapp||x.whatsapp==='+94'||x.whatsapp===x.phone))return {...x,phone:next,whatsapp:next};return {...x,[k]:next}}return {...x,[k]:value}})}}/></div>)}
+    ].filter(([k])=>!fields?.some(f=>f.module_key==='suppliers'&&f.field_key===k&&!f.enabled)).map(([k,l])=><div className="field" key={k}><label>{fields?.find(f=>f.module_key==='suppliers'&&f.field_key===k)?.label||l}</label><input className="input" inputMode={k==='phone'||k==='whatsapp'?'tel':undefined} list={k==='payment_terms'?'supplier-payment-terms':undefined} value={form[k]} placeholder={k==='phone'||k==='whatsapp'?'+94 77 123 4567':undefined} onChange={e=>{const value=e.target.value;if(['name','contact_person','phone','whatsapp'].includes(k))setReviewedSupplierConflict(false);setForm(x=>{if(k==='phone'||k==='whatsapp'){const next=formatSriLankaSupplierPhoneInput(value);if(k==='phone'&&smartEnabled&&(!x.whatsapp||x.whatsapp==='+94'||x.whatsapp===x.phone))return {...x,phone:next,whatsapp:next};return {...x,[k]:next}}return {...x,[k]:value}})}}/></div>)}
    </div>
    <datalist id="supplier-payment-terms">{paymentSuggestions.map(x=><option value={x} key={x}/>)}</datalist>
    {smartEnabled&&duplicateHints.length>0&&<div className="notice section"><b>Possible existing supplier</b><div className="muted tiny">{duplicateHints.map(x=>x.name+' · '+(x.phone||x.email||x.supplier_code)).join(' | ')}</div></div>}
+   {newSupplierMatches.length>0&&<div className="notice section" role="alert">
+    <strong>{newSupplierNameConflict?'⚠️ Warning: phone/WhatsApp number already belongs to a different contact name.':'This phone/WhatsApp number already exists.'}</strong>
+    {newSupplierMatches.map(r=><div key={r.id} className="muted tiny">{r.name}{r.contact_person?' · '+r.contact_person:''} · {r.whatsapp||r.phone}</div>)}
+    {newSupplierNameConflict&&<label className="field"><input type="checkbox" checked={reviewedSupplierConflict} onChange={e=>setReviewedSupplierConflict(e.target.checked)}/> I have checked the existing number and still want to add this supplier.</label>}
+   </div>
    {smartEnabled&&paymentSuggestions.length>0&&<div className="section"><div className="muted tiny">Smart payment-term suggestions</div><div className="pillrow section">{paymentSuggestions.slice(0,6).map(x=><button type="button" className="choice-pill" key={x} onClick={()=>setForm(v=>({...v,payment_terms:x}))}>{x}</button>)}</div></div>}
-   <button className="btn primary section" onClick={add}>{t('suppliers.save','Save Supplier')}</button></div>}
+   <button className="btn primary section" onClick={add} disabled={newSupplierNameConflict&&!reviewedSupplierConflict}>{t('suppliers.save','Save Supplier')}</button></div>}
    {coverageSupplier&&<div className="card pad supplier-coverage"><div className="sectionhead"><div><h3>{coverageSupplier.name} Coverage</h3><p>Rules limit which requirements this supplier is suggested for. No rules means a general supplier.</p></div><button className="btn small" onClick={()=>setCoverageSupplier(null)}>{t('common.close','Close')}</button></div>
     <div className="pillrow">{scopes.length?scopes.map(sc=><span className="choice-pill selected-choice" key={sc.id}>{scopeLabel(sc)}{canEdit&&<button className="chip-x" onClick={()=>removeScope(sc.id)}>×</button>}</span>):<span className="badge info">General supplier · all items</span>}</div>
     {canEdit&&<div className="section">
