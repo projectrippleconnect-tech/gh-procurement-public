@@ -175,6 +175,15 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
  async function sendConfiguredRoute(section,rule){
   const recipientIds=members.get(rule?.id)||[]
   if(!rule?.id)throw new Error('Select an explicitly saved RFQ/PO route.')
+  const latest=await supabase.from('proc_company_section_routes').select('id,updated_at,route_mode,auto_send').eq('id',rule.id).eq('company_id',company.id).single()
+  if(latest.error)throw latest.error
+  if(latest.data.updated_at!==rule.updated_at||latest.data.route_mode!==rule.route_mode||latest.data.auto_send!==rule.auto_send)
+   throw new Error('This group route changed since it was loaded. Refresh before sending any document.')
+  const savedRecipients=await supabase.from('proc_company_section_route_suppliers').select('supplier_id,sort_order').eq('route_id',rule.id).order('sort_order')
+  if(savedRecipients.error)throw savedRecipients.error
+  const currentRecipientIds=(savedRecipients.data||[]).map(row=>row.supplier_id)
+  if(currentRecipientIds.length!==recipientIds.length||currentRecipientIds.some((id,index)=>id!==recipientIds[index]))
+   throw new Error('Recipient selections changed since this screen opened. Refresh and review before sending.')
   const mode=rule.route_mode
   if(mode==='direct'&&recipientIds.length!==1)throw new Error('Direct PO must have exactly one saved sending recipient. Correct this in RFQ & PO Workflow Settings.')
   if(!recipientIds.length)throw new Error('No saved recipients for this route. Correct this in RFQ & PO Workflow Settings.')
