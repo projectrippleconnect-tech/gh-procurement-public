@@ -1019,32 +1019,31 @@ try{
    await context.close();continue
   }
   if(process.env.GH_UI_CONTACT_PASTE==='1'){
+   // Test the current one-by-one Supplier Directory, not the removed supplier wizard.
    await navigate('CL Company Lists')
    await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
-   if(await page.getByRole('button',{name:'Company setup',exact:true}).count())await page.getByRole('button',{name:'Company setup',exact:true}).click()
-   const simple=page.getByLabel('Company supplier automation',{exact:true})
-   await simple.locator('summary').first().click()
-   await simple.getByRole('button',{name:'Next →',exact:true}).click()
-   await simple.getByRole('button',{name:'+ Add supplier from directory',exact:true}).click()
-   const editor=simple.getByLabel('Add or edit group supplier contact',{exact:true})
-   await editor.waitFor()
-   assert.equal(await simple.getByRole('button',{name:'Paste contact',exact:true}).count(),0,'Duplicate paste control is removed')
-   for(const label of ['Pick from phone','Pick phone number only','Receive from Contacts app','Import .vcf'])assert.equal(await simple.getByRole('button',{name:label,exact:true}).count(),0)
-   const name=editor.getByPlaceholder('Supplier or business name',{exact:true})
-   const phone=editor.getByPlaceholder('+94771234567',{exact:true})
+   const setupButton=page.getByRole('button',{name:'Company setup',exact:true})
+   if(await setupButton.count())await setupButton.click()
+   const directory=page.locator('.company-directory-panel')
+   await directory.getByRole('button',{name:/Company Supplier Directory/}).click()
+   await directory.locator('.company-directory-company-list button').filter({hasText:'Fixture company'}).first().click()
+   const name=directory.getByLabel('Contact name',{exact:true})
+   const phone=directory.getByLabel('WhatsApp number',{exact:true})
+   const save=directory.getByRole('button',{name:'Save Contact & Add Next',exact:true})
    await name.fill('Sample local supplier')
    await phone.fill('+61 412345678')
-   assert.equal(await editor.getByRole('button',{name:'Save contact & select',exact:true}).isDisabled(),true,'Overseas phone must be rejected')
-   await editor.getByRole('status').waitFor()
+   assert.equal(await save.isDisabled(),true,'Overseas numbers are rejected before saving')
    await phone.fill('0771234567')
-   assert.equal(await editor.getByRole('button',{name:'Save contact & select',exact:true}).isEnabled(),true,'Valid Sri Lankan phone enables save')
-   await editor.getByRole('button',{name:'Save contact & select',exact:true}).click()
-   await simple.getByText(/Sample local supplier/).first().waitFor()
-   const manifest=await (await page.request.get(root+'/manifest.webmanifest')).json()
-   assert.equal(manifest.share_target,undefined,'Obsolete contact share target is removed')
-   assert.equal(rfqGatewayRequests.length,0,'Contact save does not send RFQs')
+   await directory.locator('.company-directory-number-preview').first().getByText(/Save as \+94771234567/).waitFor()
+   assert.equal(await save.isEnabled(),true,'Correct Sri Lankan number enables a one-contact save')
+   for(const label of ['Paste contact','Pick from phone','Pick phone number only','Receive from Contacts app','Import .vcf']){
+    assert.equal(await directory.getByRole('button',{name:label,exact:true}).count(),0,'Obsolete duplicate contact entry action removed: '+label)
+   }
+   assert.equal(rfqGatewayRequests.length,0,'Typing or validating a supplier contact never sends an RFQ')
+   assert.equal(groupRouteSaves.length,0,'Supplier directory entry does not change RFQ/PO routing')
+   await page.screenshot({path:'test-results/'+width+'-contact-directory-validation.png',fullPage:true})
    assert.deepEqual(errors,[])
-   console.log('PASS manual supplier contact validation and removed duplicate paste controls at '+width+'px')
+   console.log('PASS one-by-one company contact entry validates +94 numbers without duplicate paste tools at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
