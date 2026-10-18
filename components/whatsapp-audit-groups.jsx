@@ -35,7 +35,7 @@ export function WhatsAppAuditGroups(){
    {(result.groups||[]).map(group=><div key={group.id} style={{border:'1px solid var(--line)',borderRadius:8,padding:8,minWidth:0}}>
     <strong>{group.name}</strong>
     <p className="muted tiny" style={{margin:'3px 0',overflowWrap:'anywhere'}}>Group ID: {group.id}</p>
-    <p className="muted tiny" style={{margin:'3px 0'}}>Members: {group.memberCount===null?'Could not verify':group.memberCount} · {group.reason==='only_your_account_reported'?'Only your account found':group.reason==='no_members_returned'?'WhatsApp returned no group members':group.reason==='check_each_member'?'Verify all members belong to you':'Verification unavailable'}</p>
+    <p className="muted tiny" style={{margin:'3px 0'}}>Members: {group.memberCount===null?'Could not verify':group.memberCount} · {group.ownerVerified?'Verified: this WhatsApp account is the only member':group.reason==='linked_account_unknown'?'WAHA account identity unavailable':group.reason==='not_exclusive_owner_group'?'Member is not the linked WhatsApp account':group.reason==='no_members_returned'?'WhatsApp returned no group members':group.reason==='check_each_member'?'Group has multiple members; do not enable audit':'Owner identity not verified'}</p>
     {!!group.memberIds?.length&&<details><summary className="muted tiny">View group member IDs</summary><p className="muted tiny" style={{overflowWrap:'anywhere'}}>{group.memberIds.join(', ')}</p></details>}
    </div>)}
    </div>
