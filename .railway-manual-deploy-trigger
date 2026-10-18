@@ -83,3 +83,4 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-17 owner-only WhatsApp WAHA group discovery fix: object-keyed groups, group count diagnostic, partial metadata, safe chat-name fallback; read-only no sends; keep archive disabled.
 2026-10-18 read-only WAHA join-info preview for 3 privately configured owner invite codes; RFQ PO community identity check; no sends joins or archive activation.
 2026-10-18 NodeNext .mjs invite-info typing correction, read-only 3 private WhatsApp invite lookups; manual safe release.
+2026-10-18 verified safety-test correction: read-only WAHA join-info allowed, group joining/posting still prohibited; three invite codes server-only.
