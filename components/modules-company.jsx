@@ -102,6 +102,9 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sectionFilter,setSectionFilter]=useState(''),[collapsedSections,setCollapsedSections]=useState({}),[sufficient,setSufficient]=useState({}),[sections,setSections]=useState([])
  const[submissionResult,setSubmissionResult]=useState(null),[setupOpen,setSetupOpen]=useState(!countingOnly)
+ const [directoryRevision,setDirectoryRevision]=useState(0)
+ const [workflowReviewRequest,setWorkflowReviewRequest]=useState({companyId:null,sequence:0})
+ const workflowPanelRef=useRef(null)
  const countedRows=rows.filter(r=>sufficient[r.id]||(entry[r.id]!==undefined&&entry[r.id]!==''))
  const countTotal=countedRows.length
  const resultRef=useRef(null)
@@ -273,14 +276,14 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </div>
   <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
   {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
-  {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} onReviewRouting={()=>{const panel=document.querySelector('.company-workflow-hub');if(panel){panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'})}}}/>}
-  {canManage&&<details className="card pad section company-workflow-hub" aria-label="RFQ and PO workflow settings">
+  {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} onDirectoryChanged={()=>setDirectoryRevision(v=>v+1)} onReviewRouting={id=>{setWorkflowReviewRequest(v=>({companyId:id,sequence:v.sequence+1}));const panel=workflowPanelRef.current;if(panel){panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'})}}}/>}
+  {canManage&&<details ref={workflowPanelRef} className="card pad section company-workflow-hub" aria-label="RFQ and PO workflow settings">
     <summary><strong>RFQ &amp; PO Workflow Settings</strong></summary>
-    <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded/>
+    <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded directoryRevision={directoryRevision} reviewRequest={workflowReviewRequest}/>
     {companyId&&!allCompanies&&<details className="section" aria-label="Advanced group sending and templates">
       <summary>Advanced group sending &amp; document templates</summary>
       <p className="muted tiny">Use the checklist above for standard RFQ/PO preferences. Open advanced tools only to edit a document template, manage an exception or send a request already approved.</p>
-      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>
+      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={async()=>{await loadCompanies();setDirectoryRevision(v=>v+1)}} directoryRevision={directoryRevision}/>
     </details>}
   </details>}
   {canManage&&<WhatsAppAuditGroups/>}
