@@ -283,7 +283,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     {companyId&&!allCompanies&&<details className="section" aria-label="Advanced group sending and templates">
       <summary>Advanced group sending &amp; document templates</summary>
       <p className="muted tiny">Use the checklist above for standard RFQ/PO preferences. Open advanced tools only to edit a document template, manage an exception or send a request already approved.</p>
-      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies} directoryRevision={directoryRevision}/>
+      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={async()=>{await loadCompanies();setDirectoryRevision(v=>v+1)}} directoryRevision={directoryRevision}/>
     </details>}
   </details>}
   {canManage&&<WhatsAppAuditGroups/>}
