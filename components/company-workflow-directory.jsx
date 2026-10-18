@@ -254,6 +254,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
       <span className="company-workflow-subline">
        <span>{count} items</span>
        <button className="company-workflow-supplier-link" type="button" disabled={busy} aria-expanded={contactsOpen===row.key} aria-label={'Review supplier assignments and sending recipients for '+row.company.name+' / '+row.path} title={supplierNames.join(', ')||'No recipients'} onClick={()=>setContactsOpen(x=>x===row.key?'':row.key)}>Assigned: {chosen.assigned.length} · Send: {chosen.mode==='manual'?'Manual':chosen.ids.length}</button>
+       {chosen.mode!=='manual'&&!chosen.ids.length&&<span className="company-workflow-validation" role="status">⚠ No sending recipient selected</span>}
        {dirty&&<span className="company-workflow-changed">Unsaved</span>}
        {!dirty&&inherited&&<span>Parent pending</span>}
       </span>
