@@ -15,6 +15,7 @@ import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/l
 import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
+import {StockItemEditor} from './stock-item-editor'
 import {StockPrintDialog} from './stock-print-dialog'
 import dynamic from 'next/dynamic'
 const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:()=> <div className="card pad">Loading Company Items…</div>})
@@ -127,6 +128,58 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[heldSearch,setHeldSearch]=useState(null)
  const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false),[catalogueError,setCatalogueError]=useState(''),[catalogueRetry,setCatalogueRetry]=useState(0),[searchError,setSearchError]=useState('')
  const[quickItem,setQuickItem]=useState(null),[quickValue,setQuickValue]=useState(''),[urgentBusy,setUrgentBusy]=useState(false)
+ const[editCandidate,setEditCandidate]=useState(null)
+ const itemPress=useRef({timer:null,pointerId:null,x:0,y:0,activated:false})
+ const keepBrowsePosition=useRef(false)
+ const canEditItems=can('items.edit')
+ useEffect(()=>()=>clearTimeout(itemPress.current.timer),[])
+ function askToEdit(i){
+  if(!canEditItems)return
+  void confirmAction('Do you want to edit "'+stockItemLabel(i)+'"?',{
+   title:'Edit this item?',confirmLabel:'Edit item'
+  }).then(accepted=>{if(accepted)setEditCandidate(i)})
+ }
+ function stopItemPress(){
+  clearTimeout(itemPress.current.timer)
+  itemPress.current.timer=null
+  itemPress.current.pointerId=null
+ }
+ function itemLongPressProps(i){
+  if(!canEditItems)return {}
+  return {
+   onPointerDown:e=>{
+    if(e.button!==0)return
+    stopItemPress()
+    const pointerId=e.pointerId
+    itemPress.current={timer:null,pointerId,x:e.clientX,y:e.clientY,activated:false}
+    itemPress.current.timer=setTimeout(()=>{
+     if(itemPress.current.pointerId!==pointerId)return
+     itemPress.current.activated=true
+     askToEdit(i)
+    },650)
+   },
+   onPointerMove:e=>{
+    if(itemPress.current.pointerId===e.pointerId&&
+     Math.hypot(e.clientX-itemPress.current.x,e.clientY-itemPress.current.y)>14)stopItemPress()
+   },
+   onPointerUp:()=>stopItemPress(),
+   onPointerCancel:()=>{stopItemPress();itemPress.current.activated=false},
+   onContextMenu:e=>{
+    e.preventDefault()
+    if(itemPress.current.activated)return
+    stopItemPress()
+    itemPress.current.activated=true
+    askToEdit(i)
+   },
+   onKeyDown:e=>{if(e.key==='F2'){e.preventDefault();askToEdit(i)}}
+  }
+ }
+ function consumeLongPress(e){
+  if(!itemPress.current.activated)return false
+  itemPress.current.activated=false
+  e.preventDefault();e.stopPropagation()
+  return true
+ }
  const startedAt=useRef(null),startPromise=useRef(null),quickInput=useRef(null),guidedInput=useRef(null)
  const draftKey='gh-stock-count-draft:'+profile.id
  const rowField=(key,fallback=false)=>{const x=fields?.find(f=>f.module_key==='stock_entry'&&f.field_key===key);return x?x.enabled:fallback}
@@ -232,7 +285,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }
   setDueTotal(total||all.length)
   setItems(all)
-  setCursor(0);setBrowsePage(0)
+  if(!keepBrowsePosition.current){setCursor(0);setBrowsePage(0)}
+  keepBrowsePosition.current=false
  }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
  useEffect(()=>{load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load])
 
@@ -508,7 +562,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const browseItems=items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
  useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
  const cols=[
-  {key:'description',label:'Item',render:i=><strong>{stockItemLabel(i)}</strong>},
+  {key:'description',label:'Item',render:i=>canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>},
   {key:'uom',label:'UOM'},
   {key:'movement',label:'Movement',render:i=><Badge>{i.movement}</Badge>},
   ...(rowField('reorder_level',true)?[{key:'reorder_level',label:'Reorder',render:i=><strong className="stock-reorder-value">{qty(i.reorder_level)}</strong>}]:[]),
@@ -599,7 +653,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="stock-pagination dense-pagination"><button className="btn small" disabled={browsePage<=0} onClick={()=>setBrowsePage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><strong>{t('common.page','Page')} {browsePage+1} {t('common.of','of')} {browsePages}</strong><button className="btn small" disabled={browsePage>=browsePages-1} onClick={()=>setBrowsePage(x=>Math.min(browsePages-1,x+1))}>{t('common.next','Next')}</button></div>
    <div className="desktop-table tablewrap"><table className="table"><thead><tr>{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{browseItems.map(i=><tr key={i.item_id} className={sufficient[i.item_id]||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')?'selected':''}>{cols.map(c=><td key={c.key}>{c.render?c.render(i):String(i[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
    <div className="mobile-card-list browse-entry-list stock-dense-list">
-    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}</span><span>{t('stock.stock','STOCK')}</span><span>Sufficient</span></div>
+    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}{canEditItems&&<small title="Hold item to edit" style={{fontSize:9,fontWeight:400,marginLeft:5}}>· Hold to edit</small>}</span><span>{t('stock.stock','STOCK')}</span><span>Sufficient</span></div>
     {browseItems.map((i,index)=>{
      const enough=!!sufficient[i.item_id]
      const entered=enough||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')
@@ -614,7 +668,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
       rowField('max_stock')?'MAX:'+qty(i.max_stock):null
      ].filter(Boolean)
      return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')+(enough?' sufficient':'')} key={i.item_id}>
-      <button type="button" className="stock-dense-info" title={stockItemLabel(i)} onClick={()=>setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}>
+      <button type="button" className="stock-dense-info" style={canEditItems?{touchAction:'pan-y',userSelect:'none',WebkitUserSelect:'none'}:undefined} title={canEditItems?'Tap for details · Hold to edit '+stockItemLabel(i):stockItemLabel(i)} onClick={e=>{if(consumeLongPress(e))return;setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}} {...itemLongPressProps(i)}>
        <span className="stock-dense-title">{stockItemLabel(i)}</span>
        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
       </button>
@@ -637,13 +691,20 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
     <label className="stock-search-hold" title="Keep matching items in Stock Entry until released."><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span>Hold matching items</span></label>
     {searchError&&<div className="muted tiny" role="status">{searchError}</div>}
-    <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
+    <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={e=>{if(consumeLongPress(e))return;openQuick(i)}} {...itemLongPressProps(i)}>
       <div><strong>{stockItemLabel(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.subgroup,i.category].filter(Boolean).join(' › ')}</small></div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>
      </button>)}</div>
    </div>
   </div>}
 
+  {editCandidate&&<StockItemEditor item={editCandidate} onClose={()=>setEditCandidate(null)} onSaved={async()=>{
+   keepBrowsePosition.current=true
+   setStockLoadRetry(v=>v+1)
+   setCatalogueRetry(v=>v+1)
+   setEditCandidate(null)
+   flash('Item details saved.')
+  }}/>}
   {quickItem&&<div className="modal-backdrop stock-quick-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setQuickItem(null)}}>
    <div className="modal stock-quick-modal card">
     <div className="modal-head"><div><h3>{stockItemLabel(quickItem)}</h3></div><button className="btn small" onClick={()=>setQuickItem(null)}>✕</button></div>
