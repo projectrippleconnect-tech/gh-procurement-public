@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {stockPrintRows,resolveStockPrint} from '../lib/stock-print.mjs'
+import {stockPrintRows,resolveStockPrint,stockPrintDescription,resolveStockColumnStyles} from '../lib/stock-print.mjs'
 import {documentLines,documentCompany,documentCaption,defaultSupplierTemplate} from '../lib/supplier-template.mjs'
 import {buildCustomStockPdf} from '../lib/pdf.js'
 test('stock printing filters selected categories and movement; company default includes every movement',()=>{
@@ -13,6 +13,39 @@ test('stock printing filters selected categories and movement; company default i
  assert.equal(resolveStockPrint({splitLongTables:false}).splitLongTables,false)
  assert.throws(()=>resolveStockPrint({columns:['no']}),/Description/)
 })
+test('stock PDF cleans only repeated printed brand metadata and retains catalog source',()=>{
+ const item={description:'1 GANG 1-WAY SWITCH WHITE KEVILTON - KEVILTON - WHITE',brand:'KEVILTON',colour:'WHITE'}
+ const snapshot=JSON.stringify(item)
+ assert.equal(stockPrintDescription(item),'1 GANG 1-WAY SWITCH WHITE KEVILTON')
+ assert.equal(stockPrintDescription(item,{removeRepeatedSuffix:false}),item.description)
+ assert.equal(stockPrintDescription({description:'STEEL BAR 6mm - 8mm'}),'STEEL BAR 6mm · 8mm')
+ assert.equal(stockPrintDescription({description:'KEVILTON 1-WAY SWITCH - BLACK'}),'KEVILTON 1-WAY SWITCH - BLACK')
+ assert.equal(JSON.stringify(item),snapshot,'Source catalog row must remain unchanged')
+ const clean=buildCustomStockPdf({items:[item],options:{tablesPerPage:1}})
+ const raw=buildCustomStockPdf({items:[item],options:{tablesPerPage:1,removeRepeatedSuffix:false}})
+ assert.equal((clean.output().match(/KEVILTON/g)||[]).length,1)
+ assert.equal((raw.output().match(/KEVILTON/g)||[]).length,2)
+})
+
+test('all printable stock columns support bold and left-centre-right alignment with safe defaults',()=>{
+ const defaults=resolveStockPrint({})
+ assert.deepEqual(defaults.columnStyles.description,{align:'left',bold:true})
+ assert.deepEqual(defaults.columnStyles.reorder_level,{align:'center',bold:true})
+ for(const key of ['no','size','uom','current_stock'])assert.equal(defaults.columnStyles[key].align,'center',key)
+ const customised=resolveStockPrint({columnStyles:{description:{align:'right',bold:false},no:{align:'left',bold:true},reorder_level:{align:'right',bold:false},uom:{align:'invalid',bold:'invalid'}}})
+ assert.deepEqual(customised.columnStyles.description,{align:'right',bold:false})
+ assert.deepEqual(customised.columnStyles.no,{align:'left',bold:true})
+ assert.deepEqual(customised.columnStyles.reorder_level,{align:'right',bold:false})
+ assert.deepEqual(customised.columnStyles.uom,{align:'center',bold:false})
+ assert.equal(resolveStockColumnStyles().description.bold,true)
+ const item={description:'Steel Nail 4 inch',uom:'PCS',reorder_level:12}
+ const pdf=buildCustomStockPdf({items:[item],options:{...customised,tablesPerPage:1}})
+ const plain=pdf.output()
+ assert.ok(plain.includes('Steel Nail 4 inch'))
+ assert.ok(plain.includes('(12)'),'Reorder level remains printable after styling')
+ assert.ok(plain.includes('(PCS)'),'UOM remains printable after styling')
+})
+
 test('custom stock PDF includes all 150 rows without modifying source data',()=>{
  const rows=Array.from({length:150},(_,n)=>({id:String(n),description:'PVC Elbow '+String(n+1).padStart(3,'0'),size:'20 mm',uom:'PCS',reorder_level:10}))
  const snapshot=JSON.stringify(rows)
