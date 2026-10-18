@@ -13,7 +13,7 @@ import {useDangerConfirmation} from './danger-confirmation'
 const initial={mode:'rfq',auto_send:false,supplier_ids:[]}
 const companyScope='company-default'
 const uniq=ids=>[...new Set(ids.filter(Boolean))]
-export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{},directoryRevision=0}){
+export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{},directoryRevision=0,toolsOnly=false}){
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
  const [groupContactLinks,setGroupContactLinks]=useState([]),[groupIds,setGroupIds]=useState([]),[poolDirty,setPoolDirty]=useState(false),[showFallback,setShowFallback]=useState(false)
@@ -151,6 +151,66 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
    setSendResults((sent.outcomes||[]).map(outcome=>({...outcome,supplierId:outcome.id,message:outcome.error||'Image and caption accepted by WhatsApp.'})))
   }
   setEditing('')
+ }
+ // The advanced panel deliberately does NOT edit route assignment or sending modes.
+ // A template write uses a dedicated RPC so even a stale UI cannot silently
+ // change the supplier pool, recipient list or automatic sending preference.
+ async function saveTemplateOnly(){
+  if(!editorVersion.id||!editorVersion.updated_at)throw new Error('Choose an explicitly saved route. An inherited template must be edited at its parent group.')
+  const payload=routeTemplate(template,draft.mode)
+  const result=await supabase.rpc('proc_company_update_route_template',{
+   p_route_id:editorVersion.id,p_template:payload,
+   p_expected_updated_at:editorVersion.updated_at
+  })
+  if(result.error)throw result.error
+  if(result.data?.id!==editorVersion.id||!result.data.updated_at)throw new Error('The template update could not be verified; reload before editing again.')
+  const updatedId=result.data.id
+  await load()
+  setEditorVersion({id:updatedId,updated_at:result.data.updated_at})
+  await onChanged()
+  setEditing('')
+  setRouteNotice('Document template saved. Supplier assignments, RFQ/PO mode and WhatsApp automatic sending settings remain unchanged.')
+  flash('Document image and caption template saved. No WhatsApp message sent.')
+ }
+ async function sendConfiguredRoute(section,rule){
+  const recipientIds=members.get(rule?.id)||[]
+  if(!rule?.id)throw new Error('Select an explicitly saved RFQ/PO route.')
+  const mode=rule.route_mode
+  if(mode==='direct'&&recipientIds.length!==1)throw new Error('Direct PO must have exactly one saved sending recipient. Correct this in RFQ & PO Workflow Settings.')
+  if(!recipientIds.length)throw new Error('No saved recipients for this route. Correct this in RFQ & PO Workflow Settings.')
+  if(!can(mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve'))throw new Error('Document preparation permission required.')
+  const gateway=await gatewayRequest('/api/integrations/whatsapp/'+(mode==='rfq'?'rfq':'po'))
+  if(!gateway.connected||!gateway.sendingEnabled)throw new Error('WhatsApp sending is not connected and enabled. No new document was prepared.')
+  const sectionId=section.id===companyScope?null:section.id
+  setDispatchNotice(null);setSendResults([])
+  if(mode==='rfq'){
+   const result=await supabase.rpc('proc_company_prepare_route_rfq',{p_company_id:company.id,p_section_id:sectionId,p_due_date:null})
+   if(result.error){
+    if(/No approved unquoted shortages remain for this group/i.test(result.error.message||'')){
+     setDispatchNotice({groupId:section.id,text:'Nothing sent: no approved, unquoted shortage remains for this group. Check existing RFQs.'})
+     return
+    }
+    throw new Error('RFQ preparation failed: '+result.error.message)
+   }
+   setPendingRfq(result.data)
+   setRouteNotice('RFQ '+result.data.rfq_no+' prepared. Sending images to saved recipients…')
+   await sendRfq(result.data)
+   setRouteNotice('RFQ '+result.data.rfq_no+' — review each supplier result below before retrying.')
+  }else{
+   const result=await supabase.rpc('proc_company_prepare_route_po',{p_company_id:company.id,p_section_id:sectionId})
+   if(result.error){
+    if(/No approved un-ordered shortages remain for this group/i.test(result.error.message||'')){
+     setDispatchNotice({groupId:section.id,text:'Nothing sent: no approved un-ordered shortage remains for this group. Check existing POs.'})
+     return
+    }
+    throw new Error('PO preparation failed: '+result.error.message)
+   }
+   const poIds=(result.data||[]).map(po=>po.id)
+   if(!poIds.length)throw new Error('No new PO IDs were returned. Check order history before retrying.')
+   const sent=await companyApi('orders',{companyId:company.id,poIds})
+   setSendResults((sent.outcomes||[]).map(outcome=>({...outcome,supplierId:outcome.id,message:outcome.error||'Accepted by WhatsApp gateway; delivery is not guaranteed.'})))
+   setRouteNotice('Purchase-order sending attempted. Check individual results and the audit record before retrying.')
+  }
  }
  async function removeOverride(section){
   const r=await supabase.rpc('proc_company_clear_section_route',{p_company_id:company.id,p_section_id:section.id===companyScope?null:section.id})
