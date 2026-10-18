@@ -19,9 +19,9 @@ test('explicit PO send prepares only new IDs, queues only those IDs and then dis
 })
 test('advanced direct PO auto-send mode avoids two overlapping creation buttons',()=>{
  assert.match(tools,/!\(own.route_mode==='direct'&&own.auto_send\)&&<button/)
- assert.match(tools,/Create approved PO \(no WhatsApp send\)/)
+ assert.match(tools,/Create approved PO \(no direct send\)/)
  assert.match(tools,/Create & send new PO/)
- assert.match(tools,/warning:'This creates a new approved RFQ\/PO/)
+ assert.match(tools,/NEW RFQ\/PO from approved shortages/)
 })
 test('manual dispatch queue has an administrative permission gate and bounded nonempty unique PO IDs',()=>{
  assert.match(sql,/private\.proc_assert_access\(\)/)
