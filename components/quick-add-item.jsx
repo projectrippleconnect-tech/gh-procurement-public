@@ -4,16 +4,16 @@ import {ModernSelect} from './modern-select'
 import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {quickAddReorderLevel} from '@/lib/quick-add-reorder.mjs'
+import {ITEM_CATEGORIES,ITEM_UOMS,itemOptionValues,updateItemGrouping} from '@/lib/item-editor-options.mjs'
 
 const EMPTY={description:'',category:'GENERAL',size:'',uom:'PCS',brand:'',colour:'',variation:'',main_group:'',subgroup:'',movement:'NORMAL',max_stock:''}
-const DEFAULT_UOMS=['PCS','NOS','BOX','PACK','SET','PAIR','DOZEN','ROLL','BAG','BUNDLE','CARTON','SHEET','LENGTH','MTR','FT','KG','G','LTR','ML','TIN','TUBE']
 const normalise=value=>String(value||'').trim().replace(/\s+/g,' ').toUpperCase()
 export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',companies=[],selectedCompanyId='',onCreateCompany}){
  const isCompany=mode==='company'
  const[open,setOpen]=useState(false),[form,setForm]=useState({...EMPTY,category:isCompany?'':'GENERAL'}),[busy,setBusy]=useState(false)
  const[companyChoice,setCompanyChoice]=useState(''),[companyDraft,setCompanyDraft]=useState({name:'',code:''})
- const[uoms,setUoms]=useState(DEFAULT_UOMS)
- const[categories,setCategories]=useState(['GENERAL','BATHROOM','ELECTRICAL']),[addingCategory,setAddingCategory]=useState(false),[newCategory,setNewCategory]=useState(''),[categoryError,setCategoryError]=useState(''),[loadingCategories,setLoadingCategories]=useState(false)
+ const[uoms,setUoms]=useState(ITEM_UOMS),[groups,setGroups]=useState([]),[subgroups,setSubgroups]=useState([])
+ const[categories,setCategories]=useState(ITEM_CATEGORIES),[addingCategory,setAddingCategory]=useState(false),[newCategory,setNewCategory]=useState(''),[categoryError,setCategoryError]=useState(''),[loadingCategories,setLoadingCategories]=useState(false)
  useEffect(()=>{
   if(!open)return
   let active=true
@@ -23,13 +23,29 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     const [r,storedUnits]=await Promise.all([supabase.rpc('proc_item_filter_options_v1'),supabase.from('proc_items').select('uom').eq('active',true).order('uom').limit(1000)])
     if(r.error)throw r.error
     if(active){
-     setCategories(v=>[...new Set([...v,...(r.data?.categories||[])].filter(Boolean))].sort())
-     setUoms(v=>[...new Set([...v,...(r.data?.uoms||[]),...(storedUnits.data||[]).map(i=>i.uom)].filter(Boolean).map(normalise))].sort())
+     setCategories(itemOptionValues(ITEM_CATEGORIES,r.data?.categories))
+     setGroups(itemOptionValues(r.data?.main_groups))
+     setUoms(itemOptionValues(ITEM_UOMS,r.data?.uoms,(storedUnits.data||[]).map(i=>i.uom)))
     }
    }catch(e){if(active)fail(e)}finally{if(active)setLoadingCategories(false)}
   })()
   return ()=>{active=false}
  },[open])
+ useEffect(()=>{
+  if(!open||!form.category){setSubgroups([]);return}
+  let active=true
+  ;(async()=>{
+   try{
+    let query=supabase.from('proc_items').select('subgroup').eq('active',true).eq('category',form.category).not('subgroup','is',null)
+    if(form.main_group)query=query.eq('main_group',form.main_group)
+    const r=await query.order('subgroup').limit(1000)
+    if(r.error)throw r.error
+    if(active)setSubgroups(itemOptionValues((r.data||[]).map(i=>i.subgroup)))
+   }catch{if(active)setSubgroups([])}
+  })()
+  return()=>{active=false}
+ },[open,form.category,form.main_group])
+ function change(field,value){setForm(f=>updateItemGrouping(f,field,value))}
  useEffect(()=>{
   if(!open||!isCompany||companyChoice==='__new__')return
   if(companyChoice&&companies.some(c=>c.id===companyChoice))return
@@ -40,8 +56,8 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
   if(!name){setCategoryError('Enter a category name.');return}
   const existing=categories.find(c=>normalise(c)===name)
   const category=existing||name
-  setCategories(v=>existing?v:[...v,category].sort())
-  setForm(v=>({...v,category}));setAddingCategory(false);setNewCategory('');setCategoryError('')
+  setCategories(v=>itemOptionValues(v,category))
+  change('category',category);setAddingCategory(false);setNewCategory('');setCategoryError('')
  }
  if(!can('items.edit')||(isCompany&&!can('company_lists.manage')))return null
  const reorder=quickAddReorderLevel(form.max_stock,form.movement,isCompany)
@@ -86,9 +102,9 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
    </div>}
    <div className="formgrid">
     <label className="field">Item name<input className="input" disabled={busy} value={form.description} onChange={e=>setForm(v=>({...v,description:e.target.value}))}/></label>
-    <label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} onChange={e=>setForm(v=>({...v,category:e.target.value}))}>
+    <label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} allowCustom customOptionLabel="category" onChange={e=>change('category',e.target.value)}>
      {!form.category&&<option value="">Select category…</option>}
-     {[...new Set([...categories,form.category])].filter(Boolean).map(c=><option key={c} value={c}>{c}</option>)}
+     {itemOptionValues(categories,form.category).map(c=><option key={c} value={c}>{c}</option>)}
     </ModernSelect></label>
     {!isCompany&&<label className="field">Movement<ModernSelect aria-label="Movement" disabled={busy} value={form.movement} onChange={e=>setForm(v=>({...v,movement:e.target.value}))}>
      <option value="FAST">FAST</option><option value="NORMAL">NORMAL</option><option value="SLOW">SLOW</option>
@@ -98,8 +114,8 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
      <input className="input" readOnly aria-label="Calculated reorder level" value={reorder===null?'Enter maximum stock':String(reorder)}/>
     </label>
     <label className="field">Size<input className="input" disabled={busy} value={form.size} onChange={e=>setForm(v=>({...v,size:e.target.value}))}/></label>
-    <label className="field">UOM<ModernSelect aria-label="UOM" disabled={busy} allowCustom customOptionLabel="UOM" value={form.uom} onChange={e=>setForm(v=>({...v,uom:e.target.value}))} onCustomAdd={unit=>setUoms(v=>[...new Set([...v,unit])].sort())}>
-     {[...new Set([...uoms,form.uom])].filter(Boolean).map(unit=><option key={unit} value={unit}>{unit}</option>)}
+    <label className="field">UOM<ModernSelect aria-label="UOM" disabled={busy} allowCustom customOptionLabel="UOM" value={form.uom} onChange={e=>change('uom',e.target.value)} onCustomAdd={unit=>setUoms(v=>itemOptionValues(v,unit))}>
+     {itemOptionValues(uoms,form.uom).map(unit=><option key={unit} value={unit}>{unit}</option>)}
     </ModernSelect></label>
    </div>
    {loadingCategories&&<p className="muted tiny" role="status">Loading categories…</p>}
@@ -110,8 +126,12 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     <p className="muted tiny">This category is saved when the item is saved.</p>
    </div>:<button type="button" className="btn small section" disabled={busy||loadingCategories} onClick={()=>setAddingCategory(true)}>+ New category</button>}
    <details className="section"><summary>Optional item details &amp; category groups</summary><div className="formgrid section">
-    {[[ 'brand','Brand'],['colour','Colour'],['variation','Variation / model'],['main_group','Main category group'],['subgroup','Subcategory']].map(([key,label])=>
-     <label className="field" key={key}>{label}<input className="input" disabled={busy} value={form[key]} onChange={e=>setForm(v=>({...v,[key]:e.target.value}))}/></label>)}
+    {[['main_group','Main group',groups],['subgroup','Subcategory',subgroups]].map(([key,label,values])=>
+     <label className="field" key={key}>{label}<ModernSelect aria-label={label} disabled={busy} allowCustom customOptionLabel={label.toLowerCase()} value={form[key]} onChange={e=>change(key,e.target.value)}>
+      <option value="">None</option>{itemOptionValues(values,form[key]).map(value=><option key={value} value={value}>{value}</option>)}
+     </ModernSelect></label>)}
+    {[[ 'brand','Brand'],['colour','Colour'],['variation','Variation / model']].map(([key,label])=>
+     <label className="field" key={key}>{label}<input className="input" disabled={busy} value={form[key]} onChange={e=>change(key,e.target.value)}/></label>)}
    </div></details>
    <div className="toolbar section"><button type="button" className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':isCompany?'Save to Company List':'Save Item'}</button><button type="button" className="btn" disabled={busy} onClick={()=>setOpen(false)}>Cancel</button></div>
   </div>}
