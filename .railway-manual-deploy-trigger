@@ -99,3 +99,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 final staff privacy update: customer stock role-specific movement help; stock-only urgent queue requests strictly stock fields, preventing workflow state fields reaching restricted mobile clients. Database stock results redaction already applied. Strict npm audit, lint, tests and build required; no automatic WhatsApp sends.
 
 2026-10-18 Supplier routing safety release PR #113: separate assigned supplier contacts from RFQ/PO delivery recipients; regression tests and non-destructive SQL validation migration. Build must pass before applying new RPC to live database.
+
+2026-10-18 Company Directory one-search UI cleanup PR #114: combine company, contact and phone search; no data or routing modification; build and test before release.
