@@ -129,3 +129,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 GH Procurement isolated accessibility release: increase the Company Items 'Print & list tools' heading from 12px to 18px, stronger contrast and font weight. CSS-only; preserve all existing procurement features, records, and routing. Verify locked install, security audit, lint, tests, build, and health endpoint.
 
 2026-10-18 Post-build font heading release retry: queue commit after category-wise PDF production build completed successfully; CSS-only company print/list heading readability update.
+
+2026-10-18 GH Procurement UOM selector release: quick add item UOM now uses existing searchable dropdown with common units and a + Add custom UOM action inside the selector. Existing item UOM data and movement, supplier, PDF, stock flows, and all other functions unchanged. Run locked install, security audit, lint, tests, build and healthcheck; no WhatsApp dispatch.
