@@ -116,6 +116,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
  const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length){let saved='';try{saved=localStorage.getItem('gh-company-selection-v1:'+profile.id)||''}catch{};setCompanyId(saved==='all'||r.data.some(c=>c.id===saved)?saved:'all')}},[companyId,fail])
+ const syncCompanySupplierPanels=useCallback(async()=>{await loadCompanies();setDirectoryRevision(v=>v+1)},[loadCompanies])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
  const loadRows=useCallback(async()=>{
@@ -279,11 +280,11 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} onDirectoryChanged={()=>setDirectoryRevision(v=>v+1)} onReviewRouting={id=>{setWorkflowReviewRequest(v=>({companyId:id,sequence:v.sequence+1}));const panel=workflowPanelRef.current;if(panel){panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'})}}}/>}
   {canManage&&<details ref={workflowPanelRef} className="card pad section company-workflow-hub" aria-label="RFQ and PO workflow settings">
     <summary><strong>RFQ &amp; PO Workflow Settings</strong></summary>
-    <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded directoryRevision={directoryRevision} reviewRequest={workflowReviewRequest}/>
+    <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded directoryRevision={directoryRevision} reviewRequest={workflowReviewRequest} onRoutesChanged={syncCompanySupplierPanels}/>
     {companyId&&!allCompanies&&<details className="section" aria-label="Advanced group sending and templates">
       <summary>Advanced group sending &amp; document templates</summary>
       <p className="muted tiny">Use the checklist above for standard RFQ/PO preferences. Open advanced tools only to edit a document template, manage an exception or send a request already approved.</p>
-      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={async()=>{await loadCompanies();setDirectoryRevision(v=>v+1)}} directoryRevision={directoryRevision}/>
+      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={syncCompanySupplierPanels} directoryRevision={directoryRevision}/>
     </details>}
   </details>}
   {canManage&&<WhatsAppAuditGroups/>}
