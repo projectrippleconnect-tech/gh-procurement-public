@@ -33,11 +33,20 @@ test('audit caption separates gateway acceptance from delivery and identifies su
  assert.match(c,/Please see enclosed image/)
  assert.ok(c.length<=2000)
 });
-test('with group disabled there is no network or database activity',async()=>{
- let calls=0
- const result=await mirrorStaffGroupCopy({db:{rpc:()=>{calls++}},kind:'rfq',sourceId:'id',session:'default',base:'http://localhost:3000',key:'secret',base64:'image',filename:'a.png',caption:'caption',imageHash:'a'.repeat(64)})
- assert.equal(result.status,'disabled')
- assert.equal(calls,0)
+test('with group disabled there is no network or database activity', {concurrency:false},async()=>{
+ // A production release may have the archive enabled. Isolate the disabled case
+ // rather than inheriting the Railway deployment variable.
+ const previous=process.env.GH_WA_AUDIT_ENABLED
+ delete process.env.GH_WA_AUDIT_ENABLED
+ try{
+  let calls=0
+  const result=await mirrorStaffGroupCopy({db:{rpc:()=>{calls++}},kind:'rfq',sourceId:'id',session:'default',base:'http://localhost:3000',key:'secret',base64:'image',filename:'a.png',caption:'caption',imageHash:'a'.repeat(64)})
+  assert.equal(result.status,'disabled')
+  assert.equal(calls,0)
+ }finally{
+  if(previous===undefined)delete process.env.GH_WA_AUDIT_ENABLED
+  else process.env.GH_WA_AUDIT_ENABLED=previous
+ }
 });
 test('verified archive claims exactly once and finishes after sending PNG to the exact staff group', {concurrency:false},async()=>{
  const previous={};for(const [key,value] of Object.entries(env)){previous[key]=process.env[key];process.env[key]=value}
