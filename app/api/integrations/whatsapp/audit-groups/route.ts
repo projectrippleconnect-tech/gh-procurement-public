@@ -1,6 +1,6 @@
 // Read-only administrator diagnostics. This route never joins groups, sends messages, or configures archive destinations.
 import {createClient} from '@supabase/supabase-js'
-import {parseWahaGroups,parseWahaChats,groupMatches} from '@/lib/waha-group-discovery.mjs'
+import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '@/lib/waha-group-discovery.mjs'
 import {inviteCodes,normalizeInviteInfo,preferredInviteRoles} from '@/lib/waha-invite-info.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -45,10 +45,12 @@ export async function GET(request:Request){
   const found=new Map<string,{id:string;name:string}>()
   const seen=new Set<string>()
   let totalListed=0,nameless=0,recognized=false,source='groups'
+  let firstResponseShape:ReturnType<typeof wahaResponseShape>|null=null
   // WAHA GOWS/NOWEB responses vary by engine: array, wrapped list, or a map keyed by group ID.
   // Only interpret a response as genuinely empty after determining its shape.
   for(let offset=0;offset<500;offset+=50){
    const raw=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups?limit=50&offset='+offset+'&sortBy=id&sortOrder=desc&exclude=participants',config.key)
+   if(offset===0)firstResponseShape=wahaResponseShape(raw)
    const parsed=parseWahaGroups(raw)
    if(!parsed.recognized)return reply({ok:false,error:'WAHA returned an unrecognized group-list format; no destination has been selected.'},502)
    recognized=true
@@ -85,11 +87,12 @@ export async function GET(request:Request){
   // Invite previews are read-only WAHA GETs. Codes are server-only temporary inputs;
   // never reveal the links or make a join request.
   const codes=inviteCodes(process.env.GH_WA_AUDIT_PENDING_INVITE_CODES||'')
-  const invitePreviews:Array<{slot:number;id:string|null;name:string|null;memberCount:number|null;isCommunity:boolean;status:string}>=[]
+  const invitePreviews:Array<{slot:number;id:string|null;name:string|null;memberCount:number|null;isCommunity:boolean;status:string;responseShape?:ReturnType<typeof wahaResponseShape>}>=[]
   for(const [i,code] of codes.entries()){
    try{
-    const info=normalizeInviteInfo(await read(config.base,
-     '/api/'+encodeURIComponent(config.session)+'/groups/join-info?code='+encodeURIComponent(code),config.key))
+    const replyData=await read(config.base,
+     '/api/'+encodeURIComponent(config.session)+'/groups/join-info?code='+encodeURIComponent(code),config.key)
+    const info=normalizeInviteInfo(replyData)
     if(info){
      const role=preferredInviteRoles(info)
      invitePreviews.push({slot:i+1,id:info.id,name:info.name||null,memberCount:info.memberCount,isCommunity:info.isCommunity,status:role?'recognized':'preview_only'})
@@ -97,7 +100,7 @@ export async function GET(request:Request){
       found.set(info.id,{id:info.id,name:role==='GENERAL'?'General':role})
       source=source==='groups'?'groups_and_invites':source+'_and_invites'
      }
-    }else invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'unrecognized_reply'})
+    }else invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'unrecognized_reply',responseShape:wahaResponseShape(replyData)})
    }catch{invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'lookup_unavailable'})}
   }
   const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string}>=[]
@@ -114,6 +117,6 @@ export async function GET(request:Request){
   }
   results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
   return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
-   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),discovery:{source,listed:totalListed,nameless,recognized,groupCount},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
+   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),discovery:{source,listed:totalListed,nameless,recognized,groupCount,responseShape:firstResponseShape},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
  }catch{return reply({ok:false,connected:false,error:'Unable to read WAHA groups. Try again after the WhatsApp session has synchronized.'},503)}
 }
