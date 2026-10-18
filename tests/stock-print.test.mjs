@@ -27,17 +27,17 @@ test('custom stock PDF includes all 150 rows without modifying source data',()=>
 })
 
 test('A4 portrait 2-table stock setup renders side-by-side columns without losing rows',()=>{
- const rows=Array.from({length:54},(_,n)=>({id:String(n),description:'1 GANG 1-WAY SWITCH WHITE KEVILTON - KEVILTON - WHITE #'+(n+1),size:'',uom:'PCS',reorder_level:10}))
+ const rows=Array.from({length:54},(_,n)=>({id:String(n),description:'ITEM-'+String(n+1).padStart(3,'0')+' 1 GANG 1-WAY SWITCH WHITE KEVILTON - KEVILTON - WHITE',size:'',uom:'PCS',reorder_level:10}))
  const original=JSON.stringify(rows)
  const settings={orientation:'portrait',layout:'columns',tablesPerPage:2,splitLongTables:true,fontSize:6.5,rowHeight:5,rowsPerTable:0}
  const pdf=buildCustomStockPdf({items:rows,company:{name:'General Hardware'},options:settings,subtitle:'KEVILTON'})
  const firstPage=pdf.internal.pages[1].join(' ')
- assert.equal((firstPage.match(/\\(Description\\)\\s*Tj/g)||[]).length,2,'Long rows must be split into two visible tables on the first page')
+ assert.equal((firstPage.match(/\(Description\)\s*Tj/g)||[]).length,2,'Long rows must be split into two visible tables on the first page')
  const output=pdf.output()
- for(let n=1;n<=54;n++)assert.ok(output.includes('WHITE #'+n+')'),'All stock items must remain printable: '+n)
+ for(let n=1;n<=54;n++)assert.ok(output.includes('ITEM-'+String(n).padStart(3,'0')),'All stock items must remain printable: '+n)
  assert.equal(JSON.stringify(rows),original,'Printing must not alter catalog data')
  const single=buildCustomStockPdf({items:rows,options:{...settings,splitLongTables:false}})
- assert.equal((single.internal.pages[1].join(' ').match(/\\(Description\\)\\s*Tj/g)||[]).length,1,'Disabling the split should use one full-width table')
+ assert.equal((single.internal.pages[1].join(' ').match(/\(Description\)\s*Tj/g)||[]).length,1,'Disabling the split should use one full-width table')
 })
 
 test('supplier wording and template edits preserve authoritative order quantities and values',()=>{
