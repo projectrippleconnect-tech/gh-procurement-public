@@ -176,6 +176,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  },[itemSearch,canManage,fail])
 
  function setCount(id,v){
+  const linked=rows.find(r=>r.id===id)
+  if(linked&&recentFinalized[linked.company_id+'|'+linked.item_id]&&!companyRecounts.has(id))return
   const value=normalizeQuantityInput(v);if(value===null)return
   if(!startedAt.current)startedAt.current=new Date().toISOString()
   setEntry(x=>({...x,[id]:value}))
@@ -189,7 +191,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const sectionLabels=useMemo(()=>sectionPaths(sections),[sections])
  const scoped=useMemo(()=>shown.filter(r=>!sectionFilter||r.section_id===sectionFilter||sectionLabels.get(r.section_id)?.startsWith((sectionLabels.get(sectionFilter)||'\u0000')+' /')),[shown,sectionFilter,sectionLabels])
  const tableEntries=useMemo(()=>allCompanies?companies.flatMap(c=>{const items=scoped.filter(r=>r.company_id===c.id);return items.length?[{type:'section',key:'company:'+c.id,title:c.name,depth:0,count:items.length,legacy:true},...companySectionRows(items,sections.filter(s=>s.company_id===c.id),collapsedSections,!!search.trim()).map(line=>({...line,key:c.id+':'+line.key}))]:[]}):companySectionRows(scoped,sections,collapsedSections,!!search.trim()),[scoped,sections,collapsedSections,search,allCompanies,companies])
- function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
+ function setEnough(id,checked){const linked=rows.find(r=>r.id===id);if(linked&&recentFinalized[linked.company_id+'|'+linked.item_id]&&!companyRecounts.has(id))return;if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
  async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
  async function refreshCompany(){
   if(refreshing)return
@@ -263,6 +265,63 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    const x=await supabase.from('proc_company_list_items').update({active:false,updated_at:new Date().toISOString()}).eq('id',r.id)
    if(x.error)throw x.error;flash('Company-list item removed.');await loadRows()
   }})
+ }
+
+ const companyDateTime=v=>v?new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Colombo'}):'—'
+ const companyMarker=r=>recentFinalized[r.company_id+'|'+r.item_id]
+ async function allowCompanyRecount(r){
+  const marker=companyMarker(r)
+  if(!marker||companyRecounts.has(r.id))return true
+  const accepted=await confirmAction((r.item?.description||'This item')+' was finalized under '+marker.count_no+' on '+companyDateTime(marker.submitted_at)+'. Recount it as part of a NEW company stock lot? The earlier count will remain in history.',{title:'Previously submitted · recount?',confirmLabel:'Allow recount'})
+  if(accepted)setCompanyRecounts(previous=>new Set([...previous,r.id]))
+  return accepted
+ }
+ function removeFromCompanyLot(id){
+  setEntry(previous=>{const next={...previous};delete next[id];return next})
+  setSufficient(previous=>{const next={...previous};delete next[id];return next})
+ }
+ function saveCompanyDraftNow(){
+  try{
+   localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current}))
+   setCompanyReviewOpen(false)
+   flash('Company stock draft saved. Continue counting later.')
+  }catch(e){fail(new Error('Unable to save stock draft on this device. Keep this screen open.'))}
+ }
+ const loadCompanyHistory=useCallback(async()=>{
+  const revision=++historyRequest.current
+  setCompanyHistoryLoading(true);setCompanyHistoryReady(false);setCompanyHistoryError('')
+  try{
+   const result=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:100})
+   if(result.error)throw result.error
+   const records=(result.data||[]).filter(h=>h.counted_by===profile.id&&String(h.category||'').startsWith('COMPANY: '))
+   const owned=records.map(h=>({...h,company:companies.find(c=>c.name.trim().toLowerCase()===String(h.category).slice(9).trim().toLowerCase())})).filter(h=>h.company)
+   // The history RPC returns only permissible counts; detail RPC enforces the
+   // same owner's access before showing quantities or enabling recount badges.
+   const recent=owned.slice(0,24)
+   const detail=await Promise.all(recent.map(h=>supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:h.count_id})))
+   if(revision!==historyRequest.current)return
+   for(const d of detail)if(d.error)throw d.error
+   const latest={},detailMap={}
+   recent.forEach((h,index)=>{
+    detailMap[h.count_id]=detail[index].data||[]
+    for(const line of detailMap[h.count_id]){
+     const key=h.company.id+'|'+line.item_id
+     if(!latest[key])latest[key]={count_id:h.count_id,count_no:h.count_no,submitted_at:h.submitted_at,quantity:line.current_stock}
+    }
+   })
+   setCompanyHistory(owned)
+   setCompanyHistoryDetails(previous=>({...previous,...detailMap}))
+   setRecentFinalized(previous=>({...previous,...latest}))
+   setCompanyHistoryReady(true)
+  }catch(e){if(revision===historyRequest.current){setCompanyHistoryError('Could not verify previous company counts. Retry history before finalizing.');setCompanyHistoryReady(false);console.warn('Company count history unavailable',e)}}
+  finally{if(revision===historyRequest.current)setCompanyHistoryLoading(false)}
+ },[companies,profile.id])
+ useEffect(()=>{if(active&&companies.length)void loadCompanyHistory();return()=>{historyRequest.current++}},[active,loadCompanyHistory,companies.length])
+ async function openCompanyHistoryRecord(id){
+  if(expandedHistoryId===id){setExpandedHistoryId(null);return}
+  setExpandedHistoryId(id)
+  if(companyHistoryDetails[id])return
+  try{const result=await supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:id});if(result.error)throw result.error;setCompanyHistoryDetails(previous=>({...previous,[id]:result.data||[]}))}catch(e){fail(e)}
  }
  async function submit(){
   if(!canCount||busy)return
