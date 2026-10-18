@@ -212,6 +212,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   const r=await supabase.from('proc_companies').insert({company_code:String(code||'').trim()||generatedCode,name:nameValue,created_by:profile.id,company_list_enabled:true}).select('id,name,company_code').single()
   if(r.error)throw r.error
   setCompanies(v=>[...v,r.data].sort((a,b)=>a.name.localeCompare(b.name)))
+  // Preserve the previous new-company Google Sheets publishing behavior without delaying item creation.
+  void companyApi('sheets',{action:'publish',companyId:r.data.id}).catch(()=>flash('Company saved. Google Sheets tab awaits connection setup.'))
   return r.data
  }
  async function saveQuickCompanyItem(item,{companyId:targetCompanyId,maxStock}){
