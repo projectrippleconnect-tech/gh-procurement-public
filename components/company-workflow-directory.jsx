@@ -11,7 +11,7 @@ const equalIds=(a=[],b=[])=>[...a].sort().join('|')===[...b].sort().join('|')
 const phone=s=>s?.whatsapp||s?.phone||'No number'
 
 // Settings-only screen. Configuring routes MUST NOT create an RFQ, PO or WAHA dispatch.
-export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true,flash=()=>{},fail=()=>{},embedded=false,directoryRevision=0,reviewRequest=null}){
+export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true,flash=()=>{},fail=()=>{},embedded=false,directoryRevision=0,reviewRequest=null,onRoutesChanged=async()=>{}}){
  const [data,setData]=useState(null)
  const [query,setQuery]=useState('')
  const [drafts,setDrafts]=useState({})
@@ -197,6 +197,12 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
     })
     if(!verifiedAll)failed.push({name:done.row.company.name+' / '+done.row.path,status:'Check required',reason:'A parent or child route did not match saved readback. Reload and review.'})
     else verified.push(done)
+   }
+   // A route may have been saved in another panel. Refresh all supplier
+   // views only after a successful readback, without dispatching any document.
+   if(verified.length){
+    try{await onRoutesChanged()}
+    catch(e){failed.push({name:'Supplier panel refresh',status:'Refresh needed',reason:'Route was saved, but other supplier screens could not refresh. Reload before editing.'})}
    }
    setResults([...verified.map(x=>({name:x.row.company.name+' / '+x.row.path,status:'Saved',reason:x.updated>1?x.updated+' category routes verified, with designated suppliers preserved.':'Verified'})),...skipped,...failed])
    if(verified.length)setDrafts(prev=>{

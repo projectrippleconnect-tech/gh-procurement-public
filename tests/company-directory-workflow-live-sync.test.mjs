@@ -41,6 +41,18 @@ test('workflow reloads on verified directory writes and displays targeted suppli
 test('advanced saved routes trigger main workflow reload; no documents are sent by directory review',()=>{
  assert.match(advanced,/directoryRevision=0/)
  assert.match(advanced,/\[company\?\.id,company\?\.updated_at,directoryRevision\]/)
- assert.match(company,/onChanged=\{async\(\)=>\{await loadCompanies\(\);setDirectoryRevision\(v=>v\+1\)\}\}/)
+ assert.match(company,/onChanged=\{syncCompanySupplierPanels\}/)
+ assert.match(company,/onRoutesChanged=\{syncCompanySupplierPanels\}/)
+ assert.match(company,/const syncCompanySupplierPanels=useCallback/)
  assert.doesNotMatch(directory,/companyApi\('orders'/)
+})
+
+test('saving a verified workflow refreshes advanced supplier panels, never prior to readback',()=>{
+ const workflowSave=workflow.slice(workflow.indexOf('async function runSave'),workflow.indexOf('function stagePreferences'))
+ const verification=workflowSave.indexOf('const verified=[]')
+ const refresh=workflowSave.indexOf('await onRoutesChanged()')
+ assert.ok(verification>=0&&refresh>verification)
+ assert.match(workflowSave,/if\(verified.length\)\{/)
+ assert.match(workflowSave,/Refresh needed/)
+ assert.doesNotMatch(workflowSave,/companyApi\('orders'/)
 })
