@@ -53,3 +53,23 @@ test('sending existing route rechecks live route and recipient membership before
  assert.match(send,/companyApi\('orders',\{companyId:company.id,poIds\}\)/)
  assert.doesNotMatch(send,/await save\(/)
 })
+
+test('advanced one-group PO preparation sends only newly created purchase-order IDs',()=>{
+ const start=manager.indexOf('async function prepare(s,rule)')
+ const end=manager.indexOf('if(!company?.id||!admin)return null',start)
+ const body=manager.slice(start,end)
+ assert.ok(start>0&&end>start)
+ assert.match(body,/const createdIds=createdOrders\.map\(po=>po\?\.id\)\.filter\(Boolean\)/)
+ assert.match(body,/if\(!createdIds\.length\)throw/)
+ assert.match(body,/companyApi\('orders',\{companyId:company.id,poIds:createdIds\}\)/)
+ assert.doesNotMatch(body,/companyApi\('orders',\{companyId:company.id\}\)/)
+})
+test('advanced actions retain explicit override removal, without resetting any history automatically',()=>{
+ assert.match(advanced,/Use inherited \/ company default/)
+ assert.match(advanced,/Existing RFQs and POs and their history are retained/)
+ assert.match(advanced,/onConfirm:\(\)=>run\(\(\)=>removeOverride\(section\)\)/)
+ const fn=manager.slice(manager.indexOf('async function removeOverride'),manager.indexOf('async function contactSaved'))
+ assert.match(fn,/proc_company_clear_section_route/)
+ assert.match(fn,/await onChanged\(\)/)
+ assert.doesNotMatch(fn,/delete\(\)|truncate|DROP TABLE/i)
+})

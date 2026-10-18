@@ -261,10 +261,16 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
    if(!can('procurement.orders.approve'))throw new Error('Purchase order approval permission required.')
    const r=await supabase.rpc('proc_company_prepare_route_po',{p_company_id:company.id,p_section_id:s.id===companyScope?null:s.id})
    if(r.error)throw r.error
-   flash((r.data?.length||0)+' approved direct purchase order(s) created.')
-   if(rule.auto_send) {
-    try{const sent=await companyApi('orders',{companyId:company.id});flash(sent.message)}
-    catch(e){fail(new Error('Purchase order was created and queued, but automatic WhatsApp sending needs attention: '+e.message))}
+   const createdOrders=Array.isArray(r.data)?r.data:[]
+   const createdIds=createdOrders.map(po=>po?.id).filter(Boolean)
+   if(!createdIds.length)throw new Error('No new purchase-order IDs were returned. Check PO history before attempting any send.')
+   flash(createdIds.length+' approved direct purchase order(s) created.')
+   if(rule.auto_send){
+    try{
+     // Never dispatch every pending company order just because one group was prepared.
+     const sent=await companyApi('orders',{companyId:company.id,poIds:createdIds})
+     flash(sent.message||'Check sending results for the newly created purchase orders.')
+    }catch(e){fail(new Error('Purchase orders were created, but their WhatsApp sending needs review: '+e.message))}
    }
    navigate('po')
   }
@@ -307,6 +313,13 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
         confirmLabel:own.route_mode==='rfq'?'Prepare & send RFQ':'Prepare & send PO',
         onConfirm:()=>run(()=>sendConfiguredRoute(section,own))
        })}>{own.route_mode==='rfq'?'Send RFQ image now':'Send PO image now'}</button>
+      <button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
+       title:'Remove saved category routing override',
+       message:'Remove the saved '+(paths.get(section.id)||section.name)+' routing override and use its inherited / company fallback for future requirements?',
+       warning:'This removes the category-specific supplier selection and template. Existing RFQs and POs and their history are retained. Future automatic sending rules may change.',
+       confirmLabel:'Remove saved override',
+       onConfirm:()=>run(()=>removeOverride(section))
+      })}>Use inherited / company default</button>
     </div>}
     {dispatchNotice?.groupId===section.id&&<p role="status" className="notice group-route-feedback">{dispatchNotice.text}</p>}
     {editing===section.id&&own&&<div className="section" aria-label="Document image and WhatsApp caption template">
