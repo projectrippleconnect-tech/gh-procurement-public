@@ -24,6 +24,7 @@ import {CompanySectionRouteManager} from './company-section-route-manager'
 import {CompanySubmissionResult} from './company-submission-result'
 import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
+import {companyLotRows,companyLotGroups} from '@/lib/company-stock-lot.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
 
@@ -102,11 +103,20 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sectionFilter,setSectionFilter]=useState(''),[collapsedSections,setCollapsedSections]=useState({}),[sufficient,setSufficient]=useState({}),[sections,setSections]=useState([])
  const[submissionResult,setSubmissionResult]=useState(null),[setupOpen,setSetupOpen]=useState(!countingOnly)
+ const[companyReviewOpen,setCompanyReviewOpen]=useState(false),[companyHistoryOpen,setCompanyHistoryOpen]=useState(false)
+ const[companyHistory,setCompanyHistory]=useState([]),[companyHistoryDetails,setCompanyHistoryDetails]=useState({}),[expandedHistoryId,setExpandedHistoryId]=useState(null)
+ const[companyHistoryLoading,setCompanyHistoryLoading]=useState(false),[companyHistoryReady,setCompanyHistoryReady]=useState(false),[companyHistoryError,setCompanyHistoryError]=useState('')
+ const[recentFinalized,setRecentFinalized]=useState({}),[companyRecounts,setCompanyRecounts]=useState(new Set())
+ const submitLock=useRef(false),historyRequest=useRef(0)
  const [directoryRevision,setDirectoryRevision]=useState(0)
  const [workflowReviewRequest,setWorkflowReviewRequest]=useState({companyId:null,sequence:0})
  const workflowPanelRef=useRef(null)
- const countedRows=rows.filter(r=>sufficient[r.id]||(entry[r.id]!==undefined&&entry[r.id]!==''))
- const countTotal=countedRows.length
+ const reviewedCompanyLot=useMemo(()=>companyLotRows(rows,entry,sufficient,recentFinalized,companyRecounts),[rows,entry,sufficient,recentFinalized,companyRecounts])
+ const countedRows=reviewedCompanyLot.map(x=>x.row)
+ const countTotal=reviewedCompanyLot.length
+ const lotGroups=useMemo(()=>companyLotGroups(reviewedCompanyLot),[reviewedCompanyLot])
+ const companyLotBlocked=reviewedCompanyLot.filter(x=>x.blocked)
+ const oversizedCompanyLot=lotGroups.some(g=>g.count>1000)
  const resultRef=useRef(null)
  useEffect(()=>{if(submissionResult&&active)resultRef.current?.scrollIntoView({block:'start'})},[submissionResult,active])
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
