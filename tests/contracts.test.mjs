@@ -16,7 +16,7 @@ test('stock entry is atomic, user-scoped, review-first and not capped at 500 ite
   assert.match(stock,/startPromise=useRef\(null\)/)
   assert.doesNotMatch(stock,/proc_submit_stock_and_continue_v2/)
   assert.doesNotMatch(stock,/range\(0,dueOnly\?Math\.max\(dailyTarget-1,0\):499\)/)
-  assert.match(stock,/Shortages will go to Procurement Review/)
+  assert.match(stock,/Shortages will move to Procurement Review/)
   assert.match(stock,/Discard Draft/)
 })
 
