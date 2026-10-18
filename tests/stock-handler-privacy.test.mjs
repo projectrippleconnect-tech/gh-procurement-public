@@ -9,6 +9,9 @@ test('stock staff get only stock help and do not see procurement documentation',
  const titles=getVisibleHelpTopics('en',view('stock','urgent_actions')).map(x=>x.title)
  assert.ok(titles.includes('Fast Stock Entry'))
  assert.ok(titles.includes('Urgent Stock Items'))
+ assert.ok(titles.includes('Movement filter'))
+ assert.ok(!titles.includes('Reorder Level'))
+ assert.ok(!titles.includes('Maximum Stock'))
  for(const s of ['Quotation Comparison','Purchase Order Approval','Goods Receiving','Roles & Permissions'])assert.ok(!titles.includes(s))
 })
 test('full procurement permissions preserve buyer help topics',()=>{
@@ -33,4 +36,5 @@ test('urgent stock role cannot open procurement activity or read workflow status
  assert.match(urgent,/canAutomation&&r.action_type==='existing_item'/)
  assert.match(urgent,/stockOnly\?'urgent_stock':'urgent_orders'/)
  assert.match(urgent,/!stockOnly&&<div className="priority-score"/)
+ assert.match(urgent,/\.select\(stockOnly\?stockFields:'\*'\)/)
 })

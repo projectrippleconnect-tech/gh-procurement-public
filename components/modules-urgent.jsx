@@ -59,7 +59,8 @@ export function UrgentActions({activeView='urgent_actions',profile,fields,featur
  }
 
  const load=useCallback(async()=>{const revision=++loadRevision.current;setLoading(true);try{
-  const r=await allRows(()=>supabase.from('proc_v_urgent_actions').select('*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id'))
+  const stockFields='action_type,action_id,item_id,missing_request_id,description,brand,category,main_group,subgroup,size,uom,movement,required_qty,effective_priority,urgency_reason,customer_paid,customer_reference,image_path,created_at,book_stock'
+  const r=await allRows(()=>supabase.from('proc_v_urgent_actions').select(stockOnly?stockFields:'*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id'))
   if(r.error)throw r.error
   let nextJobs=[]
   if(canAutomation){
