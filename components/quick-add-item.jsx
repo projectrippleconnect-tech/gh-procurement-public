@@ -3,15 +3,11 @@
 import {ModernSelect} from './modern-select'
 import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {quickAddReorderLevel} from '@/lib/quick-add-reorder.mjs'
 
 const EMPTY={description:'',category:'GENERAL',size:'',uom:'PCS',brand:'',colour:'',variation:'',main_group:'',subgroup:'',movement:'NORMAL',max_stock:''}
 const DEFAULT_UOMS=['PCS','NOS','BOX','PACK','SET','PAIR','DOZEN','ROLL','BAG','BUNDLE','CARTON','SHEET','LENGTH','MTR','FT','KG','G','LTR','ML','TIN','TUBE']
 const normalise=value=>String(value||'').trim().replace(/\s+/g,' ').toUpperCase()
-export function quickAddReorderLevel(maxStock,movement='NORMAL',company=false){
- const n=Number(maxStock)
- if(maxStock===''||maxStock===null||!Number.isFinite(n)||n<0)return null
- return company?n*.5:Math.ceil(n*(movement==='FAST'?.5:movement==='SLOW'?.25:1/3))
-}
 export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',companies=[],selectedCompanyId='',onCreateCompany}){
  const isCompany=mode==='company'
  const[open,setOpen]=useState(false),[form,setForm]=useState({...EMPTY,category:isCompany?'':'GENERAL'}),[busy,setBusy]=useState(false)
