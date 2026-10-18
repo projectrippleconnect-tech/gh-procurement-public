@@ -8,7 +8,7 @@ import {allRows} from '@/lib/query-pages'
 import {contactNameKey,matchContactPhone,duplicateContactNumbers} from '@/lib/contact-duplicates.mjs'
 
 /** One contact per save. Directory membership never changes RFQ or PO recipients. */
-export function CompanyContactDirectory({companies=[],active=true,can=()=>false,flash=()=>{},fail=()=>{}}){
+export function CompanyContactDirectory({companies=[],active=true,can=()=>false,flash=()=>{},fail=()=>{},onReviewRouting=()=>{}}){
  const [expanded,setExpanded]=useState(false)
  const [companyId,setCompanyId]=useState(ALL_DIRECTORY_COMPANIES)
  const [search,setSearch]=useState('')
@@ -20,6 +20,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const [loading,setLoading]=useState(false)
  const [saving,setSaving]=useState(false)
  const [status,setStatus]=useState('')
+ const [routingReviewNeeded,setRoutingReviewNeeded]=useState(false)
  const [editingId,setEditingId]=useState(null)
  const [editName,setEditName]=useState('')
  const [editPhone,setEditPhone]=useState('')
@@ -97,7 +98,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
 
  function selectCompany(id){
   if(savingLock.current)return
-  setCompanyId(id);setName('');setPhone('');setStatus('');setError('');setEditingId(null);setDeleteTargetId(null);setReviewedAddConflict(false);setReviewedEditConflict(false)
+  setCompanyId(id);setName('');setPhone('');setStatus('');setError('');setEditingId(null);setDeleteTargetId(null);setReviewedAddConflict(false);setReviewedEditConflict(false);setRoutingReviewNeeded(false)
  }
  async function saveContact(e){
   e.preventDefault()
@@ -113,7 +114,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    if(!result.data?.id||result.data.company_id!==selected.id||result.data.phone!==canonical)throw new Error('The contact save was not confirmed. Check the directory before retrying.')
    await load(true)
    setStatus((result.data.already_saved?'Contact updated: ':'Saved to database: ')+result.data.name+' · '+result.data.phone)
-   setName('');setPhone('');setReviewedAddConflict(false)
+   setName('');setPhone('');setReviewedAddConflict(false);setRoutingReviewNeeded(true)
    flash?.('Contact saved to GH Procurement.')
    nameInput.current?.focus()
   }catch(e){setError(e.message||String(e));fail?.(e)}
@@ -144,8 +145,9 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    if(!result.data?.id||result.data.id!==original.id||result.data.phone!==editCanonical)throw new Error('The update was not verified; refresh before retrying.')
    await load(true)
    setEditingId(null);setEditName('');setEditPhone('');setReviewedEditConflict(false)
+   setRoutingReviewNeeded(!!result.data.routing_unchanged)
    setStatus(result.data.routing_unchanged
-    ?'Contact updated. This number changed only in the directory. An existing RFQ/PO route still uses the old number—review the company supplier route separately.'
+    ?'Contact updated in directory, but an RFQ/PO route still uses the previous supplier number. Review routing before sending a new order.'
     :'Contact updated and saved in GH Procurement.')
    flash?.('Company directory contact updated.')
   }catch(e){setError(e.message||String(e))}
@@ -163,8 +165,9 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    if(result.data?.id!==c.id||!result.data.deleted_from_directory)throw new Error('Deletion could not be verified. Refresh the directory.')
    await load(true)
    setDeleteTargetId(null);setEditingId(null)
+   setRoutingReviewNeeded(!!result.data.routing_unchanged)
    setStatus(result.data.routing_unchanged
-    ?'Removed from the company directory. The supplier remains assigned to an existing RFQ/PO route, which was not changed.'
+    ?'Removed from directory only. This supplier is still assigned to an RFQ/PO route: review that route separately.'
     :'Removed from the company directory. Existing order history and supplier records are preserved.')
    flash?.('Company contact removed from directory.')
   }catch(e){setError(e.message||String(e))}
@@ -178,7 +181,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    <span aria-hidden="true">{expanded?'−':'+'}</span>
   </button>
   {expanded&&<div className="company-directory-body section">
-   <p className="muted tiny">Each Save Contact writes directly to the database. Draft entries are NOT saved until you press Save. Existing RFQ/PO routes are not changed.</p>
+   <p className="muted tiny">Each Save Contact writes directly to the database. Draft entries are NOT saved until you press Save. Supplier assignments for RFQs/POs are managed separately in Workflow Settings; existing orders and routes never change automatically.</p>
    <label className="field" htmlFor="company-directory-search">Find a company</label>
    <input id="company-directory-search" className="input" placeholder="Search all companies…" value={search} onChange={e=>setSearch(e.target.value)}/>
    <button type="button" className={'btn small company-directory-all-button '+(companyId===ALL_DIRECTORY_COMPANIES?'company-directory-selected':'')} onClick={()=>selectCompany(ALL_DIRECTORY_COMPANIES)} aria-pressed={companyId===ALL_DIRECTORY_COMPANIES}>All Companies <span className="muted">· {sorted.length} companies · {saved.length} saved</span></button>
@@ -215,6 +218,7 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
     <button type="submit" className="btn primary company-directory-save" disabled={!selected||!complete||saving||(needsAddReview&&!reviewedAddConflict)}>{saving?'Saving…':'Save Contact & Add Next'}</button>
    </form>}
    {status&&<p className="success" role="status">{status}</p>}
+    {routingReviewNeeded&&<button type="button" className="btn small" onClick={()=>onReviewRouting(companyId===ALL_DIRECTORY_COMPANIES?null:companyId)}>Review / assign RFQ &amp; PO recipients →</button>}
    {error&&<p className="error" role="alert">{error} Review the existing directory before retrying.</p>}
    <div className="company-directory-existing">
     <h4>{companyId===ALL_DIRECTORY_COMPANIES?'All Companies · Supplier Directory':'Existing contacts for '+selected?.name} <small className="muted">({scopedSaved.length} saved)</small></h4>
