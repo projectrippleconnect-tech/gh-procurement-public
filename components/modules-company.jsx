@@ -273,7 +273,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </div>
   <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
   {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
-  {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
+  {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} onReviewRouting={()=>{const panel=document.querySelector('.company-workflow-hub');if(panel){panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'})}}}/>}
   {canManage&&<details className="card pad section company-workflow-hub" aria-label="RFQ and PO workflow settings">
     <summary><strong>RFQ &amp; PO Workflow Settings</strong></summary>
     <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded/>

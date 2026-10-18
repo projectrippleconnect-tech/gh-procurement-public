@@ -20,7 +20,7 @@ test('directory offers compact common save and separate supplier choices without
  assert.match(jsx,/Save valid selections \(/)
  assert.match(jsx,/runSave\(pendingRows,\{batch:true\}\)/)
  assert.match(jsx,/company-workflow-contact-option/)
- assert.match(jsx,/Select supplier contacts for/)
+ assert.match(jsx,/Review supplier assignments and sending recipients for/)
  assert.doesNotMatch(jsx,/style=\{\{border:'1px solid var\(--line, #e2e8f0\)',borderRadius:10,marginBottom:8/)
  assert.match(css,/\.company-workflow-check-main\{min-height:43px/)
  assert.match(css,/grid-template-columns:minmax\(0,1fr\) 49px 49px/)
