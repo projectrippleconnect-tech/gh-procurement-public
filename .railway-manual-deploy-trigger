@@ -111,3 +111,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 Corrected company routing panels (PR #115 live refresh and #116 real recipient links only), consolidated contract test and hard build gate. No schema changes or auto WhatsApp sends.
 
 2026-10-18 Manual PR #117: supplier checklist and advanced routing editors synchronize only after verified save; non-destructive and does not send orders. Full npm security lint test build gate.
+
+2026-10-18 Manual production release: stock print appearance options (per-column bold and left/centre/right alignment); defaults description bold-left, reorder bold-centre, No./size/UOM centre. Remove repeated brand and colour suffixes from PDF only; preserve database catalog names and all procurement records. Full npm audit, lint, test and build required before live.
