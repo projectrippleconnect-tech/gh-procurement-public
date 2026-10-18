@@ -2,7 +2,7 @@
 import {createClient} from '@supabase/supabase-js'
 import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '@/lib/waha-group-discovery.mjs'
 import {inviteCodes,normalizeInviteInfo,preferredInviteRoles} from '@/lib/waha-invite-info.mjs'
-import {inspectPrivateGroup,resolveOwnerMemberAliases} from '@/lib/whatsapp-private-audit.mjs'
+import {inspectPrivateGroup,resolveOwnerMemberAliases,wahaMemberId} from '@/lib/whatsapp-private-audit.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
@@ -134,7 +134,7 @@ export async function GET(request:Request){
    try{
     const p=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(item.id)+'/participants/v2',config.key)
     const members=tidy(p).filter(x=>!['left','removed'].includes(String(x?.role||'').toLowerCase()))
-    memberIds=members.map(x=>String(x?.id?._serialized||x?.id||'')).filter(Boolean)
+    memberIds=members.map(x=>wahaMemberId(x?.id||x?.JID||x?.participant?.id)).filter((id):id is string=>Boolean(id))
     count=members.length
     const ownerCheck=inspectPrivateGroup({group:{id:item.id,subject:item.name},participants:p,config:{ready:true,groupId:item.id,groupName:item.name,ownerOnly:true,approved:[]},sessionMe:ownerSession})
     ownerVerified=ownerCheck.ok
