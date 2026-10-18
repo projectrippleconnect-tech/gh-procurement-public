@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {privateGroupConfig,inspectPrivateGroup,privateGroupCaption,mirrorStaffGroupCopy} from '../lib/whatsapp-private-audit.mjs'
+import {privateGroupConfig,inspectPrivateGroup,privateGroupCaption,mirrorStaffGroupCopy,resolveOwnerMemberAliases} from '../lib/whatsapp-private-audit.mjs'
 
 const env={GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_OWNER_ONLY:'false',GH_WA_AUDIT_RFQ_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_PO_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_RFQ_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_PO_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,94777712346'}
 const config=privateGroupConfig(env)
@@ -108,4 +108,29 @@ test('GOWS raw group fields JID and Name are allowed only with exact expected id
  const gows={JID:'120363123456789@g.us',Name:'GH Procurement'}
  assert.equal(inspectPrivateGroup({group:gows,participants:[participants[0]],config:policy,sessionMe:{id:'94777712345@c.us'}}).ok,true)
  assert.equal(inspectPrivateGroup({group:{...gows,Name:'Other'},participants:[participants[0]],config:policy,sessionMe:{id:'94777712345@c.us'}}).ok,false)
+});
+
+test('owner-only LID membership is accepted only after WAHA verifies its phone mapping',async()=>{
+ const input={base:'http://localhost:3000',session:'default',key:'secret',
+  sessionMe:{id:{user:'94777712345',server:'c.us'}},memberIds:[{User:'12345678901',Server:'lid'}]}
+ const verified=await resolveOwnerMemberAliases({...input,read:async(url)=>{
+  assert.match(url,/\/api\/default\/lids\/12345678901%40lid$/)
+  return {lid:'12345678901@lid',pn:'94777712345@c.us'}
+ }})
+ assert.deepEqual(verified,{ok:true,reason:'verified_owner_only'})
+ const denied=await resolveOwnerMemberAliases({...input,read:async()=>({lid:'12345678901@lid',pn:'94777799999@c.us'})})
+ assert.equal(denied.ok,false)
+ const unknown=await resolveOwnerMemberAliases({...input,read:async()=>{throw Error('WAHA unavailable')}})
+ assert.equal(unknown.ok,false)
+ const moreMembers=await resolveOwnerMemberAliases({...input,memberIds:['12345678901@lid','94777799999@c.us'],read:async()=>{throw Error('Should never query')}})
+ assert.equal(moreMembers.ok,false)
+});
+test('two independent owner-only destination IDs are required by their respective modes',()=>{
+ const owner={GH_WA_AUDIT_OWNER_ONLY:'true',GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_ALLOWED_MEMBERS:'',
+ GH_WA_AUDIT_RFQ_GROUP_ID:'120363430251121456@g.us',GH_WA_AUDIT_RFQ_GROUP_NAME:'RFQ',
+ GH_WA_AUDIT_PO_GROUP_ID:'120363414257107130@g.us',GH_WA_AUDIT_PO_GROUP_NAME:'PO'}
+ assert.equal(privateGroupConfig(owner,'rfq').groupId,'120363430251121456@g.us')
+ assert.equal(privateGroupConfig(owner,'company_rfq').groupName,'RFQ')
+ assert.equal(privateGroupConfig(owner,'po').groupId,'120363414257107130@g.us')
+ assert.equal(privateGroupConfig(owner,'company_po').groupName,'PO')
 });
