@@ -23,7 +23,6 @@ import {CompanySectionManager} from './company-section-manager'
 import {CompanySectionRouteManager} from './company-section-route-manager'
 import {CompanySubmissionResult} from './company-submission-result'
 import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
-import {CompanyAutomationSimple} from './company-automation-simple'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
@@ -275,16 +274,18 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
   {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
   {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
-  {canManage&&<CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
-   {canManage&&<WhatsAppAuditGroups/>}
-  {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
-  {canManage&&companyId&&!allCompanies&&<CompanyAutomationSimple onChanged={loadCompanies} key={companyId} company={currentCompany} sections={sections} can={can} flash={flash} fail={fail}/>}
-  {canManage&&companyId&&!allCompanies&&<details className="card pad section" aria-label="Advanced company supplier tools"><summary>Advanced supplier tools</summary>
-    <p className="muted tiny">Suppliers and sending recipients are managed together in Company suppliers &amp; automation above.</p>
-    <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>
-   </details>}
+  {canManage&&<details className="card pad section company-workflow-hub" aria-label="RFQ and PO workflow settings">
+    <summary><strong>RFQ &amp; PO Workflow Settings</strong></summary>
+    <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded/>
+    {companyId&&!allCompanies&&<details className="section" aria-label="Advanced group sending and templates">
+      <summary>Advanced group sending &amp; document templates</summary>
+      <p className="muted tiny">Use the checklist above for standard RFQ/PO preferences. Open advanced tools only to edit a document template, manage an exception or send a request already approved.</p>
+      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={loadCompanies}/>
+    </details>}
+  </details>}
+  {canManage&&<WhatsAppAuditGroups/>}
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
-
+  {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
   </div>}
   {!setupOpen&&<div className="card pad section company-count-workspace">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
    <div className="muted tiny">{scoped.length} item(s) · entered quantities are saved locally until submission.</div>
