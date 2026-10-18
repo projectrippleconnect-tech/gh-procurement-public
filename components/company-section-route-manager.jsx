@@ -92,7 +92,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   if(draft.supplier_ids.some(id=>!groupIds.includes(id)))throw new Error('Select assigned group contacts for sending.')
   if(!check.valid)throw new Error(check.reason)
   const ids=check.supplierIds
-  if(draft.mode==='direct'&&draft.auto_send&&groupIds.length!==1)throw new Error('Automatic direct PO needs exactly one assigned supplier. Use RFQ or disable automatic sending.')
+  if(draft.mode==='direct'&&draft.auto_send&&ids.length!==1)throw new Error('Select exactly one recipient for automatic direct PO; your other assigned contacts stay available.')
   const r=await supabase.rpc('proc_company_save_supplier_setup',{
    p_company_id:company.id,p_section_id:editing===companyScope?null:editing,
    p_action:draft.auto_send?draft.mode:draft.mode+'_manual',p_assigned_ids:groupIds,p_recipient_ids:ids,
