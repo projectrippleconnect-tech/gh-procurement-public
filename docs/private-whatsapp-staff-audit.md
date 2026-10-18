@@ -55,3 +55,8 @@ Railway has the four RFQ/PO group ID and name variables, plus GH_WA_AUDIT_OWNER_
 The owner-only mirror checks GET /api/sessions/{session}/me, and requires exactly one active member matching the linked session's JID. Unknown identity or mismatched members block group copying but not supplier sending. A reported count of one alone is insufficient.
 
 The read-only admin group checker reports owner verification and audit-table readability. Do not activate until the correct GH Procurement production database receives migration 20261017223000_private_whatsapp_audit_group.sql and audit-table readback passes. The connected Supabase accounts list GH NEXUS, GH LEDGER, Muslim Lanka, and LWP, but no GH Procurement project; do not apply to unrelated databases. Run a controlled test only after all gates pass.
+
+## 2026-10-18: production audit database migration verified
+The correct shared procurement database is hosted in the connected GH NEXUS Supabase project; 68 public tables use the proc_ prefix. The private WhatsApp audit migration was successfully applied and read back. Validation confirmed one RLS policy, enabled RLS, a unique per-source/per-page constraint, zero audit-copy records, an authenticated-only claim RPC (anon execute denied), and the finish RPC.
+
+Automatic WhatsApp copies stay disabled pending verified owner-only identity for BOTH configured group IDs and a controlled send test. Read-only diagnostics now query exact configured IDs and use WAHA participant.pn or verified GET /api/{session}/lids/{lid} for owner-only JID mismatches. Under no circumstance trust a group simply because its name matches RFQ or PO when its ID differs. Temporary invite codes were cleared after the direct destinations were confirmed.
