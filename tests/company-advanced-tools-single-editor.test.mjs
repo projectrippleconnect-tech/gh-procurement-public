@@ -19,8 +19,8 @@ test('Company Lists mounts advanced document actions instead of second routing e
  assert.doesNotMatch(advanced,/toggleGroupContact|toggleRecipient|Save group route|Save &amp; send PO now/)
 })
 test('advanced panel preserves all unique capabilities without duplicate setting updates',()=>{
- for(const term of ['Image &amp; caption','Save image &amp; caption only','Send RFQ image now',
-  'Send PO image now','Prepare approved RFQ','Create approved PO','Resume eligible RFQ images',
+ for(const term of ['Image &amp; caption','Save image &amp; caption only','Create & send new RFQ',
+  'Create & send new PO','Prepare new RFQ','Create approved PO','Resume eligible RFQ images',
   'Outgoing','WhatsApp caption','Blank unit-rate column']){
   if(term==='Outgoing')continue
   assert.ok(advanced.includes(term),'missing '+term)
