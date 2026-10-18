@@ -12,7 +12,6 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const [expanded,setExpanded]=useState(false)
  const [companyId,setCompanyId]=useState(ALL_DIRECTORY_COMPANIES)
  const [search,setSearch]=useState('')
- const [contactSearch,setContactSearch]=useState('')
  const [saved,setSaved]=useState([])
  const [assigned,setAssigned]=useState([])
  const [name,setName]=useState('')
@@ -33,11 +32,21 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
  const savingLock=useRef(false)
  const canManage=can('company_lists.manage')
  const sorted=useMemo(()=>[...companies].sort((a,b)=>String(a.name).localeCompare(String(b.name),undefined,{sensitivity:'base'})),[companies])
- const visible=useMemo(()=>sorted.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())),[sorted,search])
+ const visible=useMemo(()=>{
+  const q=search.trim().toLocaleLowerCase()
+  if(!q)return sorted
+  const digits=q.replace(/\D/g,'')
+  const numberPart=digits.startsWith('0')?digits.slice(1):digits
+  return sorted.filter(c=>c.name.toLocaleLowerCase().includes(q)||
+   [...saved,...assigned].some(item=>item.company_id===c.id&&(
+    [item.name,item.phone].some(v=>String(v||'').toLocaleLowerCase().includes(q))||
+    (numberPart.length>=6&&String(item.phone||'').replace(/\D/g,'').endsWith(numberPart))
+   )))
+ },[sorted,search,saved,assigned])
  const selected=sorted.find(c=>c.id===companyId)||null
  const {savedRows:scopedSaved,assignedRows:scopedAssigned,companyNames}=useMemo(()=>
-  companyDirectoryView({saved,assigned,companies:sorted,companyId,query:contactSearch}),
-  [saved,assigned,sorted,companyId,contactSearch])
+  companyDirectoryView({saved,assigned,companies:sorted,companyId,query:search}),
+  [saved,assigned,sorted,companyId,search])
  const allContacts=useMemo(()=>{
   const view=companyDirectoryView({saved,assigned,companies:sorted,companyId:ALL_DIRECTORY_COMPANIES,query:''})
   return [...view.savedRows,...view.assignedRows].map(c=>({...c,company_name:view.companyNames.get(c.company_id)||'Unknown company'}))
@@ -181,9 +190,9 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
    <span aria-hidden="true">{expanded?'−':'+'}</span>
   </button>
   {expanded&&<div className="company-directory-body section">
-   <p className="muted tiny">Each Save Contact writes directly to the database. Draft entries are NOT saved until you press Save. Supplier assignments for RFQs/POs are managed separately in Workflow Settings; existing orders and routes never change automatically.</p>
-   <label className="field" htmlFor="company-directory-search">Find a company</label>
-   <input id="company-directory-search" className="input" placeholder="Search all companies…" value={search} onChange={e=>setSearch(e.target.value)}/>
+   <p className="muted tiny">Each Save Contact writes directly to the database. Draft entries are NOT saved until Save. Contacts join the company’s available supplier pool, but new auto-send RFQ/PO recipients require explicit selection in Workflow Settings; existing orders remain unchanged.</p>
+   <label className="field" htmlFor="company-directory-search">Find a company or contact</label>
+   <input id="company-directory-search" className="input" type="search" placeholder="Search company, contact name or phone…" value={search} onChange={e=>setSearch(e.target.value)}/>
    <button type="button" className={'btn small company-directory-all-button '+(companyId===ALL_DIRECTORY_COMPANIES?'company-directory-selected':'')} onClick={()=>selectCompany(ALL_DIRECTORY_COMPANIES)} aria-pressed={companyId===ALL_DIRECTORY_COMPANIES}>All Companies <span className="muted">· {sorted.length} companies · {saved.length} saved</span></button>
    <div className="company-directory-company-list" aria-label="Company choices">
     {visible.map(c=><button type="button" key={c.id} className={'btn small '+(c.id===companyId?'company-directory-selected':'')} onClick={()=>selectCompany(c.id)} aria-pressed={c.id===companyId}>{c.name} <span className="muted">{saved.filter(r=>r.company_id===c.id).length}</span></button>)}
@@ -198,8 +207,6 @@ export function CompanyContactDirectory({companies=[],active=true,can=()=>false,
      </div>)}
     </div>
    </details>}
-   <label className="field" htmlFor="company-directory-contact-search">Search directory contacts</label>
-   <input id="company-directory-contact-search" className="input" type="search" placeholder="Search name, number or company…" value={contactSearch} onChange={e=>setContactSearch(e.target.value)}/>
    {companyId===ALL_DIRECTORY_COMPANIES
     ? <p className="muted tiny company-directory-all-hint">Showing contacts across all companies. Select a company above to add a new contact.</p>
     : <form onSubmit={saveContact} className="company-directory-form">
