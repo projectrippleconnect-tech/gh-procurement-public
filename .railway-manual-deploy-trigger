@@ -101,3 +101,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 Supplier routing safety release PR #113: separate assigned supplier contacts from RFQ/PO delivery recipients; regression tests and non-destructive SQL validation migration. Build must pass before applying new RPC to live database.
 
 2026-10-18 Company Directory one-search UI cleanup PR #114: combine company, contact and phone search; no data or routing modification; build and test before release.
+
+2026-10-18 GH Procurement stock print PDF layout release: fix wrapped-description side-by-side A4 panel selection, add Split long stock tables toggle, and test two-column/no-split behavior. Approved production release; preserve all catalogue, transactions, roles, and supplier routing. Commit 6b8b49940409c042884e9642bd8fc377d0f911e9.
