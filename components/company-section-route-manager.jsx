@@ -13,7 +13,7 @@ import {useDangerConfirmation} from './danger-confirmation'
 const initial={mode:'rfq',auto_send:false,supplier_ids:[]}
 const companyScope='company-default'
 const uniq=ids=>[...new Set(ids.filter(Boolean))]
-export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{}}){
+export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>false,profile,flash,fail,navigate,onChanged=()=>{},directoryRevision=0}){
  const confirm=useDangerConfirmation()
  const [routes,setRoutes]=useState([]),[routeSuppliers,setRouteSuppliers]=useState([]),[suppliers,setSuppliers]=useState([])
  const [groupContactLinks,setGroupContactLinks]=useState([]),[groupIds,setGroupIds]=useState([]),[poolDirty,setPoolDirty]=useState(false),[showFallback,setShowFallback]=useState(false)
@@ -64,7 +64,7 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
   setSuppliers(contacts.data||[])
   setGroupContactLinks(pool.data||[])
  }
- useEffect(()=>{load().catch(fail)},[company?.id,company?.updated_at])
+ useEffect(()=>{load().catch(fail)},[company?.id,company?.updated_at,directoryRevision])
  useEffect(()=>{setEditing('');setDraft(initial);setSearch('');setPendingRfq(null);setSendResults([]);setRouteNotice('');setDispatchNotice(null);setShowFallback(false);setGroupIds([])},[company?.id])
  const openEditor=s=>{
   const own=routeIndex.get(s.id);setEditorVersion({id:own?.id||null,updated_at:own?.updated_at||null})
