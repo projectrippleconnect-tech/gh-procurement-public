@@ -110,7 +110,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
 
  function planFor(row){
   if(rowDraft(row)?.applyChildren)return planBranchMode(rows,row,ownMode(row),ownIds(row),data?.pool||[],ownAssigned(row))
-  return {actions:[{row,mode:ownMode(row),ids:ownIds(row)}],expected:[{row,mode:ownMode(row),ids:ownIds(row)}],conflicts:[],descendantSections:0}
+  return {actions:[{row,mode:ownMode(row),ids:ownIds(row),assigned:ownAssigned(row)}],expected:[{row,mode:ownMode(row),ids:ownIds(row),assigned:ownAssigned(row)}],conflicts:[],descendantSections:0}
  }
  function checkRow(row){
   const plan=planFor(row)
@@ -160,7 +160,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    if(check.valid)valid.push(row)
    else skipped.push({name:row.company.name+' / '+row.path,status:'Skipped',reason:check.error})
   }
-  if(!valid.length){setResults(skipped);setError('No valid routes ready to save. Assign active suppliers with +94 WhatsApp numbers first.');return}
+  if(!valid.length){setResults(skipped);setError('No valid routes ready to save. Choose assigned contacts and check sending recipients (+94 numbers) before saving.');return}
   const nestedUpdates=valid.reduce((n,row)=>n+Math.max(0,planFor(row).actions.length-1),0)
   const description=valid.length+' parent workflow'+(valid.length===1?'':'s')+
    (nestedUpdates?' and update '+nestedUpdates+' child-specific route'+(nestedUpdates===1?'':'s'):'')+
@@ -257,11 +257,21 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    </div>
    {(contactsOpen===row.key||dirty||inherited)&&<div className="company-workflow-detail">
     {contactsOpen===row.key&&<div className="company-workflow-contact-panel">
-     <strong className="muted tiny">Designated supplier contacts</strong>
-     {contacts.length?contacts.map(contact=><label key={contact.id} className="company-workflow-contact-option">
-      <input type="checkbox" checked={selected.includes(contact.id)} disabled={busy||inherited} onChange={e=>update(row,{ids:e.target.checked?uniqueIds([...selected,contact.id]):selected.filter(id=>id!==contact.id),mode:ownMode(row)==='direct'&&e.target.checked?'manual':ownMode(row)})}/>
+     <strong className="muted tiny">Assigned contacts vs recipients</strong>
+     <p className="muted tiny">Assigned keeps a contact available. Send selects who actually receives RFQ/PO documents. A Direct PO can have several assigned contacts but exactly one selected recipient.</p>
+     {contacts.length?contacts.map(contact=><div key={contact.id} className="company-workflow-contact-option">
+      <label className="checkline" title={'Keep '+contact.label+' in the available supplier list'}>
+       <input type="checkbox" aria-label={'Assign '+contact.label} checked={assigned.includes(contact.id)} disabled={busy||inherited} onChange={e=>{
+        const next=e.target.checked?uniqueIds([...assigned,contact.id]):assigned.filter(id=>id!==contact.id)
+        update(row,{assignedIds:next,ids:e.target.checked?selected:selected.filter(id=>id!==contact.id)})
+       }}/> Assigned
+      </label>
+      {ownMode(row)!=='manual'&&<label className="checkline" title={'Send '+(ownMode(row)==='direct'?'PO':'RFQ')+' to '+contact.label}>
+       <input type={ownMode(row)==='direct'?'radio':'checkbox'} name={'company-send-'+row.key} aria-label={'Send to '+contact.label} checked={selected.includes(contact.id)} disabled={busy||inherited||!assigned.includes(contact.id)} onChange={e=>update(row,{ids:ownMode(row)==='direct'?[contact.id]:e.target.checked?uniqueIds([...selected,contact.id]):selected.filter(id=>id!==contact.id)})}/> Send
+      </label>}
       <span>{contact.label} · {phone(contact.supplier)}</span>
-     </label>):<p className="muted tiny">No company contacts. Add a number in Supplier Directory first.</p>}
+     </div>):<p className="muted tiny">No company contacts. Add a number in Supplier Directory first.</p>}
+     {ownMode(row)==='direct'&&selected.length!==1&&<p className="notice tiny" role="status">Select exactly one PO recipient, without removing your other assigned supplier contacts.</p>}
     </div>}
     {inherited&&<button className="btn small" type="button" disabled={busy} onClick={()=>update(row,{mode:row.mode,assignedIds:row.assigned,ids:row.recipients,applyChildren:true})}>Set a separate rule for this category</button>}
     {dirty&&<div className="company-workflow-check-actions">
@@ -287,7 +297,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  const Container=embedded?'section':'details'
  return <Container className={'company-workflow-checklist '+(embedded?'company-workflow-embedded':'card pad section')} aria-label="Company workflow directory">
   {!embedded&&<summary><strong>Company Workflow Checklist</strong> <span className="muted tiny">· RFQ / PO settings</span></summary>}
-  <p className="muted tiny section">Tick RFQ or PO beside a company or category. Each parent controls the categories below; existing child supplier assignments are retained. Both unchecked means manual. Settings are not active until saved, and saving does not send orders or WhatsApp messages.</p>
+  <p className="muted tiny section">Tick RFQ or PO beside a company or category, then open Assigned / Send to choose recipients independently. Child assignments remain available even when only one supplier receives a PO. Both unchecked means manual. Saving these settings does not send any documents.</p>
   <div className="company-workflow-check-toolbar">
    <input className="input company-workflow-search" type="search" value={query} onChange={e=>setQuery(e.target.value)} aria-label="Search companies, categories and suppliers" placeholder="Search company or category…"/>
    <button className="btn small" type="button" disabled={busy||!rows.length} onClick={stagePreferences}>My 19 choices</button>
