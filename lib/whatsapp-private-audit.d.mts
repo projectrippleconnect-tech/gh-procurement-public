@@ -9,3 +9,5 @@ export function mirrorStaffGroupCopy(input:{
  base64:string;filename:string;caption:string;imageHash:string;config?:unknown
 }):Promise<{status:string;reason:string}>
 export function resolveOwnerMemberAliases(input:{base:string;session:string;key:string;memberIds:unknown[];sessionMe:unknown;read?:(url:string,key:string)=>Promise<any>}):Promise<{ok:boolean;reason:string}>
+
+export function wahaMemberId(value:unknown):string|null
