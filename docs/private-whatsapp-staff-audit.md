@@ -43,3 +43,15 @@ The user-created community already contains **RFQ**, **PO**, **General**, and **
 
 ## 2026-10-18: owner-provided invite resolution
 The owner supplied three distinct private WhatsApp invitation codes (one other link was repeated). GH Procurement may store these **temporarily in a server-only environment variable** \`GH_WA_AUDIT_PENDING_INVITE_CODES\`, never in public source or browser storage. The signed-in admin \`Check my WhatsApp groups\` action performs \`GET /api/{session}/groups/join-info?code=...\` for each code using the private WAHA connection. This is read-only: it never joins, posts, creates, or changes any WhatsApp group. The API returns the resolved subgroup ID/name and whether WAHA identifies it as a community; the private codes are omitted from responses. The archive remains OFF until destination IDs, actual members, sending ability, and the database migration are verified. Remove the temporary codes from Railway after successful resolution.
+
+## 2026-10-18: verified destinations and owner-only safety
+The owner confirmed the WAHA invite-link mappings in the signed-in procurement UI:
+- RFQ: 120363430251121456@g.us — one member reported
+- PO: 120363414257107130@g.us — one member reported
+- Gh Procurement Community: 120363428850631487@g.us — NEVER USE as an audit-document destination
+
+Railway has the four RFQ/PO group ID and name variables, plus GH_WA_AUDIT_OWNER_ONLY=true. The temporary invite code value was cleared. GH_WA_AUDIT_ENABLED is deliberately unset.
+
+The owner-only mirror checks GET /api/sessions/{session}/me, and requires exactly one active member matching the linked session's JID. Unknown identity or mismatched members block group copying but not supplier sending. A reported count of one alone is insufficient.
+
+The read-only admin group checker reports owner verification and audit-table readability. Do not activate until the correct GH Procurement production database receives migration 20261017223000_private_whatsapp_audit_group.sql and audit-table readback passes. The connected Supabase accounts list GH NEXUS, GH LEDGER, Muslim Lanka, and LWP, but no GH Procurement project; do not apply to unrelated databases. Run a controlled test only after all gates pass.
