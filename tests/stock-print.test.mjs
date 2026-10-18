@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {stockPrintRows,resolveStockPrint,stockPrintDescription,resolveStockColumnStyles} from '../lib/stock-print.mjs'
+import {stockPrintRows,resolveStockPrint,stockPrintDescription,resolveStockColumnStyles,groupStockPrintRows} from '../lib/stock-print.mjs'
 import {documentLines,documentCompany,documentCaption,defaultSupplierTemplate} from '../lib/supplier-template.mjs'
 import {buildCustomStockPdf} from '../lib/pdf.js'
 test('stock printing filters selected categories and movement; company default includes every movement',()=>{
@@ -100,4 +100,81 @@ test('adaptive tables preserve every row with many columns and long descriptions
  const text=pdf.output()
  for(const header of ['Reorder level','Current stock','Movement','Max stock'])assert.ok(text.includes('('+header+')'),header)
  assert.equal((text.match(/\(Long stock/g)||[]).length,90)
+})
+
+
+test('company stock print groups the saved section hierarchy and isolates uncategorized rows',()=>{
+ const sections=[
+  {id:'switches',name:'Switches',sort_order:10},
+  {id:'black',parent_id:'switches',name:'Black',sort_order:20},
+  {id:'white',parent_id:'switches',name:'White',sort_order:10},
+  {id:'lights',name:'Lights',sort_order:20}
+ ]
+ const rows=[
+  {id:'1',section_id:'black',description:'Black switch'},
+  {id:'2',section_id:'white',description:'White switch'},
+  {id:'3',section_id:'lights',description:'Bulb'},
+  {id:'4',section_id:null,description:'Loose item',category:'Unrelated catalogue field'},
+  {id:'5',section_id:'white',description:'White switch'}
+ ]
+ const original=JSON.stringify({rows,sections})
+ const groups=groupStockPrintRows(rows,sections)
+ assert.deepEqual(groups.map(g=>g.title),[
+  'Switches / White','Switches / Black','Lights / General items','Other / Uncategorized'
+ ])
+ assert.deepEqual(groups.map(g=>g.items.map(i=>i.id)),[['2','5'],['1'],['3'],['4']])
+ assert.equal(groups.reduce((sum,g)=>sum+g.items.length,0),rows.length)
+ assert.equal(JSON.stringify({rows,sections}),original,'No catalogue or section mutation')
+})
+
+test('legacy company stock still uses category and subgroup before assigning Others',()=>{
+ const rows=[
+  {id:'1',description:'1 way switch',category:'KEVILTON',subgroup:'WHITE SWITCHES'},
+  {id:'2',description:'2 way switch',category:'KEVILTON',subgroup:'BLACK SWITCHES'},
+  {id:'3',description:'Other',category:'KEVILTON'},
+ ]
+ const groups=groupStockPrintRows(rows)
+ assert.deepEqual(groups.map(x=>x.title),[
+  'KEVILTON / BLACK SWITCHES','KEVILTON / WHITE SWITCHES','Other / Uncategorized'
+ ])
+})
+
+test('grouped company PDF has category headers, separate tables, reset numbering and no missing items',()=>{
+ const sections=[
+  {id:'switches',name:'Switches',sort_order:1},
+  {id:'white',parent_id:'switches',name:'White',sort_order:1},
+  {id:'black',parent_id:'switches',name:'Black',sort_order:2}
+ ]
+ const rows=[
+  ...Array.from({length:62},(_,n)=>({id:'w'+n,section_id:'white',description:'WHITE-ITEM-'+String(n+1).padStart(3,'0'),uom:'PCS',reorder_level:20})),
+  ...Array.from({length:38},(_,n)=>({id:'b'+n,section_id:'black',description:'BLACK-ITEM-'+String(n+1).padStart(3,'0'),uom:'PCS',reorder_level:10})),
+  {id:'misc',description:'UNCATEGORIZED-ITEM',uom:'PCS',reorder_level:5}
+ ]
+ const snapshot=JSON.stringify(rows)
+ const pdf=buildCustomStockPdf({items:rows,sections,company:{name:'General Hardware'},subtitle:'KEVILTON',options:{
+  groupBySubcategory:true,includeUncategorized:true,orientation:'portrait',
+  layout:'columns',tablesPerPage:3,rowsPerTable:0
+ }})
+ const output=pdf.output()
+ assert.ok(output.includes('Switches / White'),'White subcategory has its own heading')
+ assert.ok(output.includes('Switches / Black'),'Black subcategory has its own heading')
+ assert.ok(output.includes('Other / Uncategorized'),'Unassigned items have a separate heading')
+ for(const item of rows)assert.ok(output.includes(item.description),'Missing item: '+item.description)
+ const allText=pdf.internal.pages.map(page=>(page||[]).join(' ')).join(' ')
+ assert.ok((allText.match(/\(No\.\)\s*Tj/g)||[]).length>=3,'Subcategories print as separate titled tables')
+ assert.ok(pdf.getNumberOfPages()>=2,'Long categories paginate')
+ assert.ok(output.includes('Stocks Checked By'))
+ assert.ok(output.includes('Stocks Verified By'))
+ assert.ok(output.includes('Order Approved By'))
+ assert.equal(JSON.stringify(rows),snapshot,'Grouped printing must not change stock records')
+})
+
+test('two short company subcategories fit on one compact A4 page',()=>{
+ const sections=[{id:'a',name:'Switches'},{id:'a1',name:'White',parent_id:'a'},{id:'a2',name:'Black',parent_id:'a'}]
+ const items=[{id:'1',section_id:'a1',description:'ONE GANG WHITE',uom:'PCS',reorder_level:10},
+  {id:'2',section_id:'a2',description:'ONE GANG BLACK',uom:'PCS',reorder_level:10}]
+ const pdf=buildCustomStockPdf({items,sections,options:{groupBySubcategory:true,tablesPerPage:3}})
+ assert.equal(pdf.getNumberOfPages(),1)
+ assert.ok(pdf.output().includes('Switches / White'))
+ assert.ok(pdf.output().includes('Switches / Black'))
 })

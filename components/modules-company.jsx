@@ -315,7 +315,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </>}</div>}
   {setupOpen&&<>
   {companyId&&!allCompanies&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
-  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
+  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companySections={sections} companyItems={rows.map(r=>({...r.item,section_id:r.section_id,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
   <button className="btn small" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button>
   <CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
   {canManage&&<button className="btn small bad" onClick={archiveCompanyList}>Remove company list</button>}
