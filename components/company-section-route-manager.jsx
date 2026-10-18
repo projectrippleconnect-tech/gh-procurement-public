@@ -264,14 +264,10 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
    const createdOrders=Array.isArray(r.data)?r.data:[]
    const createdIds=createdOrders.map(po=>po?.id).filter(Boolean)
    if(!createdIds.length)throw new Error('No new purchase-order IDs were returned. Check PO history before attempting any send.')
-   flash(createdIds.length+' approved direct purchase order(s) created.')
-   if(rule.auto_send){
-    try{
-     // Never dispatch every pending company order just because one group was prepared.
-     const sent=await companyApi('orders',{companyId:company.id,poIds:createdIds})
-     flash(sent.message||'Check sending results for the newly created purchase orders.')
-    }catch(e){fail(new Error('Purchase orders were created, but their WhatsApp sending needs review: '+e.message))}
-   }
+   // Preparing an order is not the same as explicitly sending it now.
+   // The stored rule may queue automatic dispatch separately; this button
+   // must not start a second WhatsApp gateway attempt itself.
+   flash(createdIds.length+' direct purchase order(s) created.'+(rule.auto_send?' Automatic sending may proceed from the existing dispatch queue; check PO status before any manual send.':' No WhatsApp send was initiated here.'))
    navigate('po')
   }
  }
@@ -299,20 +295,20 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
     </div>
     {own&&<div className="toolbar section" style={{flexWrap:'wrap',gap:6}}>
       <button className="btn small" type="button" disabled={busy||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')} onClick={()=>confirm({
-       title:own.route_mode==='rfq'?'Prepare approved-shortage RFQ':'Prepare approved-shortage PO',
+       title:own.route_mode==='rfq'?'Prepare new RFQ for approval':'Create new approved PO',
        message:'Prepare '+(own.route_mode==='rfq'?'an RFQ':'a direct purchase order')+' for approved outstanding shortages for '+(paths.get(section.id)||section.name)+' using its currently saved route?',
-       warning:own.route_mode==='rfq'?'Review and send from the RFQ page; this button does not send RFQ images.':'This creates a purchase order. If this saved route has auto-send enabled, its existing sending behavior may dispatch the order.',
+       warning:own.route_mode==='rfq'?'Review and send from the RFQ page; this button does not send RFQ images.':'This creates a purchase order but does not call WhatsApp directly. If the saved auto-send route is enabled, the queued order may still be dispatched by the automatic processor. Check PO status before manually sending.',
        confirmLabel:own.route_mode==='rfq'?'Prepare RFQ':'Create PO',
        onConfirm:()=>run(()=>prepare(section,own))
-      })}>{own.route_mode==='rfq'?'Prepare approved RFQ':'Create approved PO'}</button>
+      })}>{own.route_mode==='rfq'?'Prepare new RFQ':'Create approved PO'}</button>
       <button className="btn small" type="button" disabled={busy||recipientIds.length===0||(own.route_mode==='direct'&&recipientIds.length!==1)||!can(own.route_mode==='rfq'?'procurement.rfq.manage':'procurement.orders.approve')}
        onClick={()=>confirm({
-        title:own.route_mode==='rfq'?'Send approved RFQ images':'Send approved PO images',
+        title:own.route_mode==='rfq'?'Create & send new RFQ images':'Create & send new PO images',
         message:'Use the '+recipientIds.length+' saved recipient'+(recipientIds.length===1?'':'s')+' for '+(paths.get(section.id)||section.name)+'? Only approved uncovered shortages may be prepared.',
-        warning:'This creates a new RFQ/PO when eligible and attempts sending via WhatsApp. It does not change supplier routing. Check the audit and sending status before retrying.',
-        confirmLabel:own.route_mode==='rfq'?'Prepare & send RFQ':'Prepare & send PO',
+        warning:'This creates a NEW RFQ/PO from approved shortages and attempts WhatsApp sending. It does not resend an existing document or change supplier routing. Check the audit and sending status before retrying.',
+        confirmLabel:own.route_mode==='rfq'?'Create & send RFQ':'Create & send PO',
         onConfirm:()=>run(()=>sendConfiguredRoute(section,own))
-       })}>{own.route_mode==='rfq'?'Send RFQ image now':'Send PO image now'}</button>
+       })}>{own.route_mode==='rfq'?'Create & send new RFQ':'Create & send new PO'}</button>
       <button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
        title:'Remove saved category routing override',
        message:'Remove the saved '+(paths.get(section.id)||section.name)+' routing override and use its inherited / company fallback for future requirements?',
