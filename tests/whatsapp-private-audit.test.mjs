@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {privateGroupConfig,inspectPrivateGroup,privateGroupCaption,mirrorStaffGroupCopy,resolveOwnerMemberAliases} from '../lib/whatsapp-private-audit.mjs'
+import {privateGroupConfig,inspectPrivateGroup,privateGroupCaption,mirrorStaffGroupCopy,resolveOwnerMemberAliases,wahaMemberId} from '../lib/whatsapp-private-audit.mjs'
 
 const env={GH_WA_AUDIT_ENABLED:'true',GH_WA_AUDIT_OWNER_ONLY:'false',GH_WA_AUDIT_RFQ_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_PO_GROUP_ID:'120363123456789@g.us',GH_WA_AUDIT_RFQ_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_PO_GROUP_NAME:'GH Procurement',GH_WA_AUDIT_ALLOWED_MEMBERS:'+94777712345,94777712346'}
 const config=privateGroupConfig(env)
@@ -133,4 +133,18 @@ test('two independent owner-only destination IDs are required by their respectiv
  assert.equal(privateGroupConfig(owner,'company_rfq').groupName,'RFQ')
  assert.equal(privateGroupConfig(owner,'po').groupId,'120363414257107130@g.us')
  assert.equal(privateGroupConfig(owner,'company_po').groupName,'PO')
+});
+
+
+test('single-owner LID can be authenticated using WAHA participant.pn without weakening membership rules',()=>{
+ const owner={...env,GH_WA_AUDIT_OWNER_ONLY:'true',GH_WA_AUDIT_ALLOWED_MEMBERS:''}
+ const policy=privateGroupConfig(owner,'rfq')
+ const linked={id:{user:'94777712345',server:'c.us'}}
+ const member={id:{user:'12345678901',server:'lid'},pn:'94777712345@c.us',role:'superadmin'}
+ assert.equal(wahaMemberId(member.id),'12345678901@lid')
+ assert.equal(wahaMemberId(linked.id),'94777712345@c.us')
+ assert.deepEqual(inspectPrivateGroup({group,participants:[member],config:policy,sessionMe:linked}),{ok:true,reason:'verified_owner_only'})
+ assert.equal(inspectPrivateGroup({group,participants:[{...member,pn:'94777799999@c.us'}],config:policy,sessionMe:linked}).ok,false)
+ assert.equal(inspectPrivateGroup({group,participants:[member,{id:'94777799999@c.us'}],config:policy,sessionMe:linked}).ok,false)
+ assert.equal(inspectPrivateGroup({group,participants:[{...member,pn:null}],config:policy,sessionMe:linked}).ok,false)
 });
