@@ -105,6 +105,9 @@ export async function GET(request:Request){
     }else invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'unrecognized_reply',responseShape:wahaResponseShape(replyData)})
    }catch{invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'lookup_unavailable'})}
   }
+  // Read-only migration status. This never creates a table or claims a dispatch.
+  const {error:auditSchemaError}=await db.from('proc_whatsapp_private_group_copies').select('id').limit(1)
+  const auditDatabaseReady=!auditSchemaError
   const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string;ownerVerified:boolean}>=[]
   for(const item of found.values()){
    let count:number|null=null,memberIds:string[]=[],reason='not_verified',ownerVerified=false
@@ -121,6 +124,6 @@ export async function GET(request:Request){
   }
   results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
   return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
-   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),discovery:{source,listed:totalListed,nameless,recognized,groupCount,responseShape:firstResponseShape},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
+   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),auditDatabaseReady,discovery:{source,listed:totalListed,nameless,recognized,groupCount,responseShape:firstResponseShape},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
  }catch{return reply({ok:false,connected:false,error:'Unable to read WAHA groups. Try again after the WhatsApp session has synchronized.'},503)}
 }
