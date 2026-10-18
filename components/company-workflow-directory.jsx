@@ -11,7 +11,7 @@ const equalIds=(a=[],b=[])=>[...a].sort().join('|')===[...b].sort().join('|')
 const phone=s=>s?.whatsapp||s?.phone||'No number'
 
 // Settings-only screen. Configuring routes MUST NOT create an RFQ, PO or WAHA dispatch.
-export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true,flash=()=>{},fail=()=>{}}){
+export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true,flash=()=>{},fail=()=>{},embedded=false}){
  const [data,setData]=useState(null)
  const [query,setQuery]=useState('')
  const [drafts,setDrafts]=useState({})
@@ -283,8 +283,9 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
  }
 
  if(!can('company_lists.manage'))return null
- return <details className="card pad section company-workflow-checklist" aria-label="Company workflow directory">
-  <summary><strong>Company Workflow Checklist</strong> <span className="muted tiny">· RFQ / PO settings</span></summary>
+ const Container=embedded?'section':'details'
+ return <Container className={'company-workflow-checklist '+(embedded?'company-workflow-embedded':'card pad section')} aria-label="Company workflow directory">
+  {!embedded&&<summary><strong>Company Workflow Checklist</strong> <span className="muted tiny">· RFQ / PO settings</span></summary>}
   <p className="muted tiny section">Tick RFQ or PO beside a company or category. Each parent controls the categories below; existing child supplier assignments are retained. Both unchecked means manual. Settings are not active until saved, and saving does not send orders or WhatsApp messages.</p>
   <div className="company-workflow-check-toolbar">
    <input className="input company-workflow-search" type="search" value={query} onChange={e=>setQuery(e.target.value)} aria-label="Search companies, categories and suppliers" placeholder="Search company or category…"/>
@@ -322,5 +323,5 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
    })}
    </div>
   </div>}
- </details>
+ </Container>
 }
