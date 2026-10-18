@@ -50,6 +50,7 @@ export async function GET(request:Request){
    {name:'PO',id:process.env.GH_WA_AUDIT_PO_GROUP_ID}
   ]
   const directChecks:Array<{name:string;ok:boolean;reason:string;shape?:ReturnType<typeof wahaResponseShape>}>=[]
+  const exactTarget=(item:{id:string;name:string})=>configuredTargets.some(t=>t.id===item.id&&t.name===item.name)
   for(const candidate of configuredTargets){
    const id=String(candidate.id||'')
    if(!/^[0-9][0-9-]{5,48}@g\.us$/.test(id)){
@@ -78,7 +79,7 @@ export async function GET(request:Request){
    const fresh=parsed.items.filter(group=>!seen.has(group.id))
    if(!fresh.length)break
    for(const item of fresh){seen.add(item.id);totalListed++;if(!item.name)nameless++}
-   for(const item of groupMatches(fresh,desired))if(!found.has(item.id))found.set(item.id,item)
+   for(const item of groupMatches(fresh,desired))if(exactTarget(item)&&!found.has(item.id))found.set(item.id,item)
    if(parsed.items.length<50)break
   }
   if(found.size<2&&nameless>0){
@@ -88,7 +89,7 @@ export async function GET(request:Request){
     try{
      const metadata=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(id),config.key)
      const named=groupMatches(parseWahaGroups({[id]:metadata}).items,desired)
-     if(named.length&&!found.has(id))found.set(id,named[0])
+     if(named.length&&exactTarget(named[0])&&!found.has(id))found.set(id,named[0])
     }catch{}
    }
   }
@@ -99,7 +100,7 @@ export async function GET(request:Request){
     for(let offset=0;offset<200;offset+=50){
      const chats=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/chats?limit=50&offset='+offset+'&sortBy=messageTimestamp&sortOrder=desc',config.key)
      const list=parseWahaChats(chats)
-     for(const g of groupMatches(list,desired))if(!found.has(g.id))found.set(g.id,g)
+     for(const g of groupMatches(list,desired))if(exactTarget(g)&&!found.has(g.id))found.set(g.id,g)
      if(tidy(chats).length<50)break
     }
     if(found.size)source='chats'
@@ -117,7 +118,7 @@ export async function GET(request:Request){
     if(info){
      const role=preferredInviteRoles(info)
      invitePreviews.push({slot:i+1,id:info.id,name:info.name||null,memberCount:info.memberCount,isCommunity:info.isCommunity,status:role?'recognized':'preview_only'})
-     if(role&&!info.isCommunity&&!found.has(info.id)){
+     if(role&&!info.isCommunity&&exactTarget({id:info.id,name:role})&&!found.has(info.id)){
       found.set(info.id,{id:info.id,name:role==='GENERAL'?'General':role})
       source=source==='groups'?'groups_and_invites':source+'_and_invites'
      }
