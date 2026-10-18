@@ -661,6 +661,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
     <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">One editable draft. Nothing is submitted until final confirmation.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)} aria-label="Save stock draft and pause">Save draft</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}} aria-label="View past stock submissions">History</button><button type="button" className="btn primary" aria-label={`Final confirmation for ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Finalizing…':`Finalize · ${pendingLot.count}`}</button></div>
     {!markersReady&&<p className="notice" role="alert">Checking recent finalized stock lots is required before final confirmation. <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
     {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
      {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
@@ -671,7 +672,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
       <button type="button" className="btn small stock-lot-remove" onClick={()=>removeFromLot(row.id)} aria-label={'Remove '+row.description+' from pending lot'}>Remove</button>
      </div>)}</div>
     </>}
-    <div className="stock-lot-actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)}>Save &amp; pause</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}}>Past submissions</button><button type="button" className="btn primary" disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Finalizing…':`Final confirm · ${pendingLot.count}`}</button></div>
+
     <p className="muted tiny">Draft edits save automatically. Final confirmation creates one stock count and sends any shortages to the existing procurement workflow.</p>
    </div>
   </div>}
