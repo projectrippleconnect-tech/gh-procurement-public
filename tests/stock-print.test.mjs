@@ -178,3 +178,53 @@ test('two short company subcategories fit on one compact A4 page',()=>{
  assert.ok(pdf.output().includes('Switches / White'))
  assert.ok(pdf.output().includes('Switches / Black'))
 })
+
+
+test('root-assigned company stock uses existing finish/type leaves, without editing any records',()=>{
+ const sections=[
+  {id:'root',name:'KEVILTON',parent_id:null,sort_order:0},
+  {id:'white',name:'KEVILTON WHITE',parent_id:'root',sort_order:0},
+  {id:'black',name:'KEVILTON BLACK',parent_id:'root',sort_order:10},
+  {id:'mahogany',name:'KEVILTON MAHOGANI',parent_id:'root',sort_order:20},
+  {id:'ws',name:'SWITCHES',parent_id:'white',sort_order:0},
+  {id:'bs',name:'SWITCHES',parent_id:'black',sort_order:0},
+  {id:'ms',name:'SWITCHES',parent_id:'mahogany',sort_order:0},
+  {id:'wc',name:'SOCKETS & PLUG ACCESSORIES',parent_id:'white',sort_order:10}
+ ]
+ const rows=[
+  {id:'w',section_id:'root',category:'KEVILTON',main_group:'SWITCHES',subgroup:'WHITE',colour:'WHITE',description:'White 1-way'},
+  {id:'b',section_id:'root',category:'KEVILTON',main_group:'SWITCHES',subgroup:'BLACK',colour:'BLACK',description:'Black 1-way'},
+  {id:'m',section_id:'root',category:'KEVILTON',main_group:'SWITCHES',subgroup:'MAHOGANY',colour:'MAHOGANI',description:'Mahogany 1-way'},
+  {id:'socket',section_id:'wc',main_group:'SWITCHES',subgroup:'BLACK',description:'Explicit placement wins'},
+  {id:'u',section_id:'root',main_group:'KEVILTON',subgroup:'WHITE',description:'Unknown type'}
+ ]
+ const before=JSON.stringify({sections,rows})
+ const groups=groupStockPrintRows(rows,sections)
+ assert.deepEqual(groups.map(g=>[g.title,g.items.map(i=>i.id)]),[
+  ['KEVILTON / KEVILTON WHITE / SWITCHES',['w']],
+  ['KEVILTON / KEVILTON WHITE / SOCKETS & PLUG ACCESSORIES',['socket']],
+  ['KEVILTON / KEVILTON BLACK / SWITCHES',['b']],
+  ['KEVILTON / KEVILTON MAHOGANI / SWITCHES',['m']],
+  ['Other / Uncategorized',['u']]
+ ])
+ assert.equal(groups.reduce((n,g)=>n+g.items.length,0),rows.length)
+ assert.equal(JSON.stringify({sections,rows}),before,'The catalogue and saved section assignments must remain untouched')
+})
+
+test('ambiguous root matches are left uncategorized, without guessing an item type',()=>{
+ const sections=[
+  {id:'r',name:'EXAMPLE'}, {id:'white',parent_id:'r',name:'EXAMPLE WHITE'},
+  {id:'g1',parent_id:'white',name:'SWITCHES'},
+  {id:'g2',parent_id:'white',name:'SWITCHES'}
+ ]
+ const rows=[{section_id:'r',description:'Ambiguous',main_group:'SWITCHES',subgroup:'WHITE'}]
+ const groups=groupStockPrintRows(rows,sections)
+ assert.equal(groups.length,1)
+ assert.equal(groups[0].title,'Other / Uncategorized')
+})
+
+test('standalone company root without subgroups retains direct items under General items',()=>{
+ const sections=[{id:'r',name:'ALKATHINE'}]
+ const groups=groupStockPrintRows([{section_id:'r',description:'Alkathine pipe',main_group:'ALKATHINE'}],sections)
+ assert.deepEqual(groups.map(g=>g.title),['ALKATHINE / General items'])
+})

@@ -28,8 +28,14 @@ BEGIN
  ASSERT (SELECT default_supplier_id IS NULL FROM public.proc_companies WHERE id=co),'Multiple suppliers kept an ambiguous independent default';
  ASSERT private.proc_company_effective_route(co,item_v)->'supplier_ids'=to_jsonb(ARRAY[one]),'Effective routing used an unselected contact';
  INSERT INTO supplier_setup_results VALUES('Full assignment list and selected recipients persist independently in one save',true);
- failure:=NULL;BEGIN PERFORM public.proc_company_save_supplier_setup(co,NULL,'direct',ARRAY[one,two],ARRAY[one],'{}',(saved->>'id')::uuid,(saved->>'updated_at')::timestamptz);EXCEPTION WHEN OTHERS THEN failure:=SQLERRM;END;
- ASSERT failure LIKE '%one assigned supplier%', 'Direct PO accepted a multi-supplier assignment';
+ -- Multiple designated contacts are legitimate; a Direct PO has one chosen recipient.
+ current_route:=public.proc_company_save_supplier_setup(co,NULL,'direct',ARRAY[one,two],ARRAY[one],'{}',(saved->>'id')::uuid,(saved->>'updated_at')::timestamptz);
+ ASSERT (SELECT assigned_supplier_ids=ARRAY[one,two] FROM public.proc_company_section_routes WHERE id=(current_route->>'id')::uuid),'Direct PO unexpectedly removed designated contacts';
+ ASSERT (SELECT count(*)=1 FROM public.proc_company_section_route_suppliers WHERE route_id=(current_route->>'id')::uuid),'Direct PO must select one actual recipient';
+ ASSERT private.proc_company_effective_route(co,item_v)->'supplier_ids'=to_jsonb(ARRAY[one]),'Direct PO effective supplier differed from selected contact';
+ saved:=current_route;
+ failure:=NULL;BEGIN PERFORM public.proc_company_save_supplier_setup(co,NULL,'direct',ARRAY[one,two],ARRAY[one,two],'{}',(saved->>'id')::uuid,(saved->>'updated_at')::timestamptz);EXCEPTION WHEN OTHERS THEN failure:=SQLERRM;END;
+ ASSERT failure LIKE '%exactly one recipient%', 'Direct PO incorrectly accepted multiple actual recipients';
  failure:=NULL;BEGIN PERFORM public.proc_company_save_supplier_setup(co,NULL,'rfq',ARRAY[one],ARRAY[other],'{}',(saved->>'id')::uuid,(saved->>'updated_at')::timestamptz);EXCEPTION WHEN OTHERS THEN failure:=SQLERRM;END;
  ASSERT failure LIKE '%assigned supplier list%', 'Unassigned recipient was accepted';
  current_route:=public.proc_company_save_supplier_setup(co,NULL,'direct',ARRAY[two],ARRAY[two],'{}',(saved->>'id')::uuid,(saved->>'updated_at')::timestamptz);
@@ -37,7 +43,7 @@ BEGIN
  ASSERT private.proc_company_effective_route(co,item_v)->'supplier_ids'=to_jsonb(ARRAY[two]),'PO routing did not follow the selected supplier';
  failure:=NULL;BEGIN PERFORM public.proc_company_save_supplier_setup(co,NULL,'manual',ARRAY[one],ARRAY[one],'{}',(saved->>'id')::uuid,(saved->>'updated_at')::timestamptz);EXCEPTION WHEN OTHERS THEN failure:=SQLERRM;END;
  ASSERT failure LIKE '%changed elsewhere%', 'A stale editor overwrote the route';
- INSERT INTO supplier_setup_results VALUES('Direct PO validation, canonical contact and stale editor protection',true);
+ INSERT INTO supplier_setup_results VALUES('Direct PO recipient validation, multiple designated contacts and stale editor protection',true);
  current_route:=public.proc_company_save_supplier_setup(co,NULL,'direct_manual',ARRAY[one,two],ARRAY[one],'{}',(current_route->>'id')::uuid,(current_route->>'updated_at')::timestamptz);
  ASSERT (SELECT route_mode='direct' AND NOT auto_send FROM public.proc_company_section_routes WHERE id=(current_route->>'id')::uuid),'Manual direct route was converted or enabled automatically';
  current_route:=public.proc_company_save_supplier_setup(co,NULL,'direct',ARRAY[two],ARRAY[two],'{}',(current_route->>'id')::uuid,(current_route->>'updated_at')::timestamptz);
