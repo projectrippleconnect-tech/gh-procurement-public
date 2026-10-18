@@ -127,3 +127,5 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 Manual GH Procurement PDF release PR #125: company lists print Company / Category / Subcategory as separate compact A4 tables, numbering resets per table, long tables continue with titles, all unassigned items appear under Other / Uncategorized; preserve all item data, procurement features, column styles, and existing three approval signoffs plus Date. Verified 382 Node tests, lint and security audit. Run Railway locked install, audit, TypeScript, tests, build, and health check.
 
 2026-10-18 GH Procurement isolated accessibility release: increase the Company Items 'Print & list tools' heading from 12px to 18px, stronger contrast and font weight. CSS-only; preserve all existing procurement features, records, and routing. Verify locked install, security audit, lint, tests, build, and health endpoint.
+
+2026-10-18 Post-build font heading release retry: queue commit after category-wise PDF production build completed successfully; CSS-only company print/list heading readability update.
