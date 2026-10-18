@@ -495,7 +495,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
     <strong>{newSupplierNameConflict?'⚠️ Warning: phone/WhatsApp number already belongs to a different contact name.':'This phone/WhatsApp number already exists.'}</strong>
     {newSupplierMatches.map(r=><div key={r.id} className="muted tiny">{r.name}{r.contact_person?' · '+r.contact_person:''} · {r.whatsapp||r.phone}</div>)}
     {newSupplierNameConflict&&<label className="field"><input type="checkbox" checked={reviewedSupplierConflict} onChange={e=>setReviewedSupplierConflict(e.target.checked)}/> I have checked the existing number and still want to add this supplier.</label>}
-   </div>
+   </div>}
    {smartEnabled&&paymentSuggestions.length>0&&<div className="section"><div className="muted tiny">Smart payment-term suggestions</div><div className="pillrow section">{paymentSuggestions.slice(0,6).map(x=><button type="button" className="choice-pill" key={x} onClick={()=>setForm(v=>({...v,payment_terms:x}))}>{x}</button>)}</div></div>}
    <button className="btn primary section" onClick={add} disabled={newSupplierNameConflict&&!reviewedSupplierConflict}>{t('suppliers.save','Save Supplier')}</button></div>}
    {coverageSupplier&&<div className="card pad supplier-coverage"><div className="sectionhead"><div><h3>{coverageSupplier.name} Coverage</h3><p>Rules limit which requirements this supplier is suggested for. No rules means a general supplier.</p></div><button className="btn small" onClick={()=>setCoverageSupplier(null)}>{t('common.close','Close')}</button></div>
