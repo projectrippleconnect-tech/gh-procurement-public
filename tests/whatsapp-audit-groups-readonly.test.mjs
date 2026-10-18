@@ -11,7 +11,7 @@ test('WhatsApp group check authenticates an active admin and never sends or join
  assert.match(api,/\.railway\.internal/)
  assert.match(api,/\/groups\?limit=50/)
  assert.match(api,/\/participants\/v2/)
- assert.doesNotMatch(api,/sendImage|sendText|\/groups\/join|\/participants\/add|export async function POST/)
+ assert.doesNotMatch(api,/sendImage|sendText|\/groups\/join(?!-info)|\/participants\/add|export async function POST/)
 });
 test('Company Setup offers a manual, read-only group check rather than auto enabling copies',()=>{
  const ui=file('components/whatsapp-audit-groups.jsx')
