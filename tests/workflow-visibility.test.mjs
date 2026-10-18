@@ -35,6 +35,6 @@ test('shared UI does not label or mount disabled workflow stages',()=>{
 test('stock confirmation and save messages are neutral for stock-only users',()=>{
  const stock=readFileSync(new URL('../components/modules-stock.jsx',import.meta.url),'utf8')
  assert.match(stock,/const canSeeReview=canNavigate\('requirements'\)/)
- assert.match(stock,/if\(!canSeeReview\)message\+=checked\.length\+' item\(s\) saved\.'/)
+ assert.match(stock,/if\(!canSeeReview\)message\+=lot\.count\+' item\(s\) saved\.'/)
  assert.doesNotMatch(stock,/submission\.needsReview&&!canNavigate\('requirements'\)/)
 })
