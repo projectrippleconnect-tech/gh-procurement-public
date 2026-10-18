@@ -13,6 +13,7 @@ function fixture(){
  const state={entry:{a:'0',b:'5'},sufficient:{},failCompany:null}
  const scope={
   canCount:true,busy:false,allCompanies:true,companyId:'all',
+  companyHistoryReady:true,companyLotBlocked:[],oversizedCompanyLot:false,lotGroups:[{companyId:'A'},{companyId:'B'}],submitLock:{current:false},
   companies:[{id:'A'},{id:'B'},{id:'C'}],
   rows:[{id:'a',company_id:'A'},{id:'b',company_id:'B'},{id:'blank',company_id:'C'}],
   entry:state.entry,sufficient:state.sufficient,draftKey:'draft',startedAt:{current:'2026-10-17T08:00:00Z'},
@@ -23,6 +24,7 @@ function fixture(){
   companyApi:async(_,body)=>{calls.push(structuredClone(body));if(body.companyId===state.failCompany)throw new Error('Fixture unavailable');return {count_no:body.companyId,purchase_orders:[],rfqs:[]}},
   setEntry:v=>{scope.entry=v;state.entry=v},setSufficient:v=>{scope.sufficient=v;state.sufficient=v},
   setSubmissionResult:v=>results.push(v),flash:()=>{},fail:e=>errors.push(e.message),
+  setRecentFinalized:()=>{},setCompanyReviewOpen:()=>{},setCompanyRecounts:()=>{},loadCompanyHistory:async()=>{},
   companySubmissionMessage:()=>'',loadRows:async()=>{}
  }
  vm.createContext(scope)
