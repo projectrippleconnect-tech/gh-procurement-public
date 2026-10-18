@@ -39,6 +39,15 @@ export function WhatsAppAuditGroups(){
     {!!group.memberIds?.length&&<details><summary className="muted tiny">View group member IDs</summary><p className="muted tiny" style={{overflowWrap:'anywhere'}}>{group.memberIds.join(', ')}</p></details>}
    </div>)}
    </div>
+   {!!result.invitePreviews?.length&&<div style={{border:'1px solid var(--line)',borderRadius:8,padding:8,marginTop:7}}>
+    <strong>Invite-link verification (read-only)</strong>
+    <p className="muted tiny">Group invite codes stay on the server and are never displayed here. This lookup does not join a community or send a message.</p>
+    {result.invitePreviews.map(p=><p key={p.slot} className="muted tiny" style={{margin:'5px 0',overflowWrap:'anywhere'}}>
+     <strong>Link {p.slot}:</strong> {p.name||'Name unavailable'} {p.isCommunity?'· Community (not an audit subgroup)':''}
+     {p.id?' · Group ID '+p.id:''} {p.memberCount!==null?' · '+p.memberCount+' reported members':''}
+     {p.status!=='recognized'?' · '+(p.status==='lookup_unavailable'?'WAHA lookup unavailable':p.status==='unrecognized_reply'?'WAHA returned unknown group format':'Review identity before use'):''}
+    </p>)}
+   </div>}
    {!!result.missing?.length&&<p className="muted tiny">Not found: {result.missing.join(', ')}. These groups must appear in WAHA before an audit destination can be enabled.</p>}
    <p className="muted tiny">No messages were sent by this check. A successful lookup does not confirm that a one-person group accepts messages; verify in WhatsApp first.</p>
   </>}
