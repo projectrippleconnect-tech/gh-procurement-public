@@ -2,6 +2,7 @@
 import {createClient} from '@supabase/supabase-js'
 import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '@/lib/waha-group-discovery.mjs'
 import {inviteCodes,normalizeInviteInfo,preferredInviteRoles} from '@/lib/waha-invite-info.mjs'
+import {inspectPrivateGroup} from '@/lib/whatsapp-private-audit.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
@@ -37,6 +38,7 @@ export async function GET(request:Request){
  try{
   const state=await read(config.base+'/api/sessions/',encodeURIComponent(config.session),config.key)
   if(state?.status!=='WORKING')return reply({ok:false,connected:false,error:'WAHA session is not connected.'},503)
+  const ownerSession=state.me?.id?state.me:await read(config.base,'/api/sessions/'+encodeURIComponent(config.session)+'/me',config.key).catch(()=>null)
   let groupCount:number|null=null
   try{
    const count=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/count',config.key)
@@ -103,17 +105,19 @@ export async function GET(request:Request){
     }else invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'unrecognized_reply',responseShape:wahaResponseShape(replyData)})
    }catch{invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'lookup_unavailable'})}
   }
-  const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string}>=[]
+  const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string;ownerVerified:boolean}>=[]
   for(const item of found.values()){
-   let count:number|null=null,memberIds:string[]=[],reason='not_verified'
+   let count:number|null=null,memberIds:string[]=[],reason='not_verified',ownerVerified=false
    try{
     const p=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(item.id)+'/participants/v2',config.key)
     const members=tidy(p).filter(x=>!['left','removed'].includes(String(x?.role||'').toLowerCase()))
     memberIds=members.map(x=>String(x?.id?._serialized||x?.id||'')).filter(Boolean)
     count=members.length
-    reason=count===0?'no_members_returned':count===1?'only_your_account_reported':'check_each_member'
+    const ownerCheck=inspectPrivateGroup({group:{id:item.id,subject:item.name},participants:p,config:{ready:true,groupId:item.id,groupName:item.name,ownerOnly:true,approved:[]},sessionMe:ownerSession})
+    ownerVerified=ownerCheck.ok
+    reason=ownerCheck.ok?'verified_owner_only':count===0?'no_members_returned':count===1?ownerCheck.reason:'check_each_member'
    }catch{reason='participant_check_unavailable'}
-   results.push({name:item.name,id:item.id,memberCount:count,memberIds,reason})
+   results.push({name:item.name,id:item.id,memberCount:count,memberIds,reason,ownerVerified})
   }
   results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
   return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
