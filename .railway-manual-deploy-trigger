@@ -95,3 +95,4 @@ Manually authorized GH Procurement Company Supplier Directory release, 2026-10-1
 2026-10-18 retry stock-handler UI privacy release: update legacy five-step contract assertion for role-scoped navigation; 333 tests and Next production build gated before rollout. No data/schema changes or messages sent.
 
 2026-10-18 Company Lists UI deduplication release: merged PR #112, four section setup, preserves existing supplier contacts, routing, PDF templates, WhatsApp audit groups. Build gates apply; no database migrations or outbound orders/messages in this change.
+2026-10-18 manual GH Stock Handler confidentiality follow-up: isolated stock-only Home, role-scoped help topics, neutral urgent and stock-history labels, no buyer activity buttons; no schema modifications, no supplier/order sends; strict test, typecheck, audit, build and Railway health release gate.
