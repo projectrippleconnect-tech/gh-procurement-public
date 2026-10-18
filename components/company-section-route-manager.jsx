@@ -313,6 +313,13 @@ export function CompanySectionRouteManager({company,sections=[],rows=[],can=()=>
         confirmLabel:own.route_mode==='rfq'?'Prepare & send RFQ':'Prepare & send PO',
         onConfirm:()=>run(()=>sendConfiguredRoute(section,own))
        })}>{own.route_mode==='rfq'?'Send RFQ image now':'Send PO image now'}</button>
+      <button type="button" className="btn bad small" disabled={busy} onClick={()=>confirm({
+       title:'Remove saved category routing override',
+       message:'Remove the saved '+(paths.get(section.id)||section.name)+' routing override and use its inherited / company fallback for future requirements?',
+       warning:'This removes the category-specific supplier selection and template. Existing RFQs and POs and their history are retained. Future automatic sending rules may change.',
+       confirmLabel:'Remove saved override',
+       onConfirm:()=>run(()=>removeOverride(section))
+      })}>Use inherited / company default</button>
     </div>}
     {dispatchNotice?.groupId===section.id&&<p role="status" className="notice group-route-feedback">{dispatchNotice.text}</p>}
     {editing===section.id&&own&&<div className="section" aria-label="Document image and WhatsApp caption template">
