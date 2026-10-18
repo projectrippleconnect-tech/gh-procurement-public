@@ -11,6 +11,7 @@ import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
+import {stockLotReview} from '@/lib/stock-lot.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
@@ -125,6 +126,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
+ const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[explicitRecounts,setExplicitRecounts]=useState(new Set())
+ const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
  const[heldSearch,setHeldSearch]=useState(null)
  const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false),[catalogueError,setCatalogueError]=useState(''),[catalogueRetry,setCatalogueRetry]=useState(0),[searchError,setSearchError]=useState('')
@@ -219,6 +222,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
 
  useEffect(()=>{
   if(!draftReady)return
+  if(skipEmptyDraft.current&&!Object.values(entry).some(v=>v!==''&&v!==undefined)&&!Object.values(sufficient).some(Boolean)){
+   try{localStorage.removeItem(draftKey)}catch{}
+   return
+  }
   const savedAt=new Date().toISOString()
   const filters={cat,movement,mainGroup,dueOnly,heldSearch,sufficient}
   const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
@@ -400,12 +407,16 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   ensureServerCountStart().catch(error=>console.warn('Stock count session start failed',error))
  }
  function setCount(id,v){
+  if(finalizedMarkers[id]&&!explicitRecounts.has(id))return
+  skipEmptyDraft.current=false
   const raw=normalizeQuantityInput(v)
   if(raw===null)return
   if(raw!==''&&!/^\d*(?:\.\d{0,3})?$/.test(raw))return
   beginCount();setEntry(x=>({...x,[id]:raw}));setSufficient(s=>{if(!s[id])return s;const n={...s};delete n[id];return n});setSkipped(s=>{if(!s.has(id))return s;const n=new Set(s);n.delete(id);return n})
  }
  function setEnough(id,checked){
+  if(finalizedMarkers[id]&&!explicitRecounts.has(id))return
+  skipEmptyDraft.current=false
   beginCount()
   setSufficient(previous=>{const next={...previous};if(checked)next[id]=true;else delete next[id];return next})
   if(checked)setSkipped(previous=>{if(!previous.has(id))return previous;const next=new Set(previous);next.delete(id);return next})
@@ -459,6 +470,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   nextUnfinished(cursor+1)
  }
  function openQuick(i){
+  if(finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)){
+   void allowRecount(i.item_id).then(allowed=>{if(allowed){setQuickItem(i);setQuickValue('');setSearchOpen(false)}})
+   return
+  }
   setQuickItem(i);setQuickValue(entry[i.item_id]??'');setSearchOpen(false)
   setTimeout(()=>quickInput.current?.focus(),80)
  }
@@ -491,6 +506,35 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   // Mobile focus is kept above the action dock by the shared workspace handler.
   if(window.innerWidth>700)document.getElementById('browse-row-'+i.item_id)?.scrollIntoView({block:'nearest'})
  }
+
+
+ // A stock lot remains editable until final confirmation; item IDs are unique.
+ const labelMap=useMemo(()=>Object.fromEntries(localSearchIndex.map(i=>[i.item_id,stockItemLabel(i)])),[localSearchIndex])
+ const pendingLot=useMemo(()=>stockLotReview(entry,sufficient,labelMap,finalizedMarkers,explicitRecounts),[entry,sufficient,labelMap,finalizedMarkers,explicitRecounts])
+ async function allowRecount(id){
+  const prev=finalizedMarkers[id]
+  if(!prev||explicitRecounts.has(id))return true
+  const allowed=await confirmAction('This item was finalized in '+(prev.count_no||'an earlier stock lot')+' on '+submissionTime(prev.submitted_at)+'. Intentionally count it again in a NEW lot? The earlier count remains in history.',{title:'Recount submitted item?',confirmLabel:'Allow recount'})
+  if(allowed){setExplicitRecounts(x=>new Set([...x,id]));beginCount()}
+  return allowed
+ }
+ async function refreshFinalizedMarkers(){
+  const revision=++finalizedRevision.current
+  try{
+   const result=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:12})
+   if(result.error)throw result.error
+   const own=(result.data||[]).filter(h=>h.counted_by===profile.id).slice(0,10)
+   const detail=await Promise.all(own.map(h=>supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:h.count_id})))
+   if(revision!==finalizedRevision.current)return
+   const latest={}
+   own.forEach((h,index)=>{
+    if(detail[index]?.error)return
+    for(const line of detail[index]?.data||[])if(!latest[line.item_id])latest[line.item_id]={count_no:h.count_no,submitted_at:h.submitted_at,count_id:h.count_id,current_stock:line.current_stock}
+   })
+   setFinalizedMarkers(current=>({...current,...latest}))
+  }catch(e){console.warn('Recently submitted stock markers unavailable',e)}
+ }
+ useEffect(()=>{void refreshFinalizedMarkers();return()=>{finalizedRevision.current++}},[profile.id])
 
  async function submit(){
   if(busy)return
