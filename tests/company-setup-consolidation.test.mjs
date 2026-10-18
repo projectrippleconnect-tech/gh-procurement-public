@@ -16,7 +16,7 @@ test('four company setup panels remain without the duplicated supplier wizard',(
  assert.match(block,/RFQ &amp; PO Workflow Settings/)
  assert.match(block,/CompanySectionRouteManager/)
  assert.match(block,/Advanced group sending &amp; document templates/)
- assert.match(block,/embedded\/>/)
+ assert.match(block,/<CompanyWorkflowDirectory\b[^>]*\bembedded\b/)
 })
 test('workflow checklist can be embedded without rendering a second title',()=>{
  const source=readFileSync('components/company-workflow-directory.jsx','utf8')
