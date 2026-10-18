@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {inviteCodes,normalizeInviteInfo,preferredInviteRoles} from '../lib/waha-invite-info.mjs'
 const id='120363123456789@g.us'
 test('Read-only invite validation strips URL params and rejects other sites, duplicates and invalid codes',()=>{
@@ -24,7 +25,6 @@ test('Unknown identities fail closed without inventing an ID or participant coun
  assert.equal(preferredInviteRoles(unknown),null)
 });
 test('Read-only invite path never calls WAHA join nor sends messages',()=>{
- const {readFileSync}=await import('node:fs')
  const source=readFileSync(new URL('../app/api/integrations/whatsapp/audit-groups/route.ts',import.meta.url),'utf8')
  assert.match(source,/groups\/join-info\?code=/)
  assert.doesNotMatch(source,/method:\s*['"]POST['"]|\/groups\/join['"]|sendImage|sendText/)
