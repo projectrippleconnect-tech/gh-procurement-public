@@ -99,7 +99,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const confirmAction=useActionConfirmation()
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[refreshing,setRefreshing]=useState(false),[search,setSearch]=useState('')
- const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
+ const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sectionFilter,setSectionFilter]=useState(''),[collapsedSections,setCollapsedSections]=useState({}),[sufficient,setSufficient]=useState({}),[sections,setSections]=useState([])
  const[submissionResult,setSubmissionResult]=useState(null),[setupOpen,setSetupOpen]=useState(!countingOnly)
  const [directoryRevision,setDirectoryRevision]=useState(0)
@@ -202,11 +202,33 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    setCompanies(v=>v.filter(c=>c.id!==companyId));setCompanyId('');setRows([]);setEntry({});flash('Company list removed from active selection.')
   }})
  }
- async function createCompany(){
-  if(!newCompany.name.trim())return fail(new Error(t('company_lists.name_required','Company name is required.')))
-  const code=newCompany.code.trim()||newCompany.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'')
-  const r=await supabase.from('proc_companies').insert({company_code:code,name:newCompany.name.trim(),created_by:profile.id}).select('id').single()
-  if(r.error)return fail(r.error);flash('Company list created.');setNewCompany({code:'',name:''});await loadCompanies();setCompanyId(r.data.id);try{const synced=await companyApi('sheets',{action:'publish',companyId:r.data.id});flash(synced.message)}catch(e){flash('Company created. Google Sheets tab awaits connection setup.');fail(e)}
+ async function createCompanyForQuickAdd({name,code}){
+  if(!canManage)throw new Error('Company management permission required.')
+  const nameValue=String(name||'').trim().replace(/\s+/g,' ')
+  if(!nameValue)throw new Error('Company name is required.')
+  const existing=companies.find(c=>c.name.trim().toLowerCase()===nameValue.toLowerCase())
+  if(existing)return existing
+  const generatedCode=nameValue.toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'')
+  const r=await supabase.from('proc_companies').insert({company_code:String(code||'').trim()||generatedCode,name:nameValue,created_by:profile.id,company_list_enabled:true}).select('id,name,company_code').single()
+  if(r.error)throw r.error
+  setCompanies(v=>[...v,r.data].sort((a,b)=>a.name.localeCompare(b.name)))
+  return r.data
+ }
+ async function saveQuickCompanyItem(item,{companyId:targetCompanyId,maxStock}){
+  if(!targetCompanyId||targetCompanyId==='all')throw new Error('Select a company to save this item.')
+  const found=await supabase.from('proc_company_list_items').select('id,active').eq('company_id',targetCompanyId).eq('item_id',item.id).maybeSingle()
+  if(found.error)throw found.error
+  if(!found.data?.active){
+   const record={company_id:targetCompanyId,item_id:item.id,target_stock:maxStock,reorder_level:reorderFor(maxStock),max_stock_review:false,active:true,updated_at:new Date().toISOString()}
+   const result=found.data
+    ?await supabase.from('proc_company_list_items').update(record).eq('id',found.data.id)
+    :await supabase.from('proc_company_list_items').insert({...record,created_by:profile.id})
+   if(result.error)throw result.error
+  }
+  setCompanyId(targetCompanyId);setCategory('');setSubgroup('');setSearch('')
+  await loadCompanies()
+  if(companyId===targetCompanyId)await loadRows()
+  return found.data?.active?'Item already exists in this company list; no duplicate created.':'Item saved to the selected company list.'
  }
  async function addItem(item){
   if(!companyId)return
@@ -322,13 +344,17 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </div></details>}
   {canManage&&companyId&&!allCompanies&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows} superAdmin={(profile.role_key||profile.role)==='admin'}/>}
   {companyId&&!allCompanies&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
-  {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
-   <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>
-   {!allCompanies&&<div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{'Reorder · 50%'}</label><input className="input" readOnly value={target===''?'':reorderFor(target)}/></div></div>
-    <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{const max=Number(item.max_stock||0);const r=await supabase.from('proc_company_list_items').upsert({company_id:companyId,item_id:item.id,target_stock:max,reorder_level:max*.5,max_stock_review:false,active:true,created_by:profile.id},{onConflict:'company_id,item_id'});if(r.error)throw r.error;await loadRows();flash('Company item created with a 50% reorder level.')}}/>
-    {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{i.description}</strong><div className="muted tiny">{[i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
-   </div>}
-  </div></details>}
+  {canManage&&<div className="card pad section" aria-label="Company item quick create">
+   <h3>Company item management</h3>
+   <QuickAddItem mode="company" can={can} fail={fail} flash={flash} companies={companies} selectedCompanyId={allCompanies?'':companyId} onCreateCompany={createCompanyForQuickAdd} onCreated={saveQuickCompanyItem}/>
+   {!allCompanies&&<details className="section"><summary>Add an existing item to this company</summary>
+    <div className="formgrid section"><label className="field">Find item<input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder="Item, code or size"/></label>
+     <label className="field">Maximum stock<input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></label>
+     <label className="field">Reorder · 50%<input className="input" readOnly value={target===''?'':reorderFor(target)}/></label>
+    </div>
+    {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button type="button" className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{i.description}</strong><div className="muted tiny">{[i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
+   </details>}
+  </div>}
   </>}
   {!setupOpen&&canCount&&companyId&&active&&<StockSubmitAction active={active}><div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
    <div className="count-dock-summary" role="status"><strong>{countTotal} of {rows.length} counted</strong><small>{search||category||subgroup||brand||sectionFilter?'Includes counted items outside filters':'Zero counts as entered · blank items are skipped'}</small></div>
