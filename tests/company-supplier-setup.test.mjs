@@ -6,8 +6,10 @@ const suppliers=[{id:'one',phone:'+94771234567'},{id:'two',whatsapp:'+9477765432
 test('manual review needs no contact and never enables automatic sending',()=>{
  assert.deepEqual(supplierSetupPlan({mode:'manual'}),{valid:true,assigned:[],recipients:[],mode:'manual'})
 })
-test('direct orders need exactly one assigned supplier and an assigned recipient',()=>{
- assert.equal(supplierSetupPlan({mode:'direct',assigned:['one','two'],recipients:['one'],suppliers}).valid,false)
+test('direct orders allow several designated suppliers with exactly one selected recipient',()=>{
+ assert.equal(supplierSetupPlan({mode:'direct',assigned:['one','two'],recipients:['one'],suppliers}).valid,true)
+ assert.deepEqual(supplierSetupPlan({mode:'direct',assigned:['one','two'],recipients:['one'],suppliers}).assigned,['one','two'])
+ assert.equal(supplierSetupPlan({mode:'direct',assigned:['one','two'],recipients:['one','two'],suppliers}).valid,false)
  assert.equal(supplierSetupPlan({mode:'rfq',assigned:['one'],recipients:['two'],suppliers}).valid,false)
  assert.equal(supplierSetupPlan({mode:'direct',assigned:['one'],recipients:['one'],suppliers}).valid,true)
 })
