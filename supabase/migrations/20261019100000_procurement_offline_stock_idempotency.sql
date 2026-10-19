@@ -47,10 +47,7 @@ begin
   or length(p_lines::text)>250000 then raise exception 'Invalid stock lines.';end if;
  if length(coalesce(p_category,''))>100 then raise exception 'Category too long.';end if;
  if p_reset_revisions is null or jsonb_typeof(p_reset_revisions)<>'object' then raise exception 'Invalid stock reset revisions.';end if;
- if coalesce(p_reset_revisions->>'stock','') <> coalesce((select value #>> '{}' from public.proc_settings where key='stock_reset_revision'),'')
- or coalesce(p_reset_revisions->>'procurement','') <> coalesce((select value #>> '{}' from public.proc_settings where key='procurement_reset_revision'),'')
- then raise exception 'Stock or procurement data was reset after this offline count. Ask an administrator to review before submitting.';
- end if;
+
 
  hash_v:=md5(concat_ws('|',p_kind,coalesce(p_company_id::text,''),
   coalesce(p_category,''),coalesce(p_started_at::text,''),p_lines::text,p_reset_revisions::text));
@@ -62,6 +59,11 @@ begin
    raise exception 'Offline operation identifier already belongs to another submission.' using errcode='23505';
   end if;
   return receipt.result || jsonb_build_object('offline_replayed',true);
+ end if;
+
+ if coalesce(p_reset_revisions->>'stock','') <> coalesce((select value #>> '{}' from public.proc_settings where key='stock_reset_revision'),'')
+ or coalesce(p_reset_revisions->>'procurement','') <> coalesce((select value #>> '{}' from public.proc_settings where key='procurement_reset_revision'),'')
+ then raise exception 'Stock or procurement data was reset after this offline count. Ask an administrator to review before submitting.';
  end if;
 
  if p_kind='general' then
