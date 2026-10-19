@@ -265,16 +265,17 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    counted.forEach(r=>{delete nextEntry[r.id];delete nextSufficient[r.id]})
    setEntry(nextEntry);setSufficient(nextSufficient)
    if(!Object.keys(nextEntry).length&&!Object.keys(nextSufficient).length)startedAt.current=null
-   let saved=null
+   let saved=null,syncError=''
    if(!isDisconnected()){
     const sync=await synchronizeStockSubmissions(profile.id,supabase)
+    syncError=sync.error||''
     if(sync.completedIds?.includes(op.id))saved=sync.receipts[op.id]
    }
    if(saved){
     flash(saved.count_no+' confirmed by server. '+(saved.requirements_created||0)+' new shortage(s).')
     await loadRows()
     if(saved.dispatch){if(saved.dispatch.ok)flash(saved.dispatch.message);else fail(new Error(saved.dispatch.error+' Stock was saved; order remains queued.'))}
-   }else flash(counted.length+' Company Item count(s) saved on this phone · pending synchronization. No orders have been sent yet.')
+   }else flash(counted.length+' Company Item count(s) saved on this phone · pending synchronization. No orders have been sent yet.'+(syncError?' Sync error: '+syncError:''))
   }catch(e){fail(e)}finally{setBusy(false)}
  }
 
