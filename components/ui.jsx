@@ -1,6 +1,7 @@
 'use client'
 
 import {ModernSelect} from './modern-select'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
 import {visibleWorkflowStages} from '@/lib/workflow-visibility.mjs'
 import {useEffect,useState} from 'react'
 import {createPortal} from 'react-dom'
@@ -51,7 +52,7 @@ export function StockSubmitAction({active=true,children}){
  return mobile&&target?createPortal(children,target):children
 }
 
-export function ItemLabel({item={}}){return <>{item.description||item.item_code||'Item'}{item.size&&<span className="work-item-size"> · {item.size}</span>}</>}
+export function ItemLabel({item={}}){return <>{uppercaseItemText(item.description||item.item_code||'Item')}{item.size&&<span className="work-item-size"> · {uppercaseItemText(item.size)}</span>}</>}
 
 export function fieldEnabled(fields,module,key){
  const x=fields?.find(f=>f.module_key===module&&f.field_key===key)
