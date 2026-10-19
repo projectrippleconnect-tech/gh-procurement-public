@@ -7,6 +7,7 @@ import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {allRows,containsAny} from '@/lib/query-pages'
+import {indexStockItems,searchStockItems,isApproximateItemMatch} from '@/lib/stock-search.mjs'
 import {businessDate,money,qty} from '@/lib/helpers'
 import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
@@ -155,7 +156,11 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  }
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
- const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
+ const companySearchIndex=useMemo(()=>indexStockItems(rows.map(r=>({...r.item,item_id:r.id}))),[rows])
+ const companyMatches=useMemo(()=>search.trim()?searchStockItems(companySearchIndex,search,{},Infinity):null,[companySearchIndex,search])
+ const companyMatchIds=useMemo(()=>companyMatches?new Set(companyMatches.map(r=>r.item_id)):null,[companyMatches])
+ const companyHasSuggestions=useMemo(()=>companyMatches?.some(r=>isApproximateItemMatch(r,search))||false,[companyMatches,search])
+ const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&(!companyMatchIds||companyMatchIds.has(r.id))),[rows,companyMatchIds,category,subgroup,brand])
  const currentCompany=companies.find(c=>c.id===companyId)
  const display=useMemo(()=>normalizeCompanyDisplay(settings?.company_lists_display),[settings?.company_lists_display])
  const visibleFields=display.fields,rowLayout=display.row_layout
@@ -232,7 +237,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  return <>
   <div className="company-stock-header">
    <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'Refreshing…':'↻ Refresh'}</button>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div></div>
-   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search company items (typos OK)')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
    {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
     <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
     <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
@@ -243,8 +248,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
 
-  <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
-   <div className="muted tiny">{scoped.length} item(s) · entered quantities are saved locally until submission.</div>
+  <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{search.trim()?'No matching items. Try another name or size.':t('company_lists.empty','No items in this company list.')}</Empty>:<>
+   <div className="muted tiny">{scoped.length} item(s) · entered quantities are saved locally until submission.{companyHasSuggestions?' Possible spelling matches included — confirm item and size.':''}</div>
    <div className="tablewrap section company-items-grid" style={companyRowStyle(rowLayout)}><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
