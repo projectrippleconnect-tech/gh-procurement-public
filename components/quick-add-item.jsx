@@ -5,6 +5,7 @@ import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {quickAddReorderLevel} from '@/lib/quick-add-reorder.mjs'
 import {itemOptionValues,updateItemGrouping} from '@/lib/item-editor-options.mjs'
+import {uppercaseItemText,uppercaseItemAttributes} from '@/lib/item-text.mjs'
 
 const EMPTY={description:'',category:'GENERAL',size:'',uom:'PCS',brand:'',colour:'',variation:'',main_group:'',subgroup:'',movement:'NORMAL',max_stock:''}
 const DEFAULT_UOMS=['PCS','NOS','BOX','PACK','SET','PAIR','DOZEN','ROLL','BAG','BUNDLE','CARTON','SHEET','LENGTH','MTR','FT','KG','G','LTR','ML','TIN','TUBE']
@@ -80,7 +81,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     setCompanyChoice(created.id);setCompanyDraft({name:'',code:''})
    }
    // The database applies the movement-based reorder trigger for General items.
-   const r=await supabase.rpc('proc_quick_add_item_v1',{p_item:{...form,uom:normalise(form.uom),movement:isCompany?'NORMAL':form.movement,max_stock:Number(form.max_stock)}})
+   const r=await supabase.rpc('proc_quick_add_item_v1',{p_item:{...uppercaseItemAttributes(form),uom:normalise(form.uom),movement:isCompany?'NORMAL':form.movement,max_stock:Number(form.max_stock)}})
    if(r.error)throw r.error
    if(!r.data?.item?.id)throw new Error('Item could not be confirmed in the database.')
    // For Company items, the linking step also saves the maximum and its 50% reorder rule.
@@ -102,7 +103,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     </div>}
    </div>}
    <div className="formgrid">
-    <label className="field">Item name<input className="input" disabled={busy} value={form.description} onChange={e=>setForm(v=>({...v,description:e.target.value}))}/></label>
+    <label className="field">Item name<input className="input" disabled={busy} value={form.description} onChange={e=>setForm(v=>({...v,description:uppercaseItemText(e.target.value)}))}/></label>
     <label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} allowCustom customOptionLabel="category" onChange={e=>setForm(v=>updateItemGrouping(v,'category',e.target.value))}>
      {!form.category&&<option value="">Select category…</option>}
      {[...new Set([...categories,form.category])].filter(Boolean).map(c=><option key={c} value={c}>{c}</option>)}
@@ -120,14 +121,14 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     <label className="field">Reorder level · {isCompany?'50%':form.movement==='FAST'?'50%':form.movement==='SLOW'?'25%':'33⅓%'}
      <input className="input" readOnly aria-label="Calculated reorder level" value={reorder===null?'Enter maximum stock':String(reorder)}/>
     </label>
-    <label className="field">Size<input className="input" disabled={busy} value={form.size} onChange={e=>setForm(v=>({...v,size:e.target.value}))}/></label>
-    <label className="field">UOM<ModernSelect aria-label="UOM" disabled={busy} allowCustom customOptionLabel="UOM" value={form.uom} onChange={e=>setForm(v=>({...v,uom:e.target.value}))} onCustomAdd={unit=>setUoms(v=>[...new Set([...v,unit])].sort())}>
+    <label className="field">Size<input className="input" disabled={busy} value={form.size} onChange={e=>setForm(v=>({...v,size:uppercaseItemText(e.target.value)}))}/></label>
+    <label className="field">UOM<ModernSelect aria-label="UOM" disabled={busy} allowCustom customOptionLabel="UOM" value={form.uom} onChange={e=>setForm(v=>({...v,uom:uppercaseItemText(e.target.value)}))} onCustomAdd={unit=>setUoms(v=>[...new Set([...v,uppercaseItemText(unit)])].sort())}>
      {[...new Set([...uoms,form.uom])].filter(Boolean).map(unit=><option key={unit} value={unit}>{unit}</option>)}
     </ModernSelect></label>
    </div>
    {loadingCategories&&<p className="muted tiny" role="status">Loading categories…</p>}
    {addingCategory?<div className="section">
-    <label className="field">New category name<input autoFocus className="input" maxLength={100} disabled={busy} value={newCategory} onChange={e=>{setNewCategory(e.target.value);setCategoryError('')}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCategory()}}}/></label>
+    <label className="field">New category name<input autoFocus className="input" maxLength={100} disabled={busy} value={newCategory} onChange={e=>{setNewCategory(uppercaseItemText(e.target.value));setCategoryError('')}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCategory()}}}/></label>
     {categoryError&&<p role="alert">{categoryError}</p>}
     <div className="toolbar section"><button type="button" className="btn small primary" disabled={busy} onClick={addCategory}>Use category</button><button type="button" className="btn small" disabled={busy} onClick={()=>{setAddingCategory(false);setNewCategory('');setCategoryError('')}}>Cancel</button></div>
     <p className="muted tiny">This category is saved when the item is saved.</p>
