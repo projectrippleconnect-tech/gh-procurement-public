@@ -4,6 +4,7 @@ import {ModernSelect} from './modern-select'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import {enqueueStockSubmission,synchronizeStockSubmissions,isDisconnected,saveStockSnapshot,readStockSnapshot} from '@/lib/offline-stock.mjs'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {allRows,containsAny} from '@/lib/query-pages'
@@ -99,7 +100,19 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
- const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length)setCompanyId(r.data[0].id)},[companyId,fail])
+ const loadCompanies=useCallback(async()=>{
+  try{
+   const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name')
+   if(r.error)throw r.error
+   setCompanies(r.data||[])
+   saveStockSnapshot(profile.id,'company:directory',r.data||[]).catch(()=>{})
+   if(!companyId&&r.data?.length)setCompanyId(r.data[0].id)
+  }catch(e){
+   const cached=await readStockSnapshot(profile.id,'company:directory').catch(()=>null)
+   if(cached?.value){setCompanies(cached.value);if(!companyId&&cached.value.length)setCompanyId(cached.value[0].id)}
+   else fail(e)
+  }
+ },[companyId,fail,profile.id])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
  const loadRows=useCallback(async()=>{
@@ -117,16 +130,31 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    setSections(sectionResult.data||[])
    setRows(list)
    const ids=list.map(x=>x.item_id)
-   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;if(request!==loadSequence.current)return;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
+   let balanceMap={}
+   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;if(request!==loadSequence.current)return;balanceMap=Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)]))}
+   setBalances(balanceMap)
+   saveStockSnapshot(profile.id,'company:rows:'+companyId,{rows:list,sections:sectionResult.data||[],balances:balanceMap}).catch(()=>{})
    if(draftReady.current!==companyId){
     const saved=localStorage.getItem(draftKey)
     setEntry({});setSufficient({});startedAt.current=null
     if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));setSufficient(p.sufficient||{});startedAt.current=p.startedAt||null}catch{}
    }
    draftReady.current=companyId
-  }catch(e){if(request===loadSequence.current)fail(e)}
+  }catch(e){
+   if(request===loadSequence.current){
+    const cached=await readStockSnapshot(profile.id,'company:rows:'+companyId).catch(()=>null)
+    if(cached?.value){setRows(cached.value.rows||[]);setSections(cached.value.sections||[]);setBalances(cached.value.balances||{})}
+    else fail(e)
+    if(draftReady.current!==companyId){
+     const saved=localStorage.getItem(draftKey)
+     setEntry({});setSufficient({});startedAt.current=null
+     if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));setSufficient(p.sufficient||{});startedAt.current=p.startedAt||null}catch{}
+     draftReady.current=companyId
+    }
+   }
+  }
   finally{if(request===loadSequence.current)setLoading(false)}
- },[companyId,draftKey,fail])
+ },[companyId,draftKey,fail,profile.id])
  useEffect(()=>{if(active)loadRows()},[active,loadRows])
  useEffect(()=>{
   if(!active)return
@@ -138,7 +166,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
 
  useEffect(()=>{
   if(!companyId||draftReady.current!==companyId)return
-  const t=setTimeout(()=>localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current})),200)
+  const t=setTimeout(()=>{try{localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current}))}catch(e){console.warn('Company draft storage unavailable',e)}},200)
   return()=>clearTimeout(t)
  },[entry,sufficient,companyId])
 
@@ -214,7 +242,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   }})
  }
  async function submit(){
-  if(!canCount)return
+  if(!canCount||busy)return
   const counted=rows.filter(r=>sufficient[r.id]||(entry[r.id]!==undefined&&entry[r.id]!==''))
   if(!counted.length)return fail(new Error(t('company_lists.enter_one','Enter at least one stock quantity.')))
   if(counted.some(r=>!sufficient[r.id]&&!isQuantityInput(entry[r.id])))return fail(new Error(t('company_lists.stock_error','Stock quantities must be zero or positive.')))
@@ -222,10 +250,23 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   if(!await confirmAction(t('confirm.company_submit_prefix','Submit')+' '+counted.length+' '+t('confirm.company_submit_suffix','company-list count(s)? The configured company approval and ordering route will apply.')))return
   setBusy(true)
   try{
-   const p=counted.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
-   const saved=await companyApi('submit',{companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()});const x={data:saved}
-   localStorage.removeItem(draftKey);setEntry({});setSufficient({});startedAt.current=null
-   flash(x.data.count_no+' submitted. '+(x.data.requirements_created||0)+' new shortage(s).');await loadRows();if(saved.dispatch){if(saved.dispatch.ok)flash(saved.dispatch.message);else fail(new Error(saved.dispatch.error+' Stock submission was saved; the order remains queued.'))}
+   const lines=counted.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
+   const op=await enqueueStockSubmission({ownerId:profile.id,kind:'company',companyId,lines,startedAt:startedAt.current||new Date().toISOString()})
+   // A successful local commit is the only point at which entered quantities are removed.
+   const nextEntry={...entry},nextSufficient={...sufficient}
+   counted.forEach(r=>{delete nextEntry[r.id];delete nextSufficient[r.id]})
+   setEntry(nextEntry);setSufficient(nextSufficient)
+   if(!Object.keys(nextEntry).length&&!Object.keys(nextSufficient).length)startedAt.current=null
+   let saved=null
+   if(!isDisconnected()){
+    const sync=await synchronizeStockSubmissions(profile.id,supabase)
+    if(sync.completedIds?.includes(op.id))saved=sync.receipts[op.id]
+   }
+   if(saved){
+    flash(saved.count_no+' confirmed by server. '+(saved.requirements_created||0)+' new shortage(s).')
+    await loadRows()
+    if(saved.dispatch){if(saved.dispatch.ok)flash(saved.dispatch.message);else fail(new Error(saved.dispatch.error+' Stock was saved; order remains queued.'))}
+   }else flash(counted.length+' Company Item count(s) saved on this phone · pending synchronization. No orders have been sent yet.')
   }catch(e){fail(e)}finally{setBusy(false)}
  }
 
