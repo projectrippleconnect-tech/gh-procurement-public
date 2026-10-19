@@ -819,4 +819,4 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 .gh-offline-status>span{font-weight:700;white-space:nowrap}
 .gh-offline-status .btn{padding:2px 7px!important;min-height:22px;font-size:11px}
 .gh-offline-status small{color:var(--muted,#94a3b8);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:700px){.gh-offline-status{padding:2px 8px;min-height:25px}.gh-offline-status small{display:none}}
+@media(max-width:700px){.gh-offline-status{padding:2px 8px;min-height:25px} .gh-offline-status small{display:block;max-width:34vw;font-size:10px}}
