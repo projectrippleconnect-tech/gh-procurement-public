@@ -88,7 +88,7 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
    <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.procurement_attention','Procurement attention')}</h3><p>{t('dashboard.procurement_attention_hint','Newest unresolved requirements')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
     {loadState.requirements==='error'?<p role="alert">Requirements unavailable. Tap Refresh to retry.</p>:loadState.requirements!=='ready'?<p role="status">Loading requirements…</p>:<DataTable columns={[
      {key:'requirement_no',label:'Requirement'},
-     {key:'description',label:'Item',render:i=>uppercaseItemText(i.description)}
+     {key:'description',label:'Item',render:i=>uppercaseItemText(i.description)},
      {key:'adjusted_qty',label:'Required',render:r=>qty(r.adjusted_qty)},
      {key:'remaining_to_order',label:'Still To Order',render:r=><b className="warn-text">{qty(r.remaining_to_order)}</b>},
      {key:'ordered_not_received',label:'Ordered Not Received',render:r=>qty(r.ordered_not_received)},
