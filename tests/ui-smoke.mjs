@@ -217,8 +217,8 @@ try{
    else if(name==='proc_company_direct_po_history')data=process.env.GH_UI_COMPANY_PO==='1'?[{po_id:companyPo.id,po_no:companyPo.po_no,company_id:'company-fixture',company_name:'Fixture company',po_status:'sent',created_at:new Date().toISOString(),item_count:1,sent_count:1,failed_count:0}]:[]
    else if(name==='proc_company_rfq_history')data=[{rfq_id:rfq.id,rfq_no:rfq.rfq_no,company_id:'company-fixture',company_name:'Fixture company',rfq_status:'prepared',created_at:new Date().toISOString(),item_count:2,supplier_count:2,sent_count:1,failed_count:1}]
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(routingMode?{default_supplier_id:setupDefaultId,updated_at:setupRoute.updated_at}:process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
-   else if(name==='proc_company_list_items'&&process.env.GH_UI_DENSE_STOCK==='1')data=Array.from({length:12},(_,i)=>({id:'dense-row-'+i,item_id:'dense-item-'+i,target_stock:20,item:{...item,id:'dense-item-'+i,description:'ALKATHENE HOSE '+['1/2IN 200FT','3/4IN 100FT','3/4IN 200FT','1IN 100FT','1IN 200FT','1 1/2IN 100FT'][i%6],category:'ALKATHINE',subgroup:'',size:'',uom:'PCS'}}))
-   else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
+   else if(name==='proc_company_list_items'&&process.env.GH_UI_DENSE_STOCK==='1')data=Array.from({length:12},(_,i)=>({id:'dense-row-'+i,company_id:'company-fixture',item_id:'dense-item-'+i,target_stock:20,item:{...item,id:'dense-item-'+i,description:'ALKATHENE HOSE '+['1/2IN 200FT','3/4IN 100FT','3/4IN 200FT','1IN 100FT','1IN 200FT','1 1/2IN 100FT'][i%6],category:'ALKATHINE',subgroup:'',size:'',uom:'PCS'}}))
+   else if(name==='proc_company_list_items')data=[{id:'company-row-one',company_id:'company-fixture',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',company_id:'company-fixture',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
@@ -1137,7 +1137,9 @@ try{
   }
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){
    await navigate('CL Company Lists')
+   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
    await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+   await page.getByRole('button',{name:'Company setup',exact:true}).click()
    await page.locator('.company-stock-tools>summary').filter({visible:true}).first().click()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
@@ -1213,6 +1215,7 @@ try{
   if(process.env.GH_UI_CATALOG==='1'){
   // Catalog actions use intercepted APIs; production is never mutated.
   await navigate('CL Company Lists')
+  await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
   await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
   const companyView=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
   await companyView.locator('.company-stock-filters>summary').click()
@@ -1220,6 +1223,7 @@ try{
   assert.equal(await companyView.locator('input[aria-label="Company item description"]').filter({hasNotText:'__unused__'}).evaluateAll((nodes,name)=>nodes.filter(n=>n.value===name).length,item.description),0)
   await chooseOption(companyView.getByLabel('Company list subcategory',{exact:true}),'Switches')
   await companyView.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+  await companyView.getByRole('button',{name:'Company setup',exact:true}).click()
   await companyView.locator('.company-stock-tools>summary').click()
   await companyView.getByRole('button',{name:'Remove company list',exact:true}).click()
   const companyWarning=page.getByRole('alertdialog',{name:'Remove company list',exact:true})
