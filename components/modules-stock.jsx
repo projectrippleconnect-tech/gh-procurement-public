@@ -8,7 +8,7 @@ import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel as originalStockItemLabel} from '@/lib/stock-search.mjs'
-import {uppercaseItemText,normalizeItemText,ITEM_TEXT_FIELDS} from '@/lib/item-text.mjs'
+import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes,ITEM_TEXT_FIELDS} from '@/lib/item-text.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
@@ -670,7 +670,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
 
  async function save(r,k,v){
   if(!canEdit)return
-  let value=typeof v==='string'&&ITEM_TEXT_FIELDS.includes(k)?normalizeItemText(v):v
+  let value=typeof v==='string'&&ITEM_TEXT_FIELDS.includes(k)?uppercaseItemAttributes({[k]:v})[k]:v
   if(k==='max_stock'){
    value=Number(v)
    if(!Number.isFinite(value)||value<0)return fail(new Error(t('items.max_error','Max Stock must be zero or positive.')))
