@@ -267,7 +267,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    if(!Object.keys(nextEntry).length&&!Object.keys(nextSufficient).length)startedAt.current=null
    let saved=null,syncError=''
    if(!isDisconnected()){
-    const sync=await synchronizeStockSubmissions(profile.id,supabase)
+    const sync=await synchronizeStockSubmissions(profile.id,supabase,{allowDispatchFor:[op.id]})
     syncError=sync.error||''
     if(sync.completedIds?.includes(op.id))saved=sync.receipts[op.id]
    }
