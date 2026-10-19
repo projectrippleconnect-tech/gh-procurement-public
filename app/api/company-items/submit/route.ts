@@ -7,7 +7,7 @@ export async function POST(request:Request){
   const {db}=await companyAccess(request),raw=await request.text();if(raw.length>250000)throw new Error('Stock submission is too large.')
   const body=JSON.parse(raw)
   const {data,error}=body.operationId
-   ?await db.rpc('proc_submit_offline_stock_v1',{p_operation_id:body.operationId,p_kind:'company',p_lines:body.lines,p_company_id:body.companyId,p_category:'',p_started_at:body.startedAt||null})
+   ?await db.rpc('proc_submit_offline_stock_v1',{p_operation_id:body.operationId,p_kind:'company',p_lines:body.lines,p_company_id:body.companyId,p_category:'',p_started_at:body.startedAt||null,p_reset_revisions:body.resetRevisions||{}})
    :await db.rpc('proc_submit_company_list_check_v2',{p_company_id:body.companyId,p_lines:body.lines,p_notes:body.notes||null,p_count_started_at:body.startedAt||null})
   if(error)throw error
   let dispatch=null
