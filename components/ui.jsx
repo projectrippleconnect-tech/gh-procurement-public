@@ -4,6 +4,7 @@ import {ModernSelect} from './modern-select'
 
 import {PROCUREMENT_STEPS} from '@/lib/workflow-guide.mjs'
 import {STAGES,stageForTask} from '@/lib/procurement-journey.mjs'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
 
 export const NAV=[
  ['dashboard','⌂','Home'],['stock','✓','Stock Entry'],['urgent_actions','!','Exceptions'],['requirements','≡','Review'],
@@ -38,7 +39,7 @@ export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavig
  </nav>
 }
 
-export function ItemLabel({item={}}){return <>{item.description||item.item_code||'Item'}{item.size&&<span className="work-item-size"> · {item.size}</span>}</>}
+export function ItemLabel({item={}}){return <>{uppercaseItemText(item.description||item.item_code||'Item')}{item.size&&<span className="work-item-size"> · {uppercaseItemText(item.size)}</span>}</>}
 
 export function fieldEnabled(fields,module,key){
  const x=fields?.find(f=>f.module_key===module&&f.field_key===key)
