@@ -457,9 +457,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
    setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
    if(!Object.keys(next).length&&!Object.keys(nextSufficient).length)startedAt.current=null
-   let result=null
+   let result=null,syncError=''
    if(!isDisconnected()){
     const sync=await synchronizeStockSubmissions(profile.id,supabase)
+    syncError=sync.error||''
     if(sync.completedIds?.includes(operation.id))result=sync.receipts[operation.id]
    }
    if(result){
@@ -473,7 +474,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     if(historyOpen)await loadStockHistory()
     if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
    }else{
-    setSubmission({message:'Saved on this phone · '+checked.length+' item(s) are pending synchronization. They will appear in confirmed history after the server accepts them.',remaining,needsReview:false})
+    setSubmission({message:'Saved on this phone · '+checked.length+' item(s) are pending synchronization. They will appear in confirmed history after the server accepts them.'+(syncError?' Sync error: '+syncError:''),remaining,needsReview:false})
    }
   }catch(e){fail(e)}
   finally{setBusy(false)}
