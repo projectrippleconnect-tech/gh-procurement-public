@@ -11,9 +11,9 @@ export async function POST(request:Request){
    :await db.rpc('proc_submit_company_list_check_v2',{p_company_id:body.companyId,p_lines:body.lines,p_notes:body.notes||null,p_count_started_at:body.startedAt||null})
   if(error)throw error
   let dispatch=null
-  if(data.purchase_orders?.length){
-   // Dispatch jobs have their own atomic claim/status guard. A replay may
-   // recover an earlier response failure, but must not recreate purchase orders.
+  if(data.purchase_orders?.length&&body.allowDispatch===true&&!data.offline_replayed){
+   // Only a live, explicit submission may trigger WhatsApp dispatch.
+   // Offline reconciliations leave generated orders queued for review.
    // Processing continues server-side even if the browser leaves after submitting.
    const response=await processOrders(new Request(request.url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:request.headers.get('authorization')||''},body:JSON.stringify({companyId:body.companyId})}))
    dispatch=await response.json()
