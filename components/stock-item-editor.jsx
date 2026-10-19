@@ -4,6 +4,7 @@ import {useEffect,useState} from 'react'
 import {ModernSelect} from './modern-select'
 import {supabase} from '@/lib/supabase'
 import {stockItemEditPatch} from '@/lib/stock-item-edit.mjs'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
 import {stockItemLabel} from '@/lib/stock-search.mjs'
 import {ITEM_CATEGORIES,ITEM_UOMS,itemOptionValues,updateItemGrouping} from '@/lib/item-editor-options.mjs'
 
@@ -89,7 +90,7 @@ export function StockItemEditor({item,onClose,onSaved}){
   finally{setSaving(false)}
  }
  function change(field,value){
-  setDraft(d=>updateItemGrouping(d,field,value))
+  setDraft(d=>updateItemGrouping(d,field,['description','size','remarks'].includes(field)?uppercaseItemText(value):value))
  }
  function close(){if(!saving)onClose()}
  const select=(field,label,values,{allowEmpty=false,customLabel=label}={})=><label className="field" key={field}>{label}
@@ -104,11 +105,11 @@ export function StockItemEditor({item,onClose,onSaved}){
    <div className="modal-head"><div><h3 id="stock-item-edit-title">Edit item</h3><p className="muted tiny">{stockItemLabel(item)}</p></div><button type="button" className="btn small" aria-label="Close item editor" disabled={saving} onClick={close}>✕</button></div>
    {loading?<p role="status">Loading latest item details…</p>:draft?<form onSubmit={save}>
     <div className="formgrid section">
-     <label className="field">Item name<input className="input" value={draft.description||''} disabled={saving} onChange={e=>change('description',e.target.value)}/></label>
+     <label className="field">Item name<input className="input" value={uppercaseItemText(draft.description||'')} disabled={saving} onChange={e=>change('description',e.target.value)}/></label>
      {select('category','Category',options.categories)}
      {select('main_group','Main group',options.groups,{allowEmpty:true,customLabel:'main group'})}
      {select('subgroup','Subcategory',subgroups,{allowEmpty:true,customLabel:'subcategory'})}
-     <label className="field">Size<input className="input" value={draft.size||''} disabled={saving} onChange={e=>change('size',e.target.value)}/></label>
+     <label className="field">Size<input className="input" value={uppercaseItemText(draft.size||'')} disabled={saving} onChange={e=>change('size',e.target.value)}/></label>
      {select('uom','UOM',options.uoms,{customLabel:'UOM'})}
      <label className="field">Movement
       <ModernSelect aria-label="Movement" className="select" value={draft.movement||'NORMAL'} disabled={saving} onChange={e=>change('movement',e.target.value)}>
@@ -117,7 +118,7 @@ export function StockItemEditor({item,onClose,onSaved}){
      </label>
      <label className="field">Maximum stock<input className="input" inputMode="decimal" value={draft.max_stock??''} disabled={saving} onChange={e=>change('max_stock',e.target.value)}/></label>
     </div>
-    <details className="section"><summary>Optional notes</summary><label className="field section">Remarks<input className="input" value={draft.remarks||''} disabled={saving} onChange={e=>change('remarks',e.target.value)}/></label></details>
+    <details className="section"><summary>Optional notes</summary><label className="field section">Remarks<input className="input" value={uppercaseItemText(draft.remarks||'')} disabled={saving} onChange={e=>change('remarks',e.target.value)}/></label></details>
     <p className="muted tiny">Reorder level is recalculated automatically from Movement and Maximum stock. Brand values, existing stock counts, history and item identity are preserved.</p>
     {error&&<p role="alert" className="warn-text">{error}</p>}
     <div className="toolbar section"><button type="submit" className="btn primary" disabled={saving}>{saving?'Saving…':'Save changes'}</button><button type="button" className="btn" disabled={saving} onClick={close}>Cancel</button></div>
