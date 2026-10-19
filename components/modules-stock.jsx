@@ -207,6 +207,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const revision=++stockLoadRevision.current
   setLoading(true);setStockLoadError('')
   try{
+  if(isDisconnected())throw new Error('Device is offline.')
   const pageChunk=500
   const cap=dueOnly?dailyTarget:Infinity
   let all=[],total=0,offset=0
@@ -523,6 +524,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  async function loadStockHistory(){
   setHistoryLoading(true)
   try{
+   if(isDisconnected())throw new Error('Device is offline.')
    const r=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:30})
    if(r.error)throw r.error
    setHistoryRows(r.data||[])
@@ -534,9 +536,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }finally{setHistoryLoading(false)}
  }
  async function openHistoryRow(row){
-  if(historyDetail?.count_id===row.count_id){setHistoryDetail(null);return}
+  if(historyDetail?.count_id===row.count_id){setHistoryLoading(false);setHistoryDetail(null);return}
   setHistoryLoading(true)
   try{
+   if(isDisconnected())throw new Error('Device is offline.')
    const r=await supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:row.count_id})
    if(r.error)throw r.error
    setHistoryDetail({count_id:row.count_id,lines:r.data||[]})
