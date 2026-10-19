@@ -12,6 +12,8 @@ import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {stockLotReview} from '@/lib/stock-lot.mjs'
+import {latestStockMarkers} from '@/lib/stock-item-history.mjs'
+import {StockItemSubmissionHistory} from './stock-item-submission-history'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
@@ -126,6 +128,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
+ const[itemHistory,setItemHistory]=useState(null)
  const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[markersReady,setMarkersReady]=useState(false),[explicitRecounts,setExplicitRecounts]=useState(new Set())
  const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false)
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
@@ -527,21 +530,19 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const revision=++finalizedRevision.current
   setMarkersReady(false)
   try{
-   const result=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:12})
-   if(result.error)throw result.error
-   const own=(result.data||[]).filter(h=>h.counted_by===profile.id).slice(0,10)
-   const detail=await Promise.all(own.map(h=>supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:h.count_id})))
+   // Include old counts, not just the last few batches.
+   const latest=await latestStockMarkers(supabase,localSearchIndex.map(i=>i.item_id))
    if(revision!==finalizedRevision.current)return
-   const latest={}
-   own.forEach((h,index)=>{
-    if(detail[index]?.error)throw detail[index].error
-    for(const line of detail[index]?.data||[])if(!latest[line.item_id])latest[line.item_id]={count_no:h.count_no,submitted_at:h.submitted_at,count_id:h.count_id,current_stock:line.current_stock}
-   })
-   setFinalizedMarkers(current=>({...current,...latest}))
+   setFinalizedMarkers(latest)
    setMarkersReady(true)
-  }catch(e){if(revision===finalizedRevision.current){setMarkersReady(false);console.warn('Recently submitted stock markers unavailable',e)}}
+  }catch(e){
+   if(revision===finalizedRevision.current){
+    setMarkersReady(false)
+    console.warn('Submitted stock markers unavailable',e)
+   }
+  }
  }
- useEffect(()=>{void refreshFinalizedMarkers();return()=>{finalizedRevision.current++}},[profile.id])
+ useEffect(()=>{void refreshFinalizedMarkers();return()=>{finalizedRevision.current++}},[profile.id,localSearchIndex])
 
  async function submit(){
   if(busy||submissionLock.current)return
@@ -637,7 +638,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const browseItems=items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
  useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
  const cols=[
-  {key:'description',label:'Item',render:i=>canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>},
+  {key:'description',label:'Item',render:i=><div>{canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>}{finalizedMarkers[i.item_id]&&<button type="button" className="stock-submitted-badge stock-submitted-link" onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}>✓ Submitted · {finalizedMarkers[i.item_id].count_no} · History ›</button>}</div>},
   {key:'uom',label:'UOM'},
   {key:'movement',label:'Movement',render:i=><Badge>{i.movement}</Badge>},
   ...(rowField('reorder_level',true)?[{key:'reorder_level',label:'Reorder',render:i=><strong className="stock-reorder-value">{qty(i.reorder_level)}</strong>}]:[]),
@@ -658,6 +659,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
+  {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} onClose={()=>setItemHistory(null)}/>}
   {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
     <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">One editable draft. Nothing is submitted until final confirmation.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
@@ -762,10 +764,13 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
       rowField('max_stock')?'MAX:'+qty(i.max_stock):null
      ].filter(Boolean)
      return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')+(enough?' sufficient':'')+(alreadySubmitted?' stock-already-submitted':'')} key={i.item_id}>
-      <button type="button" className="stock-dense-info" style={canEditItems?{touchAction:'pan-y',userSelect:'none',WebkitUserSelect:'none'}:undefined} title={canEditItems?'Tap for details · Hold to edit '+stockItemLabel(i):stockItemLabel(i)} onClick={e=>{if(consumeLongPress(e))return;setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}} {...itemLongPressProps(i)}>
-       <span className="stock-dense-title">{stockItemLabel(i)}</span>
-       <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}{finalizedMarkers[i.item_id]&&<span className="stock-submitted-badge" title={'Last submitted: '+submissionTime(finalizedMarkers[i.item_id].submitted_at)}>{alreadySubmitted?'✓ Submitted · ':'↺ Recounting · '}{finalizedMarkers[i.item_id].count_no}</span>}</span>
-      </button>
+      <div className="stock-dense-info">
+       <button type="button" className="stock-dense-item-toggle" style={canEditItems?{touchAction:'pan-y',userSelect:'none',WebkitUserSelect:'none'}:undefined} title={canEditItems?'Tap for details · Hold to edit '+stockItemLabel(i):stockItemLabel(i)} onClick={e=>{if(consumeLongPress(e))return;setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}} {...itemLongPressProps(i)}>
+        <span className="stock-dense-title">{stockItemLabel(i)}</span>
+        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
+       </button>
+       {finalizedMarkers[i.item_id]&&<button type="button" className="stock-submitted-badge stock-submitted-link" aria-label={'View stock submission history for '+stockItemLabel(i)} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}>{alreadySubmitted?'✓ Submitted · ':'↺ Recounting · '}{finalizedMarkers[i.item_id].count_no} · History ›</button>}
+      </div>
       <div className="stock-dense-input-wrap">{alreadySubmitted?<button type="button" className="btn small stock-recount-action" onClick={()=>allowRecount(i.item_id)}>Recount</button>:<>{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></>}</div>
       <label className="stock-dense-sufficient" title="Stock is above the reorder level; exact count not required"><input type="checkbox" className="stock-sufficient-checkbox" aria-label={'Sufficient stock: '+stockItemLabel(i)} disabled={!!alreadySubmitted} checked={enough} onChange={e=>setEnough(i.item_id,e.target.checked)}/></label>
      </div>
