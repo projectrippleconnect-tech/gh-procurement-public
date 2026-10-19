@@ -19,7 +19,8 @@ create or replace function public.proc_submit_offline_stock_v1(
  p_lines jsonb,
  p_company_id uuid default null,
  p_category text default '',
- p_started_at timestamptz default null
+ p_started_at timestamptz default null,
+ p_reset_revisions jsonb default '{}'::jsonb
 ) returns jsonb
 language plpgsql
 security definer
@@ -45,9 +46,14 @@ begin
   or jsonb_array_length(p_lines) not between 1 and 1000
   or length(p_lines::text)>250000 then raise exception 'Invalid stock lines.';end if;
  if length(coalesce(p_category,''))>100 then raise exception 'Category too long.';end if;
+ if p_reset_revisions is null or jsonb_typeof(p_reset_revisions)<>'object' then raise exception 'Invalid stock reset revisions.';end if;
+ if coalesce(p_reset_revisions->>'stock','') <> coalesce((select value #>> '{}' from public.proc_settings where key='stock_reset_revision'),'')
+ or coalesce(p_reset_revisions->>'procurement','') <> coalesce((select value #>> '{}' from public.proc_settings where key='procurement_reset_revision'),'')
+ then raise exception 'Stock or procurement data was reset after this offline count. Ask an administrator to review before submitting.';
+ end if;
 
  hash_v:=md5(concat_ws('|',p_kind,coalesce(p_company_id::text,''),
-  coalesce(p_category,''),coalesce(p_started_at::text,''),p_lines::text));
+  coalesce(p_category,''),coalesce(p_started_at::text,''),p_lines::text,p_reset_revisions::text));
  -- Lock BEFORE checking the receipt, so simultaneous reconnects cannot double-submit.
  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(p_operation_id::text));
  select * into receipt from private.proc_offline_stock_operations where operation_id=p_operation_id;
@@ -69,5 +75,5 @@ begin
 end
 $offline$;
 
-revoke all on function public.proc_submit_offline_stock_v1(uuid,text,jsonb,uuid,text,timestamptz) from public,anon;
-grant execute on function public.proc_submit_offline_stock_v1(uuid,text,jsonb,uuid,text,timestamptz) to authenticated;
+revoke all on function public.proc_submit_offline_stock_v1(uuid,text,jsonb,uuid,text,timestamptz,jsonb) from public,anon;
+grant execute on function public.proc_submit_offline_stock_v1(uuid,text,jsonb,uuid,text,timestamptz,jsonb) to authenticated;
