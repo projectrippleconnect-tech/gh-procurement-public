@@ -9,6 +9,7 @@ export function AccessBoundary({children}){
  const[recoveryMode,setRecoveryMode]=useState(false)
  const[session,setSession]=useState(undefined),[status,setStatus]=useState({allowed:false,reason:'checking'}),[busy,setBusy]=useState(false)
  const generation=useRef(0),checking=useRef(false),locationGranted=useRef(false),deadline=useRef(null)
+ const lastServerApproval=useRef(null)
  useEffect(()=>{
   let alive=true
   setRecoveryMode(new URLSearchParams(window.location.search).get('recovery')==='1')
@@ -21,6 +22,8 @@ export function AccessBoundary({children}){
   clearTimeout(deadline.current)
   if(document.hidden&&!next.exempt){setStatus({...next,allowed:false,reason:'checking'});return}
   setStatus(next)
+  if(next.allowed)lastServerApproval.current={at:Date.now(),until:next.valid_until?Date.parse(next.valid_until):null,status:next}
+  else lastServerApproval.current=null
   if(next.allowed&&next.valid_until){
    const ms=Date.parse(next.valid_until)-Date.parse(next.server_now)
    deadline.current=setTimeout(()=>setStatus(s=>({...s,allowed:false,reason:s.policy?.location_enabled?'location_required':'outside_hours'})),Math.max(0,ms))
@@ -39,7 +42,14 @@ export function AccessBoundary({children}){
    }
    if(version===generation.current)commit(next)
   }catch(e){
-   if(version===generation.current)commit({allowed:false,reason:e.code===1?'permission_denied':e.code===2||e.code===3?'location_unavailable':'connection_error',policy:status.policy})
+   if(version===generation.current){
+    const approval=lastServerApproval.current
+    const stillValid=approval&&Date.now()-approval.at<30*60*1000&&(!Number.isFinite(approval.until)||Date.now()<approval.until)
+    // Do not bypass a denied or unverified session. Only an already verified,
+    // still-valid device receives a short offline grace period.
+    if(navigator.onLine===false&&stillValid)setStatus({...approval.status,offlineGrace:true})
+    else commit({allowed:false,reason:e.code===1?'permission_denied':e.code===2||e.code===3?'location_unavailable':'connection_error',policy:status.policy})
+   }
   }finally{checking.current=false;if(version===generation.current)setBusy(false)}
  },[session,commit,status.policy])
  const verifyRef=useRef(verify);verifyRef.current=verify
@@ -50,7 +60,7 @@ export function AccessBoundary({children}){
   catch{commit({allowed:false,reason:'connection_error'})}finally{setBusy(false)}
  }
  useEffect(()=>{
-  generation.current++;locationGranted.current=false;clearTimeout(deadline.current)
+  generation.current++;locationGranted.current=false;lastServerApproval.current=null;clearTimeout(deadline.current)
   if(!session||recoveryMode){setStatus({allowed:false,reason:'checking'});return}
   setStatus({allowed:false,reason:'checking'});verifyRef.current()
   const timer=setInterval(()=>verifyRef.current(),30000)
