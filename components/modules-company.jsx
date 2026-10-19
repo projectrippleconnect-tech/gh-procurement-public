@@ -21,6 +21,7 @@ import {CompanyContactDirectory} from './company-contact-directory'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
+import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes} from '@/lib/item-text.mjs'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -163,7 +164,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const scoped=useMemo(()=>shown.filter(r=>!sectionFilter||r.section_id===sectionFilter||sectionLabels.get(r.section_id)?.startsWith((sectionLabels.get(sectionFilter)||'\u0000')+' /')),[shown,sectionFilter,sectionLabels])
  const tableEntries=useMemo(()=>companySectionRows(scoped,sections,collapsedSections,!!search.trim()),[scoped,sections,collapsedSections,search])
  function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
- async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
+ async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:uppercaseItemAttributes({[key]:value})});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
  async function refreshCompany(){
   if(refreshing)return
   setRefreshing(true)
@@ -232,7 +233,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  return <>
   <div className="company-stock-header">
    <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'Refreshing…':'↻ Refresh'}</button>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div></div>
-   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(uppercaseItemText(e.target.value))}/></div>
    {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
     <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
     <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
@@ -249,14 +250,14 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
     <tbody>{tableEntries.map(line=>line.type==='section'
-      ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{line.title} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {line.title} <small>({line.count})</small></button>}</th></tr>
+      ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{uppercaseItemText(line.title)} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {uppercaseItemText(line.title)} <small>({line.count})</small></button>}</th></tr>
       :(()=>{const r=line.row;return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
      <td><CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
-       <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
+       <label>Item / description<input aria-label="Company item description" className="input item-uppercase" defaultValue={uppercaseItemText(r.item?.description)} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r.item?.description))editItem(r,'description',e.target.value)}}/></label>
        <label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>
-       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/></label>)}
+       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}<input aria-label={'Company item '+k} className="input item-uppercase" defaultValue={uppercaseItemText(r.item?.[k]||'')} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r.item?.[k]))editItem(r,k,e.target.value)}}/></label>)}
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
      </td>
@@ -275,9 +276,9 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {companyId&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
   {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
    <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>
-   <div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{'Reorder · 50%'}</label><input className="input" readOnly value={target===''?'':reorderFor(target)}/></div></div>
+   <div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(uppercaseItemText(e.target.value))} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{'Reorder · 50%'}</label><input className="input" readOnly value={target===''?'':reorderFor(target)}/></div></div>
     <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{const max=Number(item.max_stock||0);const r=await supabase.from('proc_company_list_items').upsert({company_id:companyId,item_id:item.id,target_stock:max,reorder_level:max*.5,max_stock_review:false,active:true,created_by:profile.id},{onConflict:'company_id,item_id'});if(r.error)throw r.error;await loadRows();flash('Company item created with a 50% reorder level.')}}/>
-    {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{i.description}</strong><div className="muted tiny">{[i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
+    {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{uppercaseItemText(i.description)}</strong><div className="muted tiny">{uppercaseItemText([i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · '))}</div></div><span>+ Add</span></button>)}</div>}
    </div>
   </div></details>}
  </>
@@ -430,7 +431,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  function toggleField(k){setImportFields(v=>({...v,[k]:!v[k]}))}
 
  function itemImportPayload(){
-  return selectedRows().map(r=>({
+  return selectedRows().map(r=>uppercaseItemAttributes({
    selected:true,
    item_code:importFields.item_code?(r.external_code||''):'',
    description:String(r.import_name||r.price_description||'').trim(),
@@ -622,7 +623,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  return <>
   <div className="card pad">
    <div className="sectionhead"><div><h3>{t('price_lists.title','Company Price Lists')}</h3><p>{staffMode?t('price_lists.staff_hint','Latest approved company MRP only. Confidential cost, discount and history are hidden.'):t('price_lists.admin_hint','Upload company price lists, extract products, optionally create Item Master records, then save/approve the document.')}</p></div></div>
-   <div className="filters two"><ModernSelect className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setActive(null);resetDraft()}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input className="input" placeholder={t('price_lists.search','Search saved price-list items')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   <div className="filters two"><ModernSelect className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setActive(null);resetDraft()}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input className="input" placeholder={t('price_lists.search','Search saved price-list items')} value={search} onChange={e=>setSearch(uppercaseItemText(e.target.value))}/></div>
   </div>
 
   {canUpload&&<div className="card pad section">
