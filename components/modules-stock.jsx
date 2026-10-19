@@ -131,7 +131,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    if(r.data){
     const localTime=Date.parse(local.savedAt||0)||0
     const serverTime=Date.parse(r.data.updated_at||0)||0
-    if(serverTime>=localTime)chosen={
+    if(!local.preferLocal&&serverTime>=localTime)chosen={
      entry:r.data.entry||{},
      skipped:Array.isArray(r.data.skipped)?r.data.skipped:[],
      cursor:r.data.cursor||0,
@@ -156,7 +156,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(!draftReady)return
   const savedAt=new Date().toISOString()
   const filters={cat,movement,mainGroup,dueOnly,heldSearch,sufficient}
-  const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
+  let preferLocal=false
+  try{preferLocal=JSON.parse(localStorage.getItem(draftKey)||'{}').preferLocal===true}catch{}
+  const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt,preferLocal}
   // Save locally immediately so leaving the screen cannot cancel the last keystroke.
   let localSaved=false,cancelled=false
   try{localStorage.setItem(draftKey,JSON.stringify(payload));localSaved=true}catch{console.warn('Local stock draft could not be saved')}
@@ -172,7 +174,14 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
        count_started_at:payload.startedAt,updated_at:savedAt
       },{onConflict:'owner_id'})
       if(r.error)throw r.error
-      if(!cancelled)setDraftSave({local:localSaved,server:'saved'})
+      if(!cancelled){
+       // Only a confirmed upsert makes the server draft safe to prefer again.
+       try{
+        const current=JSON.parse(localStorage.getItem(draftKey)||'{}')
+        if(current.savedAt===savedAt&&current.preferLocal)localStorage.setItem(draftKey,JSON.stringify({...current,preferLocal:false}))
+       }catch{}
+       setDraftSave({local:localSaved,server:'saved'})
+      }
      }catch{
       if(!cancelled)setDraftSave({local:localSaved,server:'failed'})
      }
@@ -455,6 +464,15 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    const operation=await enqueueStockSubmission({ownerId:profile.id,kind:'general',category:cat||'',lines,startedAt:startedAt.current,resetRevisions:{stock:settings.stock_reset_revision,procurement:settings.procurement_reset_revision}})
    const next={...entry},nextSufficient={...sufficient}
    checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
+   // Persist the post-submission draft immediately, before React's next render.
+   // Prefer this local version if an old server draft is still present.
+   try{
+    const local=JSON.parse(localStorage.getItem(draftKey)||'{}')
+    localStorage.setItem(draftKey,JSON.stringify({
+     ...local,entry:next,filters:{...(local.filters||{}),sufficient:nextSufficient},
+     startedAt:startedAt.current,savedAt:new Date().toISOString(),preferLocal:true
+    }))
+   }catch(e){console.warn('Stock draft fallback could not be updated',e)}
    setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
    if(!Object.keys(next).length&&!Object.keys(nextSufficient).length)startedAt.current=null
    let result=null,syncError=''
