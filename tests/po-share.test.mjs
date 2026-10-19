@@ -5,7 +5,7 @@ const args={po:{po_no:'PO-TEST',supplier:{name:'Supplier'},total:705,terms:'Cash
 test('supplier PO defaults disclose only four item fields and no financial values',()=>{
  const m=purchaseOrderShareModel(args)
  assert.deepEqual(m.columns.map(c=>c.key),['description','size','uom','qty'])
- assert.deepEqual(m.rows,[['Bench vice','4 inch','PCS','3']]);assert.equal(m.total,null)
+ assert.deepEqual(m.rows,[['BENCH VICE','4 INCH','PCS','3']]);assert.equal(m.total,null)
  const text=buildPurchaseOrderText(args);assert.doesNotMatch(text,/235|705|Discount|Tax|Unit price|Line total|Cash/)
  assert.match(buildPurchaseOrderCaption(args),/PO-TEST/)
 })
@@ -26,7 +26,7 @@ test('quantity-only company orders never disclose invented zero prices and retai
  const po={...args.po,quantity_only:true};const lines=[{...args.lines[0],item:{...args.lines[0].item,colour:'Blue',variation:'Model A'}}]
  const selection=Object.fromEntries(Object.keys(defaultPoShareFields()).map(k=>[k,true]))
  const model=purchaseOrderShareModel({...args,po,lines,selection})
- assert.equal(model.total,null);assert.ok(!model.columns.some(c=>['unit_price','line_total','tax_percent','discount_percent'].includes(c.key)));assert.match(model.rows[0][0],/Blue.*Model A/)
+ assert.equal(model.total,null);assert.ok(!model.columns.some(c=>['unit_price','line_total','tax_percent','discount_percent'].includes(c.key)));assert.match(model.rows[0][0],/BLUE.*MODEL A/)
 })
 
 test('direct company PO exports identify RFQ bypass and unit rates even when financial fields are hidden',()=>{
