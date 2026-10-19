@@ -1278,6 +1278,7 @@ try{
   const quick=page.locator('.card').filter({has:page.getByRole('heading',{name:'Quick Add Item',exact:true})}).last()
   await quick.getByLabel('Item name',{exact:true}).fill('New fixture lock')
   await quick.getByLabel('Size',{exact:true}).fill('2 ft')
+  await quick.getByLabel('Maximum stock',{exact:true}).fill('25')
   await chooseOption(quick.getByRole('button',{name:'Category',exact:true}),'BATHROOM')
   await quick.getByRole('button',{name:'+ New category',exact:true}).click()
   await quick.getByRole('button',{name:'Use category',exact:true}).click()
