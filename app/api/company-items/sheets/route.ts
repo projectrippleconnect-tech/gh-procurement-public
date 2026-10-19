@@ -1,6 +1,8 @@
 import {companyAccess,companyBody,companyReply,sheetsToken,sheetsRequest} from '@/lib/company-server'
 // @ts-ignore Shared worksheet parser is covered by node tests.
 import {parseCompanySheet,validateCompanyImport} from '@/lib/company-items.mjs'
+// @ts-ignore The shared item text utility is a tested ESM module.
+import {uppercaseItemAttributes} from '@/lib/item-text.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
@@ -18,6 +20,7 @@ export async function POST(request:Request){
      let rows
      if(values.values?.[0]?.[0]==='Source ID')rows=normalizedRows(values.values,sheetId,title)
      else rows=parseCompanySheet({title,sheetId,values:values.values||[]})
+     rows=rows.map((row:Record<string,unknown>)=>uppercaseItemAttributes(row))
      validateCompanyImport(rows)
      let importTitle=title.replace(/ · App$/,'');const owner=sheet.developerMetadata?.find((m:{metadataKey:string})=>m.metadataKey==='gh_company_id')?.metadataValue;if(owner){const found=await db.from('proc_companies').select('name').eq('id',owner).maybeSingle();if(found.error)throw found.error;if(found.data)importTitle=found.data.name}
      const r=await db.rpc('proc_company_import_sheet',{p_title:importTitle,p_sheet_id:sheetId,p_rows:rows});if(r.error)throw r.error;imported+=r.data.imported
