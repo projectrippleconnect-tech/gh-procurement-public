@@ -445,32 +445,38 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
   if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one stock quantity or mark an item sufficient.')))
   if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
-  const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
-  const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
-  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
-
+  const suffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
+  const batchNote=remaining?' '+remaining+' counted item(s) will remain in the draft.':''
+  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+suffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Save stock'),details:'Stock is saved on this phone first, then synchronized when connected.'}))return
   setBusy(true)
   try{
-   await draftWrites.current
-   await ensureServerCountStart()
-   const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v)})
-   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:null})
-   if(r.error)throw r.error
-   const automation=r.data?.automation||null
-   const next={...entry},nextSufficient={...sufficient};checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
+   const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v),sufficient_stock:false})
+   // Only remove a draft entry after the IndexedDB commit has succeeded.
+   const operation=await enqueueStockSubmission({ownerId:profile.id,kind:'general',category:cat||'',lines,startedAt:startedAt.current})
+   const next={...entry},nextSufficient={...sufficient}
+   checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
    setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
-   if(!Object.keys(next).length&&!Object.keys(nextSufficient).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
-   let message='Stock submitted. '
-   if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
-   else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
-   else message+=checked.length+' item(s) saved for procurement review.'
-   setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
-   await load()
-   if(historyOpen)await loadStockHistory()
-   if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
-  }catch(e){
-   fail(e)
-  }finally{setBusy(false)}
+   if(!Object.keys(next).length&&!Object.keys(nextSufficient).length)startedAt.current=null
+   let result=null
+   if(!isDisconnected()){
+    const sync=await synchronizeStockSubmissions(profile.id,supabase)
+    if(sync.completedIds?.includes(operation.id))result=sync.receipts[operation.id]
+   }
+   if(result){
+    const automation=result.automation||null
+    let message='Stock submitted and confirmed by the server. '
+    if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) await Procurement Review.'
+    else if(automation?.status==='no_requirements')message+='No purchase is needed.'
+    else message+=checked.length+' item(s) recorded.'
+    setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
+    await load()
+    if(historyOpen)await loadStockHistory()
+    if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
+   }else{
+    setSubmission({message:'Saved on this phone · '+checked.length+' item(s) are pending synchronization. They will appear in confirmed history after the server accepts them.',remaining,needsReview:false})
+   }
+  }catch(e){fail(e)}
+  finally{setBusy(false)}
  }
 
  async function discardDraft(){
