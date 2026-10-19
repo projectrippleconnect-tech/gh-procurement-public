@@ -4,7 +4,7 @@ import {ModernSelect} from './modern-select'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
-import {enqueueStockSubmission,synchronizeStockSubmissions,isDisconnected,saveStockSnapshot,readStockSnapshot} from '@/lib/offline-stock.mjs'
+import {enqueueStockSubmission,synchronizeStockSubmissions,isDisconnected,saveStockSnapshot,readStockSnapshot,pendingStockSubmissions,OFFLINE_CHANGED} from '@/lib/offline-stock.mjs'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {allRows,containsAny} from '@/lib/query-pages'
@@ -98,6 +98,14 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sectionFilter,setSectionFilter]=useState(''),[collapsedSections,setCollapsedSections]=useState({}),[sufficient,setSufficient]=useState({}),[sections,setSections]=useState([])
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
+ const[pendingCounts,setPendingCounts]=useState([])
+ useEffect(()=>{
+  let alive=true
+  const refresh=()=>pendingStockSubmissions(profile.id).then(all=>{if(alive)setPendingCounts(all.filter(op=>op.kind==='company'&&op.companyId===companyId))}).catch(()=>{})
+  refresh()
+  window.addEventListener(OFFLINE_CHANGED,refresh)
+  return()=>{alive=false;window.removeEventListener(OFFLINE_CHANGED,refresh)}
+ },[profile.id,companyId])
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
  const loadCompanies=useCallback(async()=>{
@@ -281,6 +289,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
+  {pendingCounts.length>0&&<div className="stock-history-panel section"><strong>{pendingCounts.length} Company Item submission(s) saved locally · awaiting synchronization</strong>{pendingCounts.map(op=><details className="stock-history-record" key={op.id}><summary>{new Date(op.createdAt).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})} · {op.lines.length} item(s)</summary><div className="stock-history-detail">{op.lines.map(line=><div className="stock-history-detail-row" key={line.company_list_item_id}><span>{rows.find(r=>r.id===line.company_list_item_id)?.item?.description||line.company_list_item_id}</span><b>{line.sufficient_stock?'Sufficient':line.current_stock}</b></div>)}</div></details>)}</div>}
   {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
 
