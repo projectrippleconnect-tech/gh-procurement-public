@@ -27,6 +27,8 @@ import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
 import {companyLotRows,companyLotGroups} from '@/lib/company-stock-lot.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
+import {latestStockMarkers} from '@/lib/stock-item-history.mjs'
+import {StockItemSubmissionHistory} from './stock-item-submission-history'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -107,6 +109,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const[companyHistory,setCompanyHistory]=useState([]),[companyHistoryDetails,setCompanyHistoryDetails]=useState({}),[expandedHistoryId,setExpandedHistoryId]=useState(null)
  const[companyHistoryLoading,setCompanyHistoryLoading]=useState(false),[companyHistoryReady,setCompanyHistoryReady]=useState(false),[companyHistoryError,setCompanyHistoryError]=useState('')
  const[recentFinalized,setRecentFinalized]=useState({}),[companyRecounts,setCompanyRecounts]=useState(new Set())
+ const[itemHistory,setItemHistory]=useState(null)
  const submitLock=useRef(false),historyRequest=useRef(0)
  const [directoryRevision,setDirectoryRevision]=useState(0)
  const [workflowReviewRequest,setWorkflowReviewRequest]=useState({companyId:null,sequence:0})
@@ -295,28 +298,27 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    if(result.error)throw result.error
    const records=(result.data||[]).filter(h=>h.counted_by===profile.id&&String(h.category||'').startsWith('COMPANY: '))
    const owned=records.map(h=>({...h,company:companies.find(c=>c.name.trim().toLowerCase()===String(h.category).slice(9).trim().toLowerCase())})).filter(h=>h.company)
-   // The history RPC returns only permissible counts; detail RPC enforces the
-   // same owner's access before showing quantities or enabling recount badges.
-   const recent=owned.slice(0,24)
-   const detail=await Promise.all(recent.map(h=>supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:h.count_id})))
+   // All-time latest by item and company, not just the first 24 recent batches.
+   const grouped=new Map()
+   for(const r of rows){
+    if(!grouped.has(r.company_id))grouped.set(r.company_id,[])
+    grouped.get(r.company_id).push(r.item_id)
+   }
+   const latest={}
+   for(const [id,ids] of grouped){
+    const markers=await latestStockMarkers(supabase,ids,id)
+    for(const [itemId,marker] of Object.entries(markers))latest[id+'|'+itemId]=marker
+   }
    if(revision!==historyRequest.current)return
-   for(const d of detail)if(d.error)throw d.error
-   const latest={},detailMap={}
-   recent.forEach((h,index)=>{
-    detailMap[h.count_id]=detail[index].data||[]
-    for(const line of detailMap[h.count_id]){
-     const key=h.company.id+'|'+line.item_id
-     if(!latest[key])latest[key]={count_id:h.count_id,count_no:h.count_no,submitted_at:h.submitted_at,quantity:line.current_stock}
-    }
-   })
    setCompanyHistory(owned)
-   setCompanyHistoryDetails(previous=>({...previous,...detailMap}))
-   setRecentFinalized(previous=>({...previous,...latest}))
+   setCompanyHistoryDetails({})
+   setRecentFinalized(latest)
    setCompanyHistoryReady(true)
-  }catch(e){if(revision===historyRequest.current){setCompanyHistoryError('Could not verify previous company counts. Retry history before finalizing.');setCompanyHistoryReady(false);console.warn('Company count history unavailable',e)}}
+  }catch(e){if(revision===historyRequest.current){setCompanyHistoryError('Could not verify previous company counts. Retry History before finalizing.');setCompanyHistoryReady(false);console.warn('Company count history unavailable',e)}}
   finally{if(revision===historyRequest.current)setCompanyHistoryLoading(false)}
- },[companies,profile.id])
+ },[companies,profile.id,rows])
  useEffect(()=>{if(active&&companies.length)void loadCompanyHistory();return()=>{historyRequest.current++}},[active,loadCompanyHistory,companies.length])
+
  async function openCompanyHistoryRecord(id){
   if(expandedHistoryId===id){setExpandedHistoryId(null);return}
   setExpandedHistoryId(id)
@@ -367,6 +369,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
 
  return <>
 
+  {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} companyId={itemHistory.companyId} onClose={()=>setItemHistory(null)}/>}
   {companyReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal company-lot-modal" role="dialog" aria-modal="true" aria-label="Review company stock lot">
     <div className="modal-head"><div><h3>{companyHistoryOpen?'Company stock history':'Review company lot · '+countTotal+' items'}</h3><p className="muted tiny">Saved draft · one final confirmation</p></div><button type="button" className="btn small" aria-label="Close review" onClick={()=>setCompanyReviewOpen(false)}>✕</button></div>
@@ -432,7 +435,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
       ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{line.title} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {line.title} <small>({line.count})</small></button>}</th></tr>
       :(()=>{const r=line.row;const last=companyMarker(r);const alreadyFinalized=!!last&&!companyRecounts.has(r.id);return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row ':'')+(alreadyFinalized?'company-stock-finalized':'')}>
      <td>{allCompanies&&<small className="muted">{companyNames.get(r.company_id)}</small>}<CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
-      {last&&<small className="company-count-last" title={'Last submitted '+companyDateTime(last.submitted_at)}>{alreadyFinalized?'✓ Submitted':'↺ Recounting'} · {last.count_no} · {companyDateTime(last.submitted_at)}</small>}
+      {last&&<button type="button" className="company-count-last stock-submitted-link" title={'View full submission history · Last submitted '+companyDateTime(last.submitted_at)} aria-label={'View stock submission history for '+(r.item?.description||'item')} onClick={()=>setItemHistory({id:r.item_id,companyId:r.company_id,name:r.item?.description||r.item?.item_code||'Company item'})}>{alreadyFinalized?'✓ Submitted':'↺ Recounting'} · {last.count_no} · {companyDateTime(last.submitted_at)} · History ›</button>}
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
