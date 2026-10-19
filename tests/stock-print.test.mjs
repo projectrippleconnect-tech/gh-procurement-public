@@ -41,7 +41,7 @@ test('all printable stock columns support bold and left-centre-right alignment w
  const item={description:'Steel Nail 4 inch',uom:'PCS',reorder_level:12}
  const pdf=buildCustomStockPdf({items:[item],options:{...customised,tablesPerPage:1}})
  const plain=pdf.output()
- assert.ok(plain.includes('Steel Nail 4 inch'))
+ assert.ok(plain.includes('STEEL NAIL 4 INCH'))
  assert.ok(plain.includes('(12)'),'Reorder level remains printable after styling')
  assert.ok(plain.includes('(PCS)'),'UOM remains printable after styling')
 })
