@@ -452,7 +452,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   try{
    const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v),sufficient_stock:false})
    // Only remove a draft entry after the IndexedDB commit has succeeded.
-   const operation=await enqueueStockSubmission({ownerId:profile.id,kind:'general',category:cat||'',lines,startedAt:startedAt.current})
+   const operation=await enqueueStockSubmission({ownerId:profile.id,kind:'general',category:cat||'',lines,startedAt:startedAt.current,resetRevisions:{stock:settings.stock_reset_revision,procurement:settings.procurement_reset_revision}})
    const next={...entry},nextSufficient={...sufficient}
    checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
    setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
@@ -548,7 +548,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  ]
 
  const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
- if(stockTab==='company')return <>{stockTabs}<CompanyLists profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
+ if(stockTab==='company')return <>{stockTabs}<CompanyLists profile={profile} fields={fields} settings={settings} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
   {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
