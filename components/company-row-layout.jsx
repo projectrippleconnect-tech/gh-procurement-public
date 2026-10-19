@@ -3,6 +3,7 @@ import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {ModernSelect} from './modern-select'
 import {qty} from '@/lib/helpers'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
 import {companyCompactMeta,reorderFor} from '@/lib/company-items.mjs'
 import {COMPANY_ROW_POSITION_FIELDS,normalizeCompanyRowLayout,companyRowPosition,companyRowStyle} from '@/lib/company-row-layout.mjs'
 import {COMPANY_DISPLAY_KEY,COMPANY_DISPLAY_FIELDS,normalizeCompanyDisplay} from '@/lib/company-display.mjs'
@@ -19,7 +20,7 @@ export function CompanyItemDetails({row,visibleFields={},layout={},preview=false
  ]
  const at=place=>cells.filter(x=>companyRowPosition(p,x.position||x.key)===place)
  return <div className="company-item-presentation">
-  <div className="company-item-line company-first-line"><strong className={preview?'company-layout-sample-name':'company-item-name'}>{item.description}</strong>{at('first').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>
+  <div className="company-item-line company-first-line"><strong className={preview?'company-layout-sample-name':'company-item-name'}>{uppercaseItemText(item.description)}</strong>{at('first').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>
   {at('second').length>0&&<div className="company-item-line company-second-line">{at('second').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>}
  </div>
 }
