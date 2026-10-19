@@ -263,6 +263,10 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    // A successful local commit is the only point at which entered quantities are removed.
    const nextEntry={...entry},nextSufficient={...sufficient}
    counted.forEach(r=>{delete nextEntry[r.id];delete nextSufficient[r.id]})
+   // Update the old localStorage draft immediately as well; it must not
+   // resurrect submitted quantities if the page closes before the debounce.
+   try{localStorage.setItem(draftKey,JSON.stringify({entry:nextEntry,sufficient:nextSufficient,startedAt:startedAt.current}))}
+   catch(e){console.warn('Company count draft fallback unavailable',e)}
    setEntry(nextEntry);setSufficient(nextSufficient)
    if(!Object.keys(nextEntry).length&&!Object.keys(nextSufficient).length)startedAt.current=null
    let saved=null,syncError=''
