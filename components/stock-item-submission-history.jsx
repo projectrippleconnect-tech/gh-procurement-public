@@ -59,3 +59,17 @@ export function StockItemSubmissionHistory({itemId,itemName,companyId=null,onClo
   </section>
  </div>
 }
+
+/**
+ * Same compact, read-only History entry point for General and Company stock rows.
+ * The submission number, date, quantity and previous recounts are shown only
+ * after opening the existing item history modal.
+ */
+export function StockHistoryLink({itemName,onClick,recounting=false}){
+ return <button type="button" className="stock-submitted-link stock-history-compact-link"
+  aria-label={(recounting?'Recount in progress. ':'Stock submitted. ')+'View submission history for '+itemName}
+  title={(recounting?'Recount in progress':'Submitted stock')+' · View history for '+itemName}
+  onClick={onClick}>
+  <span aria-hidden="true">{recounting?'↺':'✓'}</span><span>History</span><span aria-hidden="true">›</span>
+ </button>
+}

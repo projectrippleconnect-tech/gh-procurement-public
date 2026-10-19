@@ -1370,3 +1370,19 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .stock-item-history-backdrop{align-items:end}
  .stock-item-history-modal{width:100%;max-height:86dvh;border-radius:16px 16px 0 0;padding:12px 10px}
 }
+
+/* Compact item-level history marker. Identical in Company and General stock. */
+.stock-history-compact-link.stock-submitted-link{
+ display:inline-flex;align-items:center;justify-content:center;gap:4px;
+ width:max-content;max-width:100%;min-height:26px;margin-top:2px;
+ padding:3px 8px;border-radius:7px;line-height:1;white-space:nowrap;
+ font-size:11px;font-weight:800;overflow-wrap:normal;
+}
+.stock-history-compact-link.stock-submitted-link span:first-child{font-size:12px}
+.stock-dense-info>.stock-history-compact-link.stock-submitted-link{align-self:start}
+@media(max-width:700px){
+ .stock-history-compact-link.stock-submitted-link,
+ .stock-dense-info>.stock-history-compact-link.stock-submitted-link{
+  min-height:24px;padding:2px 7px;font-size:10px;
+ }
+}
