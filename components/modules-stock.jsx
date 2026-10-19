@@ -8,7 +8,7 @@ import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {allRows,containsAny} from '@/lib/query-pages'
-import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
+import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel,isApproximateItemMatch} from '@/lib/stock-search.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {stockLotReview} from '@/lib/stock-lot.mjs'
@@ -359,9 +359,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  }
  const visibleSearchResults=useMemo(()=>{
   const filters=searchScope==='current'?{category:cat,main_group:mainGroup,movement}:{}
-  const local=searchStockItems(localSearchIndex,searchTerm,filters)
-  const seen=new Set(local.map(row=>row.item_id))
-  return [...local,...searchStockItems(searchResults,searchTerm,filters).filter(row=>!seen.has(row.item_id))].slice(0,30)
+  const merged=new Map(localSearchIndex.map(row=>[row.item_id,row]))
+  for(const row of searchResults)if(!merged.has(row.item_id))merged.set(row.item_id,row)
+  return searchStockItems([...merged.values()],searchTerm,filters,30)
  },[localSearchIndex,searchTerm,searchScope,cat,mainGroup,movement,searchResults])
  useEffect(()=>{
   setSearchResults([]);setSearchError('');setSearchBusy(false)
@@ -784,14 +784,14 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="stock-search-panel">
     <div className="stock-search-top">
      <button className="btn small" onClick={()=>setSearchOpen(false)}>←</button>
-     <input id="stock-global-search" className="input stock-search-input" autoComplete="off" inputMode="search" enterKeyHint="search" placeholder={t('stock.search_placeholder','Search e.g. 6mm, GI elbow, item code…')} value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+     <input id="stock-global-search" className="input stock-search-input" autoComplete="off" inputMode="search" enterKeyHint="search" placeholder={t('stock.search_placeholder','Search item or code (typos OK)…')} value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
      {searchTerm&&<button className="btn small" onClick={()=>setSearchTerm('')}>{t('common.clear','Clear')}</button>}
     </div>
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
     <label className="stock-search-hold" title="Keep matching items in Stock Entry until released."><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span>Hold matching items</span></label>
     {searchError&&<div className="muted tiny" role="status">{searchError}</div>}
     <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={e=>{if(consumeLongPress(e))return;openQuick(i)}} {...itemLongPressProps(i)}>
-      <div><strong>{stockItemLabel(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.subgroup,i.category].filter(Boolean).join(' › ')}</small></div>
+      <div><strong>{stockItemLabel(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.subgroup,i.category].filter(Boolean).join(' › ')}</small>{isApproximateItemMatch(i,searchTerm)&&<small>≈ Possible match · verify item and size</small>}</div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>
      </button>)}</div>
    </div>
