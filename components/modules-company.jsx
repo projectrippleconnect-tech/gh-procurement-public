@@ -30,7 +30,7 @@ import {companyLotRows,companyLotGroups} from '@/lib/company-stock-lot.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
 import {latestStockMarkers} from '@/lib/stock-item-history.mjs'
-import {StockItemSubmissionHistory} from './stock-item-submission-history'
+import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -444,7 +444,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
       ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{line.title} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {line.title} <small>({line.count})</small></button>}</th></tr>
       :(()=>{const r=line.row;const last=companyMarker(r);const alreadyFinalized=!!last&&!companyRecounts.has(r.id);return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row ':'')+(alreadyFinalized?'company-stock-finalized':'')}>
      <td>{allCompanies&&<small className="muted">{companyNames.get(r.company_id)}</small>}<CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
-      {last&&<button type="button" className="company-count-last stock-submitted-link" title={'View full submission history · Last submitted '+companyDateTime(last.submitted_at)} aria-label={'View stock submission history for '+(r.item?.description||'item')} onClick={()=>setItemHistory({id:r.item_id,companyId:r.company_id,name:r.item?.description||r.item?.item_code||'Company item'})}>{alreadyFinalized?'✓ Submitted':'↺ Recounting'} · {last.count_no} · {companyDateTime(last.submitted_at)} · History ›</button>}
+      {last&&<StockHistoryLink itemName={r.item?.description||r.item?.item_code||'Company item'} recounting={!alreadyFinalized} onClick={()=>setItemHistory({id:r.item_id,companyId:r.company_id,name:r.item?.description||r.item?.item_code||'Company item'})}/>}
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
        <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
