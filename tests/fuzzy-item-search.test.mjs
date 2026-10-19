@@ -67,3 +67,38 @@ test('large catalogue remains fast for exact searches',()=>{
  for(const q of ['c','co','con','conc','concr'])assert.equal(searchStockItems(large,q).length,30)
  assert.ok(performance.now()-before<150)
 })
+
+
+test('Pad loc, Padloc, PAD LOCK and PADLOCK return identical items and ordering',()=>{
+ const padlocks=indexStockItems([
+  {id:'black32',description:'BLACK PADLOCK 32MM KOBE',category:'KOBE',movement:'NORMAL'},
+  {id:'pad20',description:'PAD LOCK',size:'20MM',category:'GENERAL',movement:'FAST'},
+  {id:'pad32',description:'PAD LOCK',size:'32MM',category:'GENERAL',movement:'FAST'},
+  {id:'viro',description:'VIRO PADLOCK',size:'CYLINDER',category:'GENERAL',movement:'SLOW'},
+  {id:'pad25',description:'PAD LOCK',size:'25MM',category:'GENERAL',movement:'FAST'},
+  {id:'unrelated',description:'BOLT LOCK',category:'GENERAL'}
+ ])
+ const expected=['black32','pad20','pad32','viro','pad25']
+ for(const query of ['Pad loc','Padloc','PAD LOCK','PADLOCK','pad lok']){
+  assert.deepEqual(searchStockItems(padlocks,query).map(r=>r.item_id),expected,query)
+  assert.deepEqual(searchStockItems(padlocks,query,{},3).map(r=>r.item_id),expected.slice(0,3),query+' limit')
+  assert.deepEqual(searchStockItems(padlocks,query,{},Infinity).map(r=>r.item_id),expected,query+' held')
+  assert.deepEqual(searchStockItems(padlocks,query,{movement:'FAST'}).map(r=>r.item_id),['pad20','pad32','pad25'])
+ }
+ assert.equal(isApproximateItemMatch(padlocks[1],'Padloc'),false,'Recognized alternate spellings are direct matches')
+ assert.deepEqual(searchStockItems(padlocks,'pad loc 20').map(r=>r.item_id),['pad20'],'Item sizes remain distinct')
+ assert.deepEqual(new Set(searchStockItems(padlocks,'lock',{},Infinity).map(r=>r.item_id)),new Set(expected.concat('unrelated')))
+})
+
+test('common hardware compound spacing keeps the same results',()=>{
+ const rows=indexStockItems([
+  {id:'screw',description:'SCREW DRIVER',size:'6MM'},
+  {id:'screw2',description:'SCREWDRIVER',size:'8MM'},
+  {id:'wash',description:'WASH BASIN'},
+  {id:'wash2',description:'WASHBASIN'}
+ ])
+ assert.deepEqual(searchStockItems(rows,'screw driver').map(x=>x.item_id),['screw','screw2'])
+ assert.deepEqual(searchStockItems(rows,'screwdriver').map(x=>x.item_id),['screw','screw2'])
+ assert.deepEqual(searchStockItems(rows,'wash basin').map(x=>x.item_id),['wash','wash2'])
+ assert.deepEqual(searchStockItems(rows,'washbasin').map(x=>x.item_id),['wash','wash2'])
+})
