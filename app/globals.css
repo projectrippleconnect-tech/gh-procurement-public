@@ -1331,3 +1331,42 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .company-lot-modal>.stock-lot-rows{min-height:62px}
  .company-count-last{font-size:9px}
 }
+
+
+/* Item-level submission history: compact, keyboard accessible, mobile-first. */
+.stock-dense-info{overflow:visible}
+.stock-dense-item-toggle{
+ min-width:0;border:0;background:none;color:inherit;font:inherit;text-align:left;
+ padding:0;display:grid;align-content:center;gap:2px;cursor:pointer;overflow:hidden
+}
+.stock-submitted-link{
+ display:inline-flex;align-items:center;max-width:100%;width:fit-content;
+ margin-top:3px;padding:2px 5px;border:1px solid color-mix(in srgb,var(--good) 46%,transparent);
+ border-radius:6px;background:color-mix(in srgb,var(--good) 11%,transparent);
+ color:var(--good);font-size:10px;font-weight:850;line-height:1.35;
+ white-space:normal;overflow-wrap:anywhere;text-align:left;cursor:pointer;touch-action:manipulation
+}
+.stock-submitted-link:hover{text-decoration:underline}
+.stock-submitted-link:focus-visible{outline:2px solid var(--brand2);outline-offset:2px}
+.company-count-last.stock-submitted-link{display:inline-flex;min-height:23px}
+.stock-item-history-backdrop{z-index:1100}
+.stock-item-history-modal{
+ width:min(630px,100%);max-height:min(87dvh,800px);overflow:hidden;
+ display:flex;flex-direction:column;gap:8px
+}
+.stock-item-history-modal .modal-head{flex:0 0 auto;align-items:flex-start}
+.stock-item-history-modal .modal-head p{margin:3px 0 0;overflow-wrap:anywhere}
+.stock-item-history-note{flex:0 0 auto;margin:0;line-height:1.4}
+.stock-item-history-list{flex:1 1 auto;overflow-y:auto;min-height:60px;overscroll-behavior:contain;display:grid;align-content:start;gap:6px}
+.stock-item-history-record{padding:9px 10px;border:1px solid var(--line);border-radius:9px}
+.stock-item-history-record.latest{border-color:var(--good);background:color-mix(in srgb,var(--good) 8%,var(--panel))}
+.stock-item-history-heading{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:5px}
+.stock-item-history-heading strong{font-size:11px;color:var(--good)}
+.stock-item-history-heading span{font-size:11px;font-weight:700}
+.stock-item-history-quantity{font-size:16px;font-weight:850;margin:5px 0;overflow-wrap:anywhere}
+.stock-item-history-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+@media(max-width:700px){
+ .stock-dense-info>.stock-submitted-link{min-height:19px;padding:1px 4px;font-size:9px}
+ .stock-item-history-backdrop{align-items:end}
+ .stock-item-history-modal{width:100%;max-height:86dvh;border-radius:16px 16px 0 0;padding:12px 10px}
+}
