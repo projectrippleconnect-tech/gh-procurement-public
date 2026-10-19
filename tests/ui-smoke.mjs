@@ -1138,8 +1138,7 @@ try{
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){
    await navigate('CL Company Lists')
    await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
-   await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
-   await page.getByRole('button',{name:'Company setup',exact:true}).click()
+   // Standalone Company Lists opens in Setup; printable tools are available here.
    await page.locator('.company-stock-tools>summary').filter({visible:true}).first().click()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
@@ -1216,6 +1215,8 @@ try{
   // Catalog actions use intercepted APIs; production is never mutated.
   await navigate('CL Company Lists')
   await chooseOption(page.getByLabel('Company list',{exact:true}),'company-fixture')
+  // Counting rows are deliberately hidden while the standalone Setup panel is open.
+  await page.getByRole('button',{name:'Back to stock',exact:true}).click()
   await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
   const companyView=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
   await companyView.locator('.company-stock-filters>summary').click()
