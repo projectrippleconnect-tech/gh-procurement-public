@@ -358,8 +358,8 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    ...r,
    _draftId:makeId(),
    _selected:true,
-   price_description:r.description||'',
-   import_name:r.description||'',
+   price_description:uppercaseItemText(r.description||''),
+   import_name:uppercaseItemText(r.description||''),
    brand,
    category:importDefaults.category||'GENERAL',
    main_group:importDefaults.main_group||'',
@@ -396,7 +396,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
   const src=new File([blob],'cropped-price-list.jpg',{type:'image/jpeg'})
   await runExtraction(src,listType)
  }
- function setDraft(id,key,value){setDraftRows(rows=>rows.map(r=>r._draftId===id?{...r,[key]:value}:r))}
+ function setDraft(id,key,value){const next=['price_description','import_name','brand','category','main_group','subgroup','size','uom'].includes(key)?uppercaseItemText(value):value;setDraftRows(rows=>rows.map(r=>r._draftId===id?{...r,[key]:next}:r))}
  function deleteDraft(id){setDraftRows(rows=>rows.filter(r=>r._draftId!==id))}
  function selectedRows(){return draftRows.filter(r=>r._selected)}
  function selectAll(value){setDraftRows(rows=>rows.map(r=>({...r,_selected:value})))}
@@ -410,7 +410,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    code:r.external_code||'',
    category:r.category||''
   }
-  return namingTemplate.replace(/\{(brand|description|size|code|category)\}/gi,(_,k)=>tokens[k.toLowerCase()]||'').replace(/\s+/g,' ').trim()
+  return uppercaseItemText(namingTemplate.replace(/\{(brand|description|size|code|category)\}/gi,(_,k)=>tokens[k.toLowerCase()]||'').replace(/\s+/g,' ').trim())
  }
  function applyNameFormat(){
   setDraftRows(rows=>rows.map(r=>r._selected?{...r,import_name:formatName(r)}:r))
@@ -563,7 +563,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  async function addLine(){
   if(!active||!canUpload)return
   if(!line.description.trim())return fail(new Error(t('validation.item_description','Item description is required.')))
-  const payload={price_list_id:active.id,external_code:line.external_code||null,description:line.description.trim(),size:line.size||null,uom:line.uom||null,mrp:line.mrp===''?null:Number(line.mrp),cost:isAdmin&&active.list_type==='cost'&&line.cost!==''?Number(line.cost):null,discount_percent:isAdmin?Number(line.discount_percent||0):0,extra_discount_percent:isAdmin?Number(line.extra_discount_percent||0):0,tax_percent:isAdmin?Number(line.tax_percent||0):0,match_status:'unmatched'}
+  const payload={price_list_id:active.id,external_code:line.external_code||null,description:normalizeItemText(line.description),size:line.size?normalizeItemText(line.size):null,uom:line.uom?normalizeItemText(line.uom):null,mrp:line.mrp===''?null:Number(line.mrp),cost:isAdmin&&active.list_type==='cost'&&line.cost!==''?Number(line.cost):null,discount_percent:isAdmin?Number(line.discount_percent||0):0,extra_discount_percent:isAdmin?Number(line.extra_discount_percent||0):0,tax_percent:isAdmin?Number(line.tax_percent||0):0,match_status:'unmatched'}
   const r=await supabase.from('proc_company_price_list_lines').insert(payload)
   if(r.error)return fail(r.error)
   setLine({external_code:'',description:'',size:'',uom:'',mrp:'',cost:'',discount_percent:'0',extra_discount_percent:'0',tax_percent:'0'})
@@ -576,7 +576,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    if(value==='')v=key==='mrp'||key==='cost'?null:0
    else{v=Number(value);if(!Number.isFinite(v)||v<0)return fail(new Error(t('validation.nonnegative','Enter a valid non-negative number.')))}
    if(['discount_percent','extra_discount_percent','tax_percent'].includes(key)&&v>100)return fail(new Error(t('validation.percent','Percentages must be between 0 and 100.')))
-  }else v=value===''?null:value
+  }else v=value===''?null:['description','size','uom'].includes(key)?normalizeItemText(value):value
   const r=await supabase.from('proc_company_price_list_lines').update({[key]:v}).eq('id',row.id)
   if(r.error)return fail(r.error)
   setLines(x=>x.map(y=>y.id===row.id?{...y,[key]:v}:y))
@@ -653,11 +653,11 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    <div className="notice"><b>Item Name Format</b><div className="muted tiny">Available placeholders: {'{brand}'} {'{description}'} {'{size}'} {'{code}'} {'{category}'}</div><div className="toolbar section"><input className="input" style={{minWidth:260}} value={namingTemplate} onChange={e=>setNamingTemplate(e.target.value)}/><button className="btn" onClick={applyNameFormat}>Apply Format to Selected</button></div></div>
 
    <div className="formgrid section">
-    <div className="field"><label>Default Category</label><input className="input" list="proc-import-categories" value={importDefaults.category} onChange={e=>setImportDefaults(x=>({...x,category:e.target.value}))}/></div>
-    <div className="field"><label>Default Brand</label><input className="input" list="proc-import-brands" value={importDefaults.brand} onChange={e=>setImportDefaults(x=>({...x,brand:e.target.value}))}/></div>
-    <div className="field"><label>Main Group</label><input className="input" list="proc-import-main-groups" value={importDefaults.main_group} onChange={e=>setImportDefaults(x=>({...x,main_group:e.target.value}))}/></div>
-    <div className="field"><label>Subgroup</label><input className="input" list="proc-import-subgroups" value={importDefaults.subgroup} onChange={e=>setImportDefaults(x=>({...x,subgroup:e.target.value}))}/></div>
-    <div className="field"><label>Default UOM</label><input className="input" list="proc-import-uoms" value={importDefaults.uom} onChange={e=>setImportDefaults(x=>({...x,uom:e.target.value}))}/></div>
+    <div className="field"><label>Default Category</label><input className="input" list="proc-import-categories" value={importDefaults.category} onChange={e=>setImportDefaults(x=>({...x,category:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Default Brand</label><input className="input" list="proc-import-brands" value={importDefaults.brand} onChange={e=>setImportDefaults(x=>({...x,brand:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Main Group</label><input className="input" list="proc-import-main-groups" value={importDefaults.main_group} onChange={e=>setImportDefaults(x=>({...x,main_group:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Subgroup</label><input className="input" list="proc-import-subgroups" value={importDefaults.subgroup} onChange={e=>setImportDefaults(x=>({...x,subgroup:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Default UOM</label><input className="input" list="proc-import-uoms" value={importDefaults.uom} onChange={e=>setImportDefaults(x=>({...x,uom:uppercaseItemText(e.target.value)}))}/></div>
     <div className="field"><label>Movement</label><ModernSelect className="select" value={importDefaults.movement} onChange={e=>setImportDefaults(x=>({...x,movement:e.target.value}))}><option>FAST</option><option>NORMAL</option><option>SLOW</option></ModernSelect></div>
     <div className="field"><label>Max Stock</label><input className="input" inputMode="decimal" value={importDefaults.max_stock} onChange={e=>setImportDefaults(x=>({...x,max_stock:e.target.value}))}/></div>
     <div className="field"><label>Reorder Level</label><input className="input" inputMode="decimal" value={importDefaults.reorder_level} onChange={e=>setImportDefaults(x=>({...x,reorder_level:e.target.value}))}/></div>
@@ -684,12 +684,12 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
   <div className="card pad section">{!active?<Empty>{companyId?'No saved/approved price list selected.':'Select a company.'}</Empty>:<>
    <div className="sectionhead"><div><h3>{active.title}</h3><p>{active.effective_date||'No effective date'}{!staffMode?' · '+active.list_type.toUpperCase():''}{!staffMode?' · extraction '+String(active.extraction_status||'not requested').replaceAll('_',' '):''}</p></div><div className="toolbar">{canUpload&&active.list_type==='mrp'&&active.status!=='approved'&&<button className="btn" onClick={rematch}>Re-match Items</button>}{isAdmin&&active.status!=='approved'&&<button className="btn good" onClick={approve}>Approve & Make Current</button>}{isAdmin&&active.status==='approved'&&active.list_type==='mrp'&&<button className="btn" disabled={busy} onClick={populateCompanyList}>Link Matched Items to Company List</button>}</div></div>
    {visibleDocs.length>0&&<div className="toolbar section">{visibleDocs.map(d=><button className="btn" key={d.id} onClick={()=>viewDoc(d)}>{staffMode?'View Latest MRP PDF/Image':d.document_kind.replaceAll('_',' ')}</button>)}</div>}
-   {canUpload&&active.status!=='approved'&&<div className="section"><h4>Saved extracted rows</h4><div className="formgrid section"><div className="field"><label>Code</label><input className="input" value={line.external_code} onChange={e=>setLine(x=>({...x,external_code:e.target.value}))}/></div><div className="field"><label>Description</label><input className="input" value={line.description} onChange={e=>setLine(x=>({...x,description:e.target.value}))}/></div><div className="field"><label>Size</label><input className="input" value={line.size} onChange={e=>setLine(x=>({...x,size:e.target.value}))}/></div><div className="field"><label>UOM</label><input className="input" value={line.uom} onChange={e=>setLine(x=>({...x,uom:e.target.value}))}/></div><div className="field"><label>MRP</label><input className="input" inputMode="decimal" value={line.mrp} onChange={e=>setLine(x=>({...x,mrp:e.target.value}))}/></div>{isAdmin&&active.list_type==='cost'&&<><div className="field"><label>Cost</label><input className="input" inputMode="decimal" value={line.cost} onChange={e=>setLine(x=>({...x,cost:e.target.value}))}/></div><div className="field"><label>Discount %</label><input className="input" inputMode="decimal" value={line.discount_percent} onChange={e=>setLine(x=>({...x,discount_percent:e.target.value}))}/></div></>}</div><button className="btn section" onClick={addLine}>Add Review Row</button></div>}
+   {canUpload&&active.status!=='approved'&&<div className="section"><h4>Saved extracted rows</h4><div className="formgrid section"><div className="field"><label>Code</label><input className="input" value={line.external_code} onChange={e=>setLine(x=>({...x,external_code:e.target.value}))}/></div><div className="field"><label>Description</label><input className="input" value={line.description} onChange={e=>setLine(x=>({...x,description:uppercaseItemText(e.target.value)}))}/></div><div className="field"><label>Size</label><input className="input" value={line.size} onChange={e=>setLine(x=>({...x,size:uppercaseItemText(e.target.value)}))}/></div><div className="field"><label>UOM</label><input className="input" value={line.uom} onChange={e=>setLine(x=>({...x,uom:uppercaseItemText(e.target.value)}))}/></div><div className="field"><label>MRP</label><input className="input" inputMode="decimal" value={line.mrp} onChange={e=>setLine(x=>({...x,mrp:e.target.value}))}/></div>{isAdmin&&active.list_type==='cost'&&<><div className="field"><label>Cost</label><input className="input" inputMode="decimal" value={line.cost} onChange={e=>setLine(x=>({...x,cost:e.target.value}))}/></div><div className="field"><label>Discount %</label><input className="input" inputMode="decimal" value={line.discount_percent} onChange={e=>setLine(x=>({...x,discount_percent:e.target.value}))}/></div></>}</div><button className="btn section" onClick={addLine}>Add Review Row</button></div>}
    <DataTable mobileCards columns={[
     {key:'external_code',label:'Code',render:r=>canUpload&&active.status!=='approved'?<input className="input" defaultValue={r.external_code||''} onBlur={e=>updateLine(r,'external_code',e.target.value)}/>:r.external_code||'—'},
-    {key:'description',label:fieldLabel(fields,'price_lists','description','Item'),render:r=>canUpload&&active.status!=='approved'?<input className="input" defaultValue={r.description||''} onBlur={e=>updateLine(r,'description',e.target.value)}/>:r.description},
-    {key:'size',label:fieldLabel(fields,'price_lists','size','Size'),render:r=>r.size||'—'},
-    {key:'uom',label:fieldLabel(fields,'price_lists','uom','UOM'),render:r=>r.uom||'—'},
+    {key:'description',label:fieldLabel(fields,'price_lists','description','Item'),render:r=>canUpload&&active.status!=='approved'?<input className="input item-uppercase" defaultValue={uppercaseItemText(r.description||'')} onBlur={e=>updateLine(r,'description',e.target.value)}/>:uppercaseItemText(r.description)},
+    {key:'size',label:fieldLabel(fields,'price_lists','size','Size'),render:r=>uppercaseItemText(r.size||'—')},
+    {key:'uom',label:fieldLabel(fields,'price_lists','uom','UOM'),render:r=>uppercaseItemText(r.uom||'—')},
     {key:'mrp',label:fieldLabel(fields,'price_lists','mrp','MRP'),render:r=>r.mrp===null||r.mrp===undefined?'—':money(r.mrp)},
     ...(!staffMode?[{key:'match_status',label:'Match',render:r=><Badge>{r.match_status}</Badge>}]:[]),
     ...(isAdmin&&active.list_type==='cost'?[{key:'cost',label:'Cost',render:r=>r.cost===null?'—':money(r.cost)},{key:'net_cost',label:'Net Cost',render:r=>r.net_cost===null?'—':money(r.net_cost)}]:[]),
