@@ -10,6 +10,7 @@ import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
+import {enqueueStockSubmission,synchronizeStockSubmissions,isDisconnected,saveStockSnapshot,readStockSnapshot} from '@/lib/offline-stock.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
@@ -220,8 +221,13 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }
   setDueTotal(total||all.length)
   setItems(all)
+  saveStockSnapshot(profile.id,'general:rows:'+JSON.stringify([cat,movement,mainGroup,dueOnly,dailyTarget]),{rows:all,total:total||all.length}).catch(()=>{})
   setCursor(0);setBrowsePage(0)
- }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
+ }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current){
+   const cached=await readStockSnapshot(profile.id,'general:rows:'+JSON.stringify([cat,movement,mainGroup,dueOnly,dailyTarget])).catch(()=>null)
+   if(cached?.value?.rows){setItems(cached.value.rows);setDueTotal(cached.value.total||cached.value.rows.length);setStockLoadError('Showing items saved on this phone.')}
+   else setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')
+  }}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry,profile.id])
  useEffect(()=>{load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load])
 
  useEffect(()=>{
@@ -249,11 +255,13 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     },
     onPage:rows=>setSearchCatalogue(indexStockItems(rows))
    })
-   if(result&&!controller.signal.aborted)setCatalogueReady(true)
+   if(result&&!controller.signal.aborted){setCatalogueReady(true);saveStockSnapshot(profile.id,'general:catalogue',result).catch(()=>{})}
   }catch(e){
-   if(!controller.signal.aborted)setCatalogueError(isTransientStockQueryError(e)
-    ?'Stock catalogue timed out. Tap Retry to load all items.'
-    :'Stock catalogue could not be loaded. Tap Retry.')
+   if(!controller.signal.aborted){
+    const cached=await readStockSnapshot(profile.id,'general:catalogue').catch(()=>null)
+    if(cached?.value){setSearchCatalogue(indexStockItems(cached.value));setCatalogueReady(true);setCatalogueError('Using catalogue saved on this phone.')}
+    else setCatalogueError(isTransientStockQueryError(e)?'Stock catalogue timed out. Tap Retry to load all items.':'Stock catalogue could not be loaded. Tap Retry.')
+   }
   }})()
   return()=>controller.abort()
  },[profile.id,catalogueRetry])
@@ -329,6 +337,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   return startPromise.current
  }
  function beginCount(){
+  if(isDisconnected()){if(!startedAt.current)startedAt.current=new Date().toISOString();return}
   if(startedAt.current||startPromise.current)return
   ensureServerCountStart().catch(error=>console.warn('Stock count session start failed',error))
  }
@@ -484,7 +493,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    const r=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:30})
    if(r.error)throw r.error
    setHistoryRows(r.data||[])
-  }catch(e){fail(e)}finally{setHistoryLoading(false)}
+   saveStockSnapshot(profile.id,'general:history',r.data||[]).catch(()=>{})
+  }catch(e){
+   const cached=await readStockSnapshot(profile.id,'general:history').catch(()=>null)
+   if(cached?.value)setHistoryRows(cached.value)
+   else fail(e)
+  }finally{setHistoryLoading(false)}
  }
  async function openHistoryRow(row){
   if(historyDetail?.count_id===row.count_id){setHistoryDetail(null);return}
@@ -493,7 +507,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    const r=await supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:row.count_id})
    if(r.error)throw r.error
    setHistoryDetail({count_id:row.count_id,lines:r.data||[]})
-  }catch(e){fail(e)}finally{setHistoryLoading(false)}
+   saveStockSnapshot(profile.id,'general:history:'+row.count_id,r.data||[]).catch(()=>{})
+  }catch(e){
+   const cached=await readStockSnapshot(profile.id,'general:history:'+row.count_id).catch(()=>null)
+   if(cached?.value)setHistoryDetail({count_id:row.count_id,lines:cached.value})
+   else fail(e)
+  }finally{setHistoryLoading(false)}
  }
 
  const browsePages=Math.max(1,Math.ceil(items.length/browsePageSize))
