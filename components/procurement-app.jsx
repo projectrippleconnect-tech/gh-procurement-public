@@ -3,6 +3,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import dynamic from 'next/dynamic'
 import {supabase} from '@/lib/supabase'
+import {OfflineStockStatus} from './offline-status'
 import {interfaceVariables} from '@/lib/procurement-journey.mjs'
 import {stepForView,viewForStep} from '@/lib/workflow-guide.mjs'
 import {NAV,Err,WorkflowNavigation} from './ui'
@@ -337,6 +338,7 @@ function ProcurementApp(){
 
   <main className="main">
    <header className="topbar"><div className="topbar-left"><button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div className="top-actions"><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
+   <OfflineStockStatus ownerId={profile.id}/>
    <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button></nav>
    <div className="content" ref={workContent}>
     <WorkflowNavigation view={view} step={guide.step} onStep={guideTo} canStep={canStep} navigate={go} canNavigate={p.canNavigate} t={t}/>
