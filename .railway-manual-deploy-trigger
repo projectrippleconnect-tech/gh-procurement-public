@@ -156,3 +156,5 @@ Manual production release authorized 2026-10-19: deploy Smart Search PR #129 (me
 
 # GH PROCUREMENT APPROVED MANUAL RELEASE 2026-10-19 — UPPERCASE ITEM DESCRIPTIONS (GENERAL + COMPANY)
 # Integrated atop live release cd3d3e508da2c47c8c5e4cc058ecc41b2173314f; preserve stock history, typo-tolerant search and manual deployment only.
+
+# GH PROCUREMENT MANUAL RETRY 2026-10-19 — uppercase item release after syntax and document test repairs.
