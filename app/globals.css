@@ -1386,3 +1386,6 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
   min-height:24px;padding:2px 7px;font-size:10px;
  }
 }
+
+/* All item-entry text is visually uppercase; numbers and item identifiers are unchanged. */
+input.item-uppercase{ text-transform:uppercase; }
