@@ -10,7 +10,7 @@ import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
-import {enqueueStockSubmission,synchronizeStockSubmissions,isDisconnected,saveStockSnapshot,readStockSnapshot} from '@/lib/offline-stock.mjs'
+import {enqueueStockSubmission,synchronizeStockSubmissions,isDisconnected,saveStockSnapshot,readStockSnapshot,pendingStockSubmissions,OFFLINE_CHANGED} from '@/lib/offline-stock.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
@@ -111,7 +111,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[stockLoadError,setStockLoadError]=useState(''),[stockLoadRetry,setStockLoadRetry]=useState(0),[dueTotal,setDueTotal]=useState(0),[draftReady,setDraftReady]=useState(false)
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
- const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
+ const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false),[pendingHistory,setPendingHistory]=useState([])
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
  const[heldSearch,setHeldSearch]=useState(null)
  const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false),[catalogueError,setCatalogueError]=useState(''),[catalogueRetry,setCatalogueRetry]=useState(0),[searchError,setSearchError]=useState('')
@@ -493,6 +493,14 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(!v)return '—'
   try{return new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Colombo'})}catch{return String(v)}
  }
+ useEffect(()=>{
+  if(!historyOpen)return
+  let alive=true
+  const refresh=()=>pendingStockSubmissions(profile.id).then(rows=>{if(alive)setPendingHistory(rows)}).catch(()=>{})
+  refresh()
+  window.addEventListener(OFFLINE_CHANGED,refresh)
+  return()=>{alive=false;window.removeEventListener(OFFLINE_CHANGED,refresh)}
+ },[historyOpen,profile.id])
  async function loadStockHistory(){
   setHistoryLoading(true)
   try{
@@ -552,6 +560,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    </div>}
    {historyOpen&&<div className="stock-history-panel section">
     <div className="stock-history-head"><div><strong>{t('stock.history_title','Stock Submission History')}</strong><span>{t('stock.history_hint','Recount anytime. The latest count updates current stock; older submissions stay unchanged.')}</span></div><button className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button></div>
+    {pendingHistory.length>0&&<div className="section"><strong>{pendingHistory.length} locally saved submission(s) · awaiting server confirmation</strong>{pendingHistory.map(op=><details className="stock-history-record" key={op.id}><summary>{submissionTime(op.createdAt)} · {op.kind==='company'?'Company Items':'General Items'} · {op.lines.length} item(s)</summary><div className="stock-history-detail">{op.lines.map((line,index)=><div className="stock-history-detail-row" key={index}><span>{stockItemLabel(localSearchIndex.find(row=>row.item_id===line.item_id)||{item_code:line.item_id||line.company_list_item_id})}</span><b>{line.sufficient_stock?'Sufficient':qty(line.current_stock)}</b></div>)}</div></details>)}</div>}
     {historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div><div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div><div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
      <div className="stock-history-list">{historyRows.map(h=><div className="stock-history-record" key={h.count_id}><button className="stock-history-row" onClick={()=>openHistoryRow(h)}><div><strong>{h.count_no}</strong><span>{submissionTime(h.submitted_at)} · {h.counted_by_name||'Staff'}{h.category?' · '+h.category:''}</span></div><div className="stock-history-numbers"><b>{h.item_count||0} {t('stock.items_label','items')}</b><span>{h.shortage_count||0} {t('stock.need_order','need order')}</span></div><span className="stock-history-chevron">{historyDetail?.count_id===h.count_id?'⌃':'⌄'}</span></button>
       {historyDetail?.count_id===h.count_id&&<div className="stock-history-detail"><div className="stock-history-detail-head"><span>{t('stock.item','ITEM')}</span><span>{t('stock.submitted_stock','SUBMITTED STOCK')}</span><span>{t('stock.order','ORDER')}</span></div>{historyDetail.lines.map(line=><div className="stock-history-detail-row" key={line.line_id}><div><strong>{[line.description,line.size].filter(Boolean).join(' · ')}</strong><small>{[line.item_code,line.uom].filter(Boolean).join(' · ')}</small></div><b>{qty(line.current_stock)}</b><b className={Number(line.required_qty)>0?'warn-text':''}>{Number(line.required_qty)>0?qty(line.required_qty):'—'}</b></div>)}</div>}
