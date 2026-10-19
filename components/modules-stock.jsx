@@ -7,7 +7,9 @@ import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {allRows,containsAny} from '@/lib/query-pages'
-import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
+import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel as originalStockItemLabel} from '@/lib/stock-search.mjs'
+import {uppercaseItemText,normalizeItemText,ITEM_TEXT_FIELDS} from '@/lib/item-text.mjs'
+const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
@@ -501,14 +503,14 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
  const cols=[
   {key:'description',label:'Item',render:i=><strong>{stockItemLabel(i)}</strong>},
-  {key:'uom',label:'UOM'},
+  {key:'uom',label:'UOM',render:i=>uppercaseItemText(i.uom)},
   {key:'movement',label:'Movement',render:i=><Badge>{i.movement}</Badge>},
   ...(rowField('reorder_level',true)?[{key:'reorder_level',label:'Reorder',render:i=><strong className="stock-reorder-value">{qty(i.reorder_level)}</strong>}]:[]),
-  ...(rowField('brand')?[{key:'brand',label:'Brand'}]:[]),
+  ...(rowField('brand')?[{key:'brand',label:'Brand',render:i=>uppercaseItemText(i.brand)}]:[]),
   ...(rowField('item_code')?[{key:'item_code',label:'Code'}]:[]),
-  ...(rowField('category')?[{key:'category',label:'Category'}]:[]),
-  ...(rowField('main_group')?[{key:'main_group',label:'Main Group'}]:[]),
-  ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group'}]:[]),
+  ...(rowField('category')?[{key:'category',label:'Category',render:i=>uppercaseItemText(i.category)}]:[]),
+  ...(rowField('main_group')?[{key:'main_group',label:'Main Group',render:i=>uppercaseItemText(i.main_group)}]:[]),
+  ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group',render:i=>uppercaseItemText(i.subgroup)}]:[]),
   ...(rowField('max_stock')?[{key:'max_stock',label:'Max',render:i=>qty(i.max_stock)}]:[]),
   {key:'current_stock',label:'Stock',render:i=><input aria-label={'Current stock: '+stockItemLabel(i)} className="input stock-entry" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[i.item_id]} value={sufficient[i.item_id]?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>},
   {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
@@ -620,14 +622,14 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="stock-search-panel">
     <div className="stock-search-top">
      <button className="btn small" onClick={()=>setSearchOpen(false)}>←</button>
-     <input id="stock-global-search" className="input stock-search-input" autoComplete="off" inputMode="search" enterKeyHint="search" placeholder={t('stock.search_placeholder','Search e.g. 6mm, GI elbow, item code…')} value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+     <input id="stock-global-search" className="input stock-search-input" autoComplete="off" inputMode="search" enterKeyHint="search" placeholder={t('stock.search_placeholder','Search e.g. 6mm, GI elbow, item code…')} value={uppercaseItemText(searchTerm)} onChange={e=>setSearchTerm(uppercaseItemText(e.target.value))}/>
      {searchTerm&&<button className="btn small" onClick={()=>setSearchTerm('')}>{t('common.clear','Clear')}</button>}
     </div>
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
     <label className="stock-search-hold"><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span><strong>Hold all matching results for stock entry</strong><small>{catalogueReady?'Keep all matching items in Stock Entry until released.':'Preparing all matching items…'}</small></span></label>
     {searchError&&<div className="muted tiny" role="status">{searchError}</div>}
     <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
-      <div><strong>{stockItemLabel(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.subgroup,i.category].filter(Boolean).join(' › ')}</small></div>
+      <div><strong>{stockItemLabel(i)}</strong><span>{uppercaseItemText([i.brand,i.uom].filter(Boolean).join(' · '))}</span><small>{uppercaseItemText([i.subgroup,i.category].filter(Boolean).join(' › '))}</small></div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>
      </button>)}</div>
    </div>
@@ -668,7 +670,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
 
  async function save(r,k,v){
   if(!canEdit)return
-  let value=v
+  let value=typeof v==='string'&&ITEM_TEXT_FIELDS.includes(k)?normalizeItemText(v):v
   if(k==='max_stock'){
    value=Number(v)
    if(!Number.isFinite(value)||value<0)return fail(new Error(t('items.max_error','Max Stock must be zero or positive.')))
@@ -688,14 +690,14 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
   }})
  }
  const editableText=(r,key,wide=false)=>
-  canEdit?<input className={'input item-inline-edit '+(wide?'wide':'')} defaultValue={r[key]||''} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(String(e.target.value??'')!==String(r[key]??''))save(r,key,e.target.value)}}/>:(r[key]||'—')
+  canEdit?<input className={'input item-inline-edit item-uppercase '+(wide?'wide':'')} defaultValue={uppercaseItemText(r[key]||'')} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r[key]))save(r,key,e.target.value)}}/>:uppercaseItemText(r[key]||'—')
 
  const defaults=[
   {key:'active',label:'Enabled',render:r=>canEdit?<button className={'btn small '+(r.active?'good':'')} onClick={()=>save(r,'active',!r.active)}>{r.active?'Enabled':'Disabled'}</button>:<Badge>{r.active?'enabled':'disabled'}</Badge>},
   {key:'item_code',label:'Code',render:r=><span className="mono">{r.item_code}</span>},
   {key:'category',label:'Category',render:r=>editableText(r,'category')},
   {key:'brand',label:'Brand',render:r=>editableText(r,'brand')},
-  {key:'description',label:'Description',render:r=><div className="item-master-title"><strong>{itemTitle(r)}</strong>{canEdit&&<input className="input item-inline-edit" defaultValue={r.description||''} onBlur={e=>{if(e.target.value!==r.description)save(r,'description',e.target.value)}}/>}</div>},
+  {key:'description',label:'Description',render:r=><div className="item-master-title"><strong>{itemTitle(r)}</strong>{canEdit&&<input className="input item-inline-edit item-uppercase" defaultValue={uppercaseItemText(r.description||'')} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r.description))save(r,'description',e.target.value)}}/>}</div>},
   {key:'main_group',label:'Main Group',render:r=>editableText(r,'main_group')},
   {key:'subgroup',label:'Subgroup',render:r=>editableText(r,'subgroup')},
   {key:'size',label:'Size',render:r=>editableText(r,'size')},
@@ -709,7 +711,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
 
  return <div className="card pad">
   <datalist id="item-master-categories">{cats.map(c=><option key={c} value={c}/>)}</datalist>
-  <div className="sectionhead"><div><h3>{t('items.title','Item Master')}</h3><p>{t('items.subtitle','Edit approved item details, move items between categories or FAST/NORMAL/SLOW, and enable/disable products without deleting their history.')}</p></div><div className="toolbar"><input className="input toolbar-input" placeholder={t('items.search','Search item, size, brand or group')} value={q} onChange={e=>setQ(e.target.value)}/><ModernSelect className="select toolbar-select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(c=><option key={c}>{c}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={status} onChange={e=>setStatus(e.target.value)}><option value="active">{t('items.enabled_items','Enabled items')}</option><option value="inactive">{t('items.disabled_items','Disabled items')}</option><option value="all">{t('items.all_items','All items')}</option></ModernSelect></div></div>
+  <div className="sectionhead"><div><h3>{t('items.title','Item Master')}</h3><p>{t('items.subtitle','Edit approved item details, move items between categories or FAST/NORMAL/SLOW, and enable/disable products without deleting their history.')}</p></div><div className="toolbar"><input className="input toolbar-input" placeholder={t('items.search','Search item, size, brand or group')} value={q} onChange={e=>setQ(uppercaseItemText(e.target.value))}/><ModernSelect className="select toolbar-select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(c=><option key={c}>{c}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={status} onChange={e=>setStatus(e.target.value)}><option value="active">{t('items.enabled_items','Enabled items')}</option><option value="inactive">{t('items.disabled_items','Disabled items')}</option><option value="all">{t('items.all_items','All items')}</option></ModernSelect></div></div>
   <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async()=>{setQ('');setCat('');setPage(0);await load()}}/>
   {canEdit&&<div className="notice"><b>{t('items.quick_edit','Quick edit is on.')}</b> {t('items.quick_edit_hint','Change Description, Size, Category, Movement or Max Stock directly. Reorder level remains formula-controlled by movement.')}</div>}
   {loading?<Empty>{t('items.loading','Loading item master…')}</Empty>:<><div className="section"><DataTable columns={cols} rows={filtered} mobileCards/></div><div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?((page*pageSize)+1):0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}
