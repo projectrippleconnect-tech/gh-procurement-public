@@ -13,7 +13,7 @@ import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/l
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {stockLotReview} from '@/lib/stock-lot.mjs'
 import {latestStockMarkers} from '@/lib/stock-item-history.mjs'
-import {StockItemSubmissionHistory} from './stock-item-submission-history'
+import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
@@ -638,7 +638,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const browseItems=items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
  useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
  const cols=[
-  {key:'description',label:'Item',render:i=><div>{canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>}{finalizedMarkers[i.item_id]&&<button type="button" className="stock-submitted-badge stock-submitted-link" onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}>✓ Submitted · {finalizedMarkers[i.item_id].count_no} · History ›</button>}</div>},
+  {key:'description',label:'Item',render:i=><div>{canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>}{finalizedMarkers[i.item_id]&&<StockHistoryLink itemName={stockItemLabel(i)} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}/>}</div>},
   {key:'uom',label:'UOM'},
   {key:'movement',label:'Movement',render:i=><Badge>{i.movement}</Badge>},
   ...(rowField('reorder_level',true)?[{key:'reorder_level',label:'Reorder',render:i=><strong className="stock-reorder-value">{qty(i.reorder_level)}</strong>}]:[]),
@@ -769,7 +769,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
         <span className="stock-dense-title">{stockItemLabel(i)}</span>
         <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
        </button>
-       {finalizedMarkers[i.item_id]&&<button type="button" className="stock-submitted-badge stock-submitted-link" aria-label={'View stock submission history for '+stockItemLabel(i)} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}>{alreadySubmitted?'✓ Submitted · ':'↺ Recounting · '}{finalizedMarkers[i.item_id].count_no} · History ›</button>}
+       {finalizedMarkers[i.item_id]&&<StockHistoryLink itemName={stockItemLabel(i)} recounting={!alreadySubmitted} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}/>}
       </div>
       <div className="stock-dense-input-wrap">{alreadySubmitted?<button type="button" className="btn small stock-recount-action" onClick={()=>allowRecount(i.item_id)}>Recount</button>:<>{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></>}</div>
       <label className="stock-dense-sufficient" title="Stock is above the reorder level; exact count not required"><input type="checkbox" className="stock-sufficient-checkbox" aria-label={'Sufficient stock: '+stockItemLabel(i)} disabled={!!alreadySubmitted} checked={enough} onChange={e=>setEnough(i.item_id,e.target.checked)}/></label>
