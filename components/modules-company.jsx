@@ -110,6 +110,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
 
  const loadCompanies=useCallback(async()=>{
   try{
+   if(isDisconnected())throw new Error('Device is offline.')
    const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name')
    if(r.error)throw r.error
    setCompanies(r.data||[])
@@ -128,6 +129,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   if(!companyId){setRows([]);setSections([]);return}
   setLoading(true)
   try{
+   if(isDisconnected())throw new Error('Device is offline.')
    const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
    if(r.error)throw r.error
    if(request!==loadSequence.current)return
