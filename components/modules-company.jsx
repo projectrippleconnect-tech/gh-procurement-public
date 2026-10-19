@@ -251,7 +251,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   setBusy(true)
   try{
    const lines=counted.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
-   const op=await enqueueStockSubmission({ownerId:profile.id,kind:'company',companyId,lines,startedAt:startedAt.current||new Date().toISOString()})
+   const op=await enqueueStockSubmission({ownerId:profile.id,kind:'company',companyId,lines,startedAt:startedAt.current||new Date().toISOString(),resetRevisions:{stock:settings.stock_reset_revision,procurement:settings.procurement_reset_revision}})
    // A successful local commit is the only point at which entered quantities are removed.
    const nextEntry={...entry},nextSufficient={...sufficient}
    counted.forEach(r=>{delete nextEntry[r.id];delete nextSufficient[r.id]})
