@@ -9,7 +9,6 @@ import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {allRows,containsAny} from '@/lib/query-pages'
 import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel as originalStockItemLabel} from '@/lib/stock-search.mjs'
 import {uppercaseItemText,normalizeItemText,ITEM_TEXT_FIELDS} from '@/lib/item-text.mjs'
-const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
@@ -19,6 +18,7 @@ import {QuickAddItem} from './quick-add-item'
 import {StockPrintDialog} from './stock-print-dialog'
 import dynamic from 'next/dynamic'
 const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:()=> <div className="card pad">Loading Company Items…</div>})
+const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 
 export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
