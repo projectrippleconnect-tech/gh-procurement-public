@@ -255,6 +255,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const controller=new AbortController()
   setCatalogueReady(false);setCatalogueError('');setSearchCatalogue([])
   ;(async()=>{try{
+   if(isDisconnected())throw new Error('Device is offline.')
    const result=await loadStockCatalogue({
     signal:controller.signal,
     fetchPage:async(start,end,signal)=>{
