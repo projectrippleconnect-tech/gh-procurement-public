@@ -57,6 +57,9 @@ begin
  if request.status not in ('draft','prepared','sent','partially_quoted','quoted') then
   raise exception 'RFQ already closed or awarded';
  end if;
+ if exists(select 1 from public.proc_supplier_portal_links where rfq_supplier_id=p_rfq_supplier_id and status='imported') then
+  raise exception 'Supplier prices already imported. Create a new RFQ before issuing another link';
+ end if;
  insert into public.proc_supplier_portal_links(rfq_supplier_id,token_hash,closes_at,created_by)
  values(p_rfq_supplier_id,p_token_hash,now()+make_interval(hours=>p_hours),auth.uid())
  on conflict(rfq_supplier_id) do update
@@ -208,7 +211,7 @@ end $$;
 -- Alternatives are intentionally NOT mistaken for exact stock-item matches.
 create or replace function public.proc_portal_import_confirmed_v1(
  p_link_id uuid,p_expected_revision integer
-) returns jsonb language plpgsql security invoker set search_path='' as $$
+) returns jsonb language plpgsql security definer set search_path='' as $
 declare access record; offer jsonb; lines jsonb:='[]'::jsonb; snapshot jsonb; result jsonb;
 begin
  if auth.uid() is null or not private.proc_has_permission('procurement.rfq.manage') then
@@ -217,7 +220,7 @@ begin
  select l.*,rs.rfq_id,rs.supplier_id into access
  from public.proc_supplier_portal_links l
  join public.proc_rfq_suppliers rs on rs.id=l.rfq_supplier_id
- where l.id=p_link_id;
+ where l.id=p_link_id for update of l;
  if not found or access.status not in ('confirmed','imported') then raise exception 'Supplier has not confirmed a quotation'; end if;
  if p_expected_revision is distinct from access.revision then raise exception 'Supplier revised the quotation: refresh before importing'; end if;
  if access.imported_revision=access.revision then return jsonb_build_object('status','already_imported'); end if;
