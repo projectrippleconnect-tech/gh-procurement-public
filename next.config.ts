@@ -16,7 +16,14 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   outputFileTracingIncludes: {'/api/company-items/orders':['./assets/fonts/**/*'],'/api/company-items/rfqs':['./assets/fonts/**/*']},
   async headers() {
-    return [{ source: '/(.*)', headers: securityHeaders }]
+    return [
+      { source: '/(.*)', headers: securityHeaders },
+      { source: '/supplier/quote', headers: [
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'Cache-Control', value: 'private, no-store' },
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+      ] },
+    ]
   },
 }
 
