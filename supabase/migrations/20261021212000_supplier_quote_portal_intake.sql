@@ -92,7 +92,7 @@ begin
  join public.proc_requirements q on q.id=ri.requirement_id
  join public.proc_items i on i.id=q.item_id
  where ri.rfq_id=access.rfq_id
-   and (coalesce(cardinality(access.requested_item_ids),0)=0 or ri.id=any(access.requested_item_ids));
+   and (access.requested_item_ids is null or ri.id=any(access.requested_item_ids));
  return jsonb_build_object('rfq_no',access.rfq_no,'supplier_name',access.supplier_name,
   'items',entries,'closes_at',access.closes_at,'server_now',now(),
   'can_edit',now()<access.closes_at and access.rfq_status in ('draft','prepared','sent','partially_quoted','quoted'),
@@ -132,13 +132,13 @@ begin
  end if;
  select count(*) into allowed_count from public.proc_rfq_items ri
  where ri.rfq_id=access.rfq_id
-  and (coalesce(cardinality(access.requested_item_ids),0)=0 or ri.id=any(access.requested_item_ids));
+  and (access.requested_item_ids is null or ri.id=any(access.requested_item_ids));
  for line in select * from jsonb_array_elements(p_response) loop
   if jsonb_typeof(line)<>'object' then raise exception 'Invalid item details'; end if;
   begin item_id:=(line->>'id')::uuid; exception when others then raise exception 'Invalid item identifier'; end;
   if item_id=any(seen) or not exists(
    select 1 from public.proc_rfq_items ri where ri.id=item_id and ri.rfq_id=access.rfq_id
-    and (coalesce(cardinality(access.requested_item_ids),0)=0 or ri.id=any(access.requested_item_ids))
+    and (access.requested_item_ids is null or ri.id=any(access.requested_item_ids))
   ) then raise exception 'Duplicate or uninvited item'; end if;
   seen:=array_append(seen,item_id);
   if coalesce(line->>'status','') not in ('in_stock','no_stock','skip') then
