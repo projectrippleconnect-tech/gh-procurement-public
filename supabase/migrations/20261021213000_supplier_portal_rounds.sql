@@ -357,7 +357,7 @@ begin
  for ri in select i.* from public.proc_rfq_items i where i.rfq_id=rd.rfq_id and i.selected_for_po order by i.id loop
   select * into req from public.proc_requirements where id=ri.requirement_id;
   if not exists(select 1 from jsonb_array_elements(rd.policy->'items') z join public.proc_items it on it.id=req.item_id where z->>'requirement'=req.id::text and z->>'location'=req.location_id::text and z->>'category'=it.category and z->>'item'=it.id::text and z->>'description'=it.description and z->>'size' is not distinct from it.size and z->>'uom'=it.uom and z->>'brand' is not distinct from it.brand and z->>'colour' is not distinct from it.colour and z->>'variation' is not distinct from it.variation and ri.requested_qty<=(z->>'requested_qty')::numeric) then raise exception 'Approved purchasing scope changed'; end if;
-  if req.approval_status<>'approved' or not req.selected_for_order or req.company_id is distinct from rd.company_id then raise exception 'Requirement approval or company changed'; end if;
+  if req.status in ('cancelled','closed','received') or req.approval_status<>'approved' or not req.selected_for_order or req.company_id is distinct from rd.company_id then raise exception 'Requirement approval or company changed'; end if;
   remaining:=least(ri.requested_qty,greatest(req.adjusted_qty-req.ordered_qty,0));
   -- Eligible landed costs are ranked AFTER filtering unavailable, stale and incompatible offers.
   for offer in
@@ -405,6 +405,13 @@ begin
    if qlid is null or not exists(select 1 from public.proc_quote_lines where id=qlid and unit_price=(a->>'price')::numeric and discount_percent=(a->>'discount')::numeric and tax_percent=(a->>'tax')::numeric and available_qty>=(a->>'qty')::numeric and portal_freight_unit=(a->>'freight_unit')::numeric and (portal_valid_until is null or portal_valid_until>=(stamp at time zone 'Asia/Colombo')::date)) then raise exception 'Staff quotation changed after supplier confirmation; review required'; end if;
    insert into public.proc_po_lines(po_id,requirement_id,item_id,qty,unit_price,discount_percent,tax_percent,landed_unit_cost,source_quote_line_id)
    values(pid,(a->>'requirement_id')::uuid,(a->>'item_id')::uuid,(a->>'qty')::numeric,(a->>'price')::numeric,(a->>'discount')::numeric,(a->>'tax')::numeric,(a->>'cost')::numeric,qlid);
+   insert into public.proc_awards(rfq_item_id,supplier_id,quote_line_id,awarded_qty,unit_price,
+    discount_percent,tax_percent,effective_unit_cost,landed_unit_cost,award_method,awarded_by)
+   values((a->>'rfq_item_id')::uuid,po.sid,qlid,(a->>'qty')::numeric,(a->>'price')::numeric,
+    (a->>'discount')::numeric,(a->>'tax')::numeric,
+    (a->>'price')::numeric*(1-(a->>'discount')::numeric/100)*(1+(a->>'tax')::numeric/100),
+    (a->>'cost')::numeric,'recommended',rd.approved_by);
+   update public.proc_quotes set status='selected' where id=(select quote_id from public.proc_quote_lines where id=qlid);
    update public.proc_requirements set ordered_qty=ordered_qty+(a->>'qty')::numeric,
     status=case when ordered_qty+(a->>'qty')::numeric>=adjusted_qty then 'ordered' else 'partially_ordered' end where id=(a->>'requirement_id')::uuid;
   end loop;
@@ -416,7 +423,11 @@ begin
  -- Reopen uncovered balances only. These share requirement IDs, so later direct orders
  -- are deducted again when round 2 closes. No new requirement or stock record is invented.
  for ri in select i.*,r.adjusted_qty,r.ordered_qty from public.proc_rfq_items i join public.proc_requirements r on r.id=i.requirement_id where i.rfq_id=rd.rfq_id and i.selected_for_po loop
-  qty:=least(ri.requested_qty,greatest(ri.adjusted_qty-ri.ordered_qty,0));
+  -- A requirement can exceed this approved RFQ's requested subset. Deduct this
+  -- round's allocations from the subset before capping by the current shortage.
+  qty:=greatest(least(ri.requested_qty-coalesce((select sum((z->>'qty')::numeric)
+   from jsonb_array_elements(allocations) z where z->>'rfq_item_id'=ri.id::text),0),
+   greatest(ri.adjusted_qty-ri.ordered_qty,0)),0);
   if qty>0 then residual:=residual||jsonb_build_array(jsonb_build_object('old_id',ri.id,'requirement_id',ri.requirement_id,'qty',qty)); end if;
  end loop;
  update public.proc_rfqs set status=case when jsonb_array_length(allocations)>0 then 'awarded' else 'closed' end where id=rd.rfq_id;
@@ -429,8 +440,8 @@ begin
   insert into public.proc_portal_rounds(rfq_id,root_rfq_id,round_no,company_id,opens_at,closes_at,policy,approved_by)
   values(next_rfq,rd.root_rfq_id,2,rd.company_id,stamp,stamp+interval '24 hours',rd.policy,rd.approved_by) returning id into next_round;
   for inv in select * from public.proc_rfq_suppliers where rfq_id=rd.rfq_id loop
-   insert into public.proc_rfq_suppliers(rfq_id,supplier_id,requested_item_ids)
-   select next_rfq,inv.supplier_id,array_agg(n.id) from public.proc_rfq_items n join public.proc_rfq_items old on old.requirement_id=n.requirement_id and old.rfq_id=rd.rfq_id
+   insert into public.proc_rfq_suppliers(rfq_id,supplier_id,scope_override_reason,requested_item_ids)
+   select next_rfq,inv.supplier_id,inv.scope_override_reason,array_agg(n.id) from public.proc_rfq_items n join public.proc_rfq_items old on old.requirement_id=n.requirement_id and old.rfq_id=rd.rfq_id
    where n.rfq_id=next_rfq and (inv.requested_item_ids is null or old.id=any(inv.requested_item_ids))
    having count(*)>0 returning id into new_inv;
    if new_inv is not null then

@@ -69,6 +69,11 @@ begin
  perform set_config('request.jwt.claim.sub',admin_id::text,true);
  perform set_config('request.jwt.claim.role','authenticated',true);
  assert (select ordered_qty from public.proc_requirements where id=req)=8,'Wrong reserved quantity';
+ assert (select count(*) from public.proc_awards where rfq_item_id=ri)=2,'Portal POs missing existing award history';
+ assert (select sum(awarded_qty) from public.proc_awards where rfq_item_id=ri)=8,'Award history quantities differ from POs';
+ assert not exists(select 1 from public.proc_awards where rfq_item_id=ri and (awarded_by<>admin_id or landed_unit_cost is null)),'Award history lacks approver or landed cost';
+ assert not exists(select 1 from public.proc_quotes where rfq_id=rfq and status<>'selected'),'Allocated quotes not marked selected';
+
  assert (select requested_qty from public.proc_rfq_items where rfq_id=next_id)=2,'Reopened quantities include already ordered stock';
  assert (select closes_at-opens_at from public.proc_portal_rounds where id=next_round)=interval '24 hours','Incorrect follow-up duration';
  assert (select count(*) from public.proc_portal_po_jobs j where j.round_id=round_v)=2,'Supplier-wise POs missing';

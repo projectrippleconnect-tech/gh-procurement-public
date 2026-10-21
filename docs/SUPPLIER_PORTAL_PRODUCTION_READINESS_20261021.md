@@ -37,6 +37,9 @@ supplier message, or live purchasing activation was performed.
   confirmed per unit; fixed delivery-charge negotiations require manual review.
 - One pending-approval PO per selected supplier; existing sequential document numbering,
   requirement balances, Company identity, Prices, Orders and receiving remain in use.
+  Automatic allocations also write the existing award history with approver, effective
+  and landed costs, and mark allocated quotes selected. Cancelled, closed or received
+  requirements cannot be purchased by a previously approved round.
   PO totals, supplier minimum goods values, per-PO caps and a daily monetary cap are checked
   transactionally; unpriced existing company POs hold daily-limit verification for review. Manual or Direct PO allocations are deducted before ordering.
 - Round locks, requirement locks, a global budget advisory lock, persistent round keys,
@@ -44,6 +47,9 @@ supplier message, or live purchasing activation was performed.
   generation and sending. Failures roll back reservations and POs together; the worker
   records exceptions for staff review. Current permissions and active approvers are checked.
 - Unallocated quantities reopen once for another 24 hours, sharing the original requirements.
+  Reopening deducts allocations from the approved RFQ quantity, even when the underlying
+  requirement has a larger shortage. Fully allocated subsets do not reopen unrelated demand.
+  Approved supplier-coverage exception reasons follow their invitations into round two.
   The first RFQ is finalized before the residual RFQ is created. Existing supplier links
   follow their scoped next round; prior responses are preserved in the round audit.
   Remaining balances after round two require manual follow-up. Short deliveries and returns
@@ -82,11 +88,11 @@ Large images/object-storage expansion and unlimited quotation rounds are outside
 | Check | Result |
 |---|---|
 | Locked dependency install | Passed (`npm ci --offline --ignore-scripts`; build copies required workers) |
-| Existing plus new unit/contract tests | 449 passed; no failures |
+| Existing plus new unit/contract tests | 451 passed; no failures |
 | Focused worker/portal tests | 18 passed; rendering, approval gates, failed/unknown sends, audit failures |
-| Isolated database regression | 20 suites passed; original purchasing/roles/company/receiving plus portal suites |
+| Isolated database regression | 21 suites passed; original purchasing/roles/company/receiving plus portal suites |
 | Portal SQL lifecycle | Passed with a service-role worker and no human JWT subject |
-| Boundary SQL cases | Passed: Company PO identity/history, caps and rollback, empty scopes, expired/revoked offers, existing manual reservations, incomplete drafts |
+| Boundary SQL cases | Passed: Company PO identity/history, caps and rollback, empty scopes, expired/revoked offers, existing manual reservations, incomplete drafts, RFQ subsets, cancelled requirements, award history and scope-exception preservation |
 | Existing app browser regression | Passed at 320/390/768/1366px: focused tasks, draft recovery, submission timestamps, review guards, font settings and request-specific CSP |
 | TypeScript and JSX checks | Passed |
 | Production dependency audit | Passed; npm audit reported zero known vulnerabilities |
@@ -158,3 +164,29 @@ node tests/supplier-portal-ui.mjs
 ```
 
 Do not set live worker flags or use production credentials while running development tests.
+
+## Continuation verification
+
+The subsequent review reproduced a real subset-quantity defect before fixing it: a
+requirement for 10 with an RFQ requesting 5 and an allocation of 3 incorrectly reopened 5.
+It now reopens 2; an allocation of all 5 creates no follow-up round. Regression assertions
+also verify preserved supplier-scope exceptions, existing award records and selected quote
+statuses, and rollback when a requirement was cancelled after round approval.
+
+The in-memory regression now includes 21 suites and the unit/contract run includes 451
+passing tests. The normal SQL runner and a new native runner share the same checksummed
+schema bootstrap. The native fixture itself passes the SQL regression and connection
+guards have passing unit tests. The native runner covers stale supplier saves, deadline
+rechecks after lock waits, duplicate processors, requirement reservations, daily-budget
+contention, dispatch claims and changed recipients. See
+[SUPPLIER_PORTAL_NATIVE_QA.md](SUPPLIER_PORTAL_NATIVE_QA.md) for a local Docker procedure.
+It accepts only an explicitly enabled, empty loopback database and never uses application
+credentials. The added PostgreSQL client is a development dependency only.
+
+**Native concurrency remains NOT RUN.** This workspace has no native PostgreSQL or Docker,
+cannot start PostgreSQL as a separate OS user, and the connected Free-plan Supabase project
+has no development branch. No cloud branch, resource, subscription or production schema was
+created to work around that limitation. Preparing an executable runner is not evidence of
+passing its concurrent scenarios. Supabase/PostgREST staging verification and an explicitly
+authorized real gateway recipient remain necessary before production readiness can be
+certified. Existing production deployment, migrations and purchasing flags remain untouched.

@@ -1,14 +1,14 @@
 {
   "development_base": "8d12bd2bb799a9ddf5edaf04cbea53c919ee0cc5",
   "unit_tests": {
-    "passed": 449,
+    "passed": 451,
     "failed": 0
   },
   "database_suites": [
     {
       "file": "tests/procurement-workflow.sql",
       "status": "passed",
-      "ms": 5281,
+      "ms": 826,
       "checks": [
         {
           "check_name": "1: stock count computes shortages and preserves review",
@@ -59,7 +59,7 @@
     {
       "file": "tests/sql/workflow-efficiency.sql",
       "status": "passed",
-      "ms": 2379,
+      "ms": 773,
       "checks": [
         {
           "check_name": "Replacement receipt, duplicate protection, audited rebuy and preserved PO",
@@ -78,7 +78,7 @@
     {
       "file": "tests/sql/role-boundaries.sql",
       "status": "passed",
-      "ms": 1176,
+      "ms": 109,
       "checks": [
         {
           "role_key": "admin",
@@ -117,7 +117,7 @@
     {
       "file": "tests/sql/disabled-role-helper.sql",
       "status": "passed",
-      "ms": 599,
+      "ms": 53,
       "checks": [
         {
           "result": "PASS disabled, inactive, mismatched and enabled custom role checks"
@@ -127,19 +127,19 @@
     {
       "file": "tests/sql/large-stock-count.sql",
       "status": "passed",
-      "ms": 15494,
+      "ms": 5177,
       "checks": [
         {
           "check_name": "1000 entries preserve shortages; oversized and non-finite batches denied",
           "passed": true,
-          "elapsed_ms": "15100.000000"
+          "elapsed_ms": "5041.000000"
         }
       ]
     },
     {
       "file": "tests/sql/api-table-privileges.sql",
       "status": "passed",
-      "ms": 1359,
+      "ms": 135,
       "checks": [
         {
           "result": "PASS: all procurement tables retain RLS; API table-control privileges denied; dispatch audit read preserved"
@@ -149,7 +149,7 @@
     {
       "file": "tests/sql/additional-sizes.sql",
       "status": "passed",
-      "ms": 526,
+      "ms": 478,
       "checks": [
         {
           "set_config": "00000000-0000-4000-8000-000000000111"
@@ -165,7 +165,7 @@
     {
       "file": "tests/sql/quote-variations.sql",
       "status": "passed",
-      "ms": 489,
+      "ms": 852,
       "checks": [
         {
           "check_name": "1: stock count computes shortages and preserves review",
@@ -180,7 +180,7 @@
     {
       "file": "tests/sql/add-rfq-supplier.sql",
       "status": "passed",
-      "ms": 310,
+      "ms": 347,
       "checks": [
         {
           "verification": "PASS: pending invitation, duplicate retry, inactive/missing supplier, missing/empty RFQ, coverage/override, quoted status, final states, granular permissions, missing profile, authentication and quotation preservation; all test data rolled back"
@@ -190,7 +190,7 @@
     {
       "file": "tests/sql/company-items.sql",
       "status": "passed",
-      "ms": 2040,
+      "ms": 627,
       "checks": [
         {
           "check_name": "Import is idempotent; blanks stay reviewable; reorder is 50%",
@@ -221,7 +221,7 @@
     {
       "file": "tests/sql/custom-role-cloning.sql",
       "status": "passed",
-      "ms": 188,
+      "ms": 147,
       "checks": [
         {
           "check_name": "Super Admin cloning blocked",
@@ -264,31 +264,31 @@
     {
       "file": "tests/sql/user-removal.sql",
       "status": "passed",
-      "ms": 165,
+      "ms": 124,
       "checks": []
     },
     {
       "file": "tests/sql/admin-data-management.sql",
       "status": "passed",
-      "ms": 287,
+      "ms": 211,
       "checks": []
     },
     {
       "file": "tests/sql/reset-preserves-company-catalogue.sql",
       "status": "passed",
-      "ms": 175,
+      "ms": 110,
       "checks": []
     },
     {
       "file": "tests/sql/admin-safeupdate-static.sql",
       "status": "passed",
-      "ms": 249,
+      "ms": 80,
       "checks": []
     },
     {
       "file": "tests/sql/company-submit-boundaries.sql",
       "status": "passed",
-      "ms": 342,
+      "ms": 205,
       "checks": [
         {
           "check_name": "Null, future-dated and duplicate company counts rejected atomically",
@@ -307,7 +307,7 @@
     {
       "file": "tests/sql/company-supplier-setup.sql",
       "status": "passed",
-      "ms": 682,
+      "ms": 685,
       "checks": [
         {
           "check_name": "Full assignment list and selected recipients persist independently in one save",
@@ -334,7 +334,7 @@
     {
       "file": "tests/sql/receiving-closure.sql",
       "status": "passed",
-      "ms": 278,
+      "ms": 204,
       "checks": [
         {
           "check_name": "Partial receipt, retry, return, credit and final closure preserve physical stock",
@@ -349,13 +349,19 @@
     {
       "file": "tests/sql/supplier-portal.sql",
       "status": "passed",
-      "ms": 702,
+      "ms": 408,
       "checks": []
     },
     {
       "file": "tests/sql/supplier-portal-boundaries.sql",
       "status": "passed",
       "ms": 526,
+      "checks": []
+    },
+    {
+      "file": "tests/sql/supplier-portal-native-fixture.sql",
+      "status": "passed",
+      "ms": 88,
       "checks": []
     }
   ],
@@ -416,5 +422,22 @@
       "font settings",
       "CSP nonce"
     ]
+  },
+  "continuation": {
+    "base_commit": "e7138b0390c1f1cfcadb3de40b12b0dc0d1ce2ab",
+    "defects_fixed": [
+      "RFQ subsets reopen only unallocated requested quantities",
+      "Existing award history and selected quote statuses persist for portal POs",
+      "Supplier scope override reasons preserved in round two",
+      "Cancelled, closed and received requirements block automatic purchasing"
+    ],
+    "native_runner": "scripts/qa/portal-native-concurrency.mjs",
+    "native_runner_execution": "not run: native PostgreSQL and Docker unavailable; no connected isolated Supabase branch",
+    "native_guard_tests": 2,
+    "native_fixture_sql": "passed",
+    "native_syntax_check": "passed",
+    "lint": "passed",
+    "production_build": "passed",
+    "dependency_vulnerabilities": 0
   }
 }
