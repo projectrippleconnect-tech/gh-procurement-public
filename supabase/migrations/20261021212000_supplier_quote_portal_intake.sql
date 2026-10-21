@@ -64,7 +64,7 @@ begin
  values(p_rfq_supplier_id,p_token_hash,now()+make_interval(hours=>p_hours),auth.uid())
  on conflict(rfq_supplier_id) do update
  set token_hash=excluded.token_hash,opens_at=now(),closes_at=excluded.closes_at,
-     revoked_at=null,updated_at=now()
+     revoked_at=null,status='draft',confirmed_at=null,updated_at=now()
  returning * into access;
  return jsonb_build_object('link_id',access.id,'closes_at',access.closes_at,'status',access.status);
 end $$;
@@ -211,7 +211,7 @@ begin
  select coalesce(jsonb_agg(jsonb_build_object(
   'link_id',l.id,'rfq_supplier_id',l.rfq_supplier_id,'supplier_id',rs.supplier_id,
   'supplier_name',s.name,'closes_at',l.closes_at,'status',l.status,
-  'revision',l.revision,'imported_revision',l.imported_revision,
+  'revision',l.revision,'imported_revision',l.imported_revision,'revoked_at',l.revoked_at,
   'confirmed_at',l.confirmed_at,'response',l.response
  ) order by s.name),'[]'::jsonb) into response
  from public.proc_supplier_portal_links l
@@ -236,6 +236,7 @@ begin
  join public.proc_rfq_suppliers rs on rs.id=l.rfq_supplier_id
  where l.id=p_link_id for update of l;
  if not found or access.status not in ('confirmed','imported') then raise exception 'Supplier has not confirmed a quotation'; end if;
+ if access.revoked_at is not null then raise exception 'Revoked supplier links cannot be imported'; end if;
  if p_expected_revision is distinct from access.revision then raise exception 'Supplier revised the quotation: refresh before importing'; end if;
  if access.imported_revision=access.revision then return jsonb_build_object('status','already_imported'); end if;
  for offer in select * from jsonb_array_elements(access.response) loop
