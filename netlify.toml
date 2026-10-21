@@ -9,8 +9,6 @@
 
 [build.environment]
   NODE_VERSION = "24"
-  GH_MANUAL_RELEASE_REV = "d9fd03ef197ae7555e85abc240477931244cae26"
-  WAHA_SENDING_ENABLED = "false"
 
 # The two required Supabase public client configuration values should be set
 # in Netlify's site environment before the build. Do NOT add privileged keys
@@ -18,3 +16,5 @@
 [template.environment]
   NEXT_PUBLIC_SUPABASE_URL = "Use the existing GH Procurement Supabase Project URL"
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "Use the existing Supabase publishable key (not service_role)"
+  GH_MANUAL_RELEASE_REV = "Paste approved release SHA d9fd03ef197ae7555e85abc240477931244cae26"
+  WAHA_SENDING_ENABLED = "Set to false for preview"
