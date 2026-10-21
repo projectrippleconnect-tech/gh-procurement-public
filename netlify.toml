@@ -1,0 +1,20 @@
+# Emergency GH Procurement Netlify Free preview configuration.
+# Based on the approved Railway release d9fd03ef197ae7555e85abc240477931244cae26
+# No production DNS changes, no paid resources and no automatic WhatsApp sends.
+# Use Netlify's current built-in Next.js/OpenNext adapter, do not pin a plugin.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "24"
+  GH_MANUAL_RELEASE_REV = "d9fd03ef197ae7555e85abc240477931244cae26"
+  WAHA_SENDING_ENABLED = "false"
+
+# The two required Supabase public client configuration values should be set
+# in Netlify's site environment before the build. Do NOT add privileged keys
+# or service-role credentials to this repository.
+[template.environment]
+  NEXT_PUBLIC_SUPABASE_URL = "Use the existing GH Procurement Supabase Project URL"
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "Use the existing Supabase publishable key (not service_role)"
