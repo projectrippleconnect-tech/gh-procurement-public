@@ -158,3 +158,6 @@ Manual production release authorized 2026-10-19: deploy Smart Search PR #129 (me
 # Integrated atop live release cd3d3e508da2c47c8c5e4cc058ecc41b2173314f; preserve stock history, typo-tolerant search and manual deployment only.
 
 # GH PROCUREMENT MANUAL RETRY 2026-10-19 — uppercase item release after syntax and document test repairs.
+
+# GH PROCUREMENT MANUAL RELEASE 2026-10-21 — PADLOCK SEARCH EQUIVALENCE PR #134
+# Approved user-requested Railway release. Consistent Pad loc, Padloc, Pad lock, Padlock and pad lok results in both General and Company Items; preserve item codes, stock sizes, submitted count history, data, RFQ/PO routing, uppercase naming and manual-only deploy gate. No migrations or supplier messages.
