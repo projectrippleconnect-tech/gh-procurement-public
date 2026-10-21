@@ -13,6 +13,10 @@ search algorithm, or the running Railway production app.
    - NEXT_PUBLIC_SUPABASE_URL (existing GH Procurement Supabase project).
    - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (publishable/anon client key only).
    The key is public by design, but don't use any Supabase service-role key.
+   - GH_MANUAL_RELEASE_REV = d9fd03ef197ae7555e85abc240477931244cae26 (optional release identity)
+   - WAHA_SENDING_ENABLED = false (runtime safety)
+   Note: values in netlify.toml are build-only; serverless functions require
+   site environment variables from the Netlify UI/API.
 4. First preview is for authorized validation only. WAHA_SENDING_ENABLED=false
    by default; Google Sheets service credentials are intentionally not copied.
 5. Disable Netlify automatic builds after initial creation in Netlify
