@@ -70,7 +70,7 @@ export default function SupplierQuotePortal(){
    const payload=lines.map(({id,status,price,quantity,notes,image,variations})=>({
     id,status,price:status==='in_stock'?price:null,quantity:status==='in_stock'?quantity:null,
     notes:String(notes||'').slice(0,500),image:image||null,
-    variations:status==='in_stock'?variations.map(v=>({...v,image:v.image||null})):[]
+    variations:variations.map(v=>({...v,image:v.image||null}))
    }))
    const {data,error}=await supabase.rpc('proc_portal_submit_v1',{
     p_token:token,p_response:payload,p_expected_revision:revision,p_confirm:confirm
@@ -125,6 +125,20 @@ export default function SupplierQuotePortal(){
         </div>)}
         {editable&&(row.variations||[]).length<4&&<button type="button" style={{...button,background:'#263850',color:'white',marginTop:9}} onClick={()=>setItem(item.id,{variations:[...(row.variations||[]),{name:'',price:'',quantity:'',image:''}]})}>+ Add variation</button>}
        </div>
+      </div>}
+      {row.status==='no_stock'&&<div style={{borderTop:'1px solid #43566e',paddingTop:10}}>
+        <strong>Have an alternative size or variation?</strong>
+        {(row.variations||[]).map((v,index)=><div key={index} style={{display:'grid',gap:7,padding:10,border:'1px solid #40546b',borderRadius:9,marginTop:8}}>
+          <input style={field} disabled={!editable} value={v.name||''} maxLength={140} placeholder="Alternative description" aria-label="Alternative description" onChange={e=>setVariation(item.id,index,{name:e.target.value})}/>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+           <input style={field} disabled={!editable} type="number" min="0" step=".01" inputMode="decimal" placeholder="Price (Rs.)" aria-label="Alternative price" value={v.price??''} onChange={e=>setVariation(item.id,index,{price:e.target.value})}/>
+           <input style={field} disabled={!editable} type="number" min="0" step="any" inputMode="decimal" placeholder="Quantity" aria-label="Alternative quantity" value={v.quantity??''} onChange={e=>setVariation(item.id,index,{quantity:e.target.value})}/>
+          </div>
+          <input type="file" accept="image/*" aria-label="Alternative photo" disabled={!editable||imagesBusy} onChange={e=>addImage(item.id,index,e.target.files?.[0])}/>
+          {v.image&&<img src={v.image} alt="Alternative product photo" style={{maxWidth:120,maxHeight:120}}/>}
+          {editable&&<button type="button" style={{...button,background:'#263850',color:'white'}} onClick={()=>setItem(item.id,{variations:row.variations.filter((_,i)=>i!==index)})}>Remove alternative</button>}
+        </div>)}
+        {editable&&(row.variations||[]).length<4&&<button type="button" style={{...button,background:'#263850',color:'white',marginTop:8}} onClick={()=>setItem(item.id,{variations:[...(row.variations||[]),{name:'',price:'',quantity:'',image:''}]})}>+ Add alternative</button>}
       </div>}
      </section>
     })}
