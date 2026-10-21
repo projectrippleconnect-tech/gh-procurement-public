@@ -399,5 +399,22 @@
   },
   "production_changes": false,
   "native_concurrent_sessions_verified": false,
-  "live_gateway_delivery_verified": false
+  "live_gateway_delivery_verified": false,
+  "existing_app_browser": {
+    "widths": [
+      320,
+      390,
+      768,
+      1366
+    ],
+    "status": "passed",
+    "checks": [
+      "focused tasks",
+      "draft recovery",
+      "submission timestamps",
+      "review guards",
+      "font settings",
+      "CSP nonce"
+    ]
+  }
 }

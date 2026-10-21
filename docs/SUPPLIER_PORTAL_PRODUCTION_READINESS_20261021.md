@@ -87,6 +87,7 @@ Large images/object-storage expansion and unlimited quotation rounds are outside
 | Isolated database regression | 20 suites passed; original purchasing/roles/company/receiving plus portal suites |
 | Portal SQL lifecycle | Passed with a service-role worker and no human JWT subject |
 | Boundary SQL cases | Passed: Company PO identity/history, caps and rollback, empty scopes, expired/revoked offers, existing manual reservations, incomplete drafts |
+| Existing app browser regression | Passed at 320/390/768/1366px: focused tasks, draft recovery, submission timestamps, review guards, font settings and request-specific CSP |
 | TypeScript and JSX checks | Passed |
 | Production dependency audit | Passed; npm audit reported zero known vulnerabilities |
 | Production build | Passed; repeated-build cache corruption was eliminated by disabling Turbopack build filesystem persistence |
