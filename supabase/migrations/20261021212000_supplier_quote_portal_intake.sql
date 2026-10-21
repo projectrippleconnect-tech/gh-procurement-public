@@ -49,14 +49,15 @@ begin
   raise exception 'Not authorized' using errcode='42501';
  end if;
  perform private.proc_assert_access();
- if p_token_hash !~ '^[0-9a-f]{64}$' then raise exception 'Invalid link token hash'; end if;
- if p_hours not between 1 and 48 then raise exception 'Window must be 1–48 hours'; end if;
+ if p_token_hash is null or p_token_hash !~ '^[0-9a-f]{64}$' then raise exception 'Invalid link token hash'; end if;
+ if p_hours is null or p_hours not between 1 and 48 then raise exception 'Window must be 1–48 hours'; end if;
  select * into rec from public.proc_rfq_suppliers where id=p_rfq_supplier_id;
  if not found then raise exception 'Supplier invitation not found'; end if;
- select * into request from public.proc_rfqs where id=rec.rfq_id;
+ select * into request from public.proc_rfqs where id=rec.rfq_id for update;
  if request.status not in ('draft','prepared','sent','partially_quoted','quoted') then
   raise exception 'RFQ already closed or awarded';
  end if;
+ if (select count(*) from public.proc_rfq_items ri where ri.rfq_id=rec.rfq_id and (rec.requested_item_ids is null or ri.id=any(rec.requested_item_ids)))>100 then raise exception 'Split supplier portal requests into at most 100 invited items'; end if;
  if exists(select 1 from public.proc_supplier_portal_links where rfq_supplier_id=p_rfq_supplier_id and status='imported') then
   raise exception 'Supplier prices already imported. Create a new RFQ before issuing another link';
  end if;
@@ -64,7 +65,7 @@ begin
  values(p_rfq_supplier_id,p_token_hash,now()+make_interval(hours=>p_hours),auth.uid())
  on conflict(rfq_supplier_id) do update
  set token_hash=excluded.token_hash,opens_at=now(),closes_at=excluded.closes_at,
-     revoked_at=null,status='draft',confirmed_at=null,updated_at=now()
+     revision=public.proc_supplier_portal_links.revision+1,revoked_at=null,status='draft',confirmed_at=null,updated_at=now()
  returning * into access;
  return jsonb_build_object('link_id',access.id,'closes_at',access.closes_at,'status',access.status);
 end $$;
@@ -73,7 +74,7 @@ create or replace function public.proc_portal_read_v1(p_token text)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare access record; entries jsonb;
 begin
- if p_token is null or length(p_token)>200 or length(p_token)<24 then
+ if p_token is null or length(p_token)<>64 or p_token!~'^[0-9a-f]{64}$' then
   raise exception 'Invalid quotation link' using errcode='42501';
  end if;
  select l.*,rs.supplier_id,rs.rfq_id,rs.requested_item_ids,s.name as supplier_name,r.rfq_no,r.status as rfq_status
@@ -95,7 +96,7 @@ begin
    and (access.requested_item_ids is null or ri.id=any(access.requested_item_ids));
  return jsonb_build_object('rfq_no',access.rfq_no,'supplier_name',access.supplier_name,
   'items',entries,'closes_at',access.closes_at,'server_now',now(),
-  'can_edit',now()<access.closes_at and access.rfq_status in ('draft','prepared','sent','partially_quoted','quoted'),
+  'can_edit',clock_timestamp()<access.closes_at and access.rfq_status in ('draft','prepared','sent','partially_quoted','quoted'),
   'status',access.status,'revision',access.revision,'response',access.response,
   'confirmed_at',access.confirmed_at);
 end $$;
@@ -109,7 +110,7 @@ declare access record; line jsonb; option_line jsonb; item_id uuid;
  item_count integer; allowed_count integer; available numeric; price numeric; alternative_count integer;
  summary jsonb:='[]'::jsonb; seen uuid[]:='{}'::uuid[];
 begin
- if p_token is null or length(p_token)>200 or length(p_token)<24 then
+ if p_token is null or length(p_token)<>64 or p_token!~'^[0-9a-f]{64}$' then
   raise exception 'Invalid quotation link' using errcode='42501';
  end if;
  select l.*,rs.rfq_id,rs.requested_item_ids,r.status as rfq_status
@@ -119,14 +120,14 @@ begin
  where l.token_hash=encode(extensions.digest(p_token,'sha256'),'hex') and l.revoked_at is null
  for update of l;
  if not found then raise exception 'Invalid or revoked quotation link' using errcode='42501'; end if;
- if now()>=access.closes_at or access.rfq_status not in ('draft','prepared','sent','partially_quoted','quoted') then
+ if clock_timestamp()>=access.closes_at or access.rfq_status not in ('draft','prepared','sent','partially_quoted','quoted') then
   raise exception 'Quotation window is closed';
  end if;
  if access.status='imported' then raise exception 'Quotation already imported: request a new link'; end if;
  if p_expected_revision is distinct from access.revision then
   raise exception 'Quotation was changed in another window. Reload before saving' using errcode='40001';
  end if;
- if jsonb_typeof(p_response)<>'array' or jsonb_array_length(p_response)>100
+ if p_response is null or jsonb_typeof(p_response)<>'array' or jsonb_array_length(p_response)>100
     or octet_length(p_response::text)>1500000 then
   raise exception 'Invalid or oversized quotation';
  end if;
@@ -136,7 +137,7 @@ begin
  for line in select * from jsonb_array_elements(p_response) loop
   if jsonb_typeof(line)<>'object' then raise exception 'Invalid item details'; end if;
   begin item_id:=(line->>'id')::uuid; exception when others then raise exception 'Invalid item identifier'; end;
-  if item_id=any(seen) or not exists(
+  if item_id is null or item_id=any(seen) or not exists(
    select 1 from public.proc_rfq_items ri where ri.id=item_id and ri.rfq_id=access.rfq_id
     and (access.requested_item_ids is null or ri.id=any(access.requested_item_ids))
   ) then raise exception 'Duplicate or uninvited item'; end if;
@@ -145,15 +146,15 @@ begin
    raise exception 'Select in stock, no stock, or skip';
   end if;
   if p_confirm and line->>'status'='skip' then raise exception 'Answer every item before confirming'; end if;
-  if line->>'status'='in_stock' then
+  if line->>'status'='in_stock' and p_confirm then
    begin price:=(line->>'price')::numeric;available:=(line->>'quantity')::numeric;
    exception when others then raise exception 'Enter valid price and quantity'; end;
-   if price is null or price<0 or available is null or available<=0
+   if price is null or price<0 or round(price,2)<>price or available is null or available<=0 or round(available,3)<>available
       or price::text in ('NaN','Infinity','-Infinity') or available::text in ('NaN','Infinity','-Infinity') then
     raise exception 'Price and quantity must be valid nonnegative numbers'; end if;
   end if;
   if length(coalesce(line->>'image',''))>210000
-     or (line->>'image') is not null and line->>'image'!~'^data:image/(jpeg|png|webp);base64,' then
+     or nullif(line->>'image','') is not null and line->>'image'!~'^data:image/(jpeg|png|webp);base64,' then
    raise exception 'Image must be JPEG, PNG or WebP, maximum 150 KB';
   end if;
   if jsonb_typeof(coalesce(line->'variations','[]'::jsonb))<>'array'
@@ -161,15 +162,17 @@ begin
    raise exception 'Maximum four variations per item';
   end if;
   for option_line in select * from jsonb_array_elements(coalesce(line->'variations','[]'::jsonb)) loop
-   if length(trim(coalesce(option_line->>'name','')))<2 or length(option_line->>'name')>140 then
+   if (p_confirm and length(trim(coalesce(option_line->>'name','')))<2) or length(option_line->>'name')>140 then
     raise exception 'Variation name must be 2–140 characters'; end if;
+   if p_confirm then
    begin price:=(option_line->>'price')::numeric;available:=(option_line->>'quantity')::numeric;
    exception when others then raise exception 'Invalid variation price or quantity'; end;
-   if price is null or price<0 or available is null or available<=0
+   if price is null or price<0 or round(price,2)<>price or available is null or available<=0 or round(available,3)<>available
        or price::text in ('NaN','Infinity','-Infinity') or available::text in ('NaN','Infinity','-Infinity') then
     raise exception 'Variation price or quantity is invalid'; end if;
+   end if;
    if length(coalesce(option_line->>'image',''))>210000
-      or (option_line->>'image') is not null and option_line->>'image'!~'^data:image/(jpeg|png|webp);base64,' then
+      or nullif(option_line->>'image','') is not null and option_line->>'image'!~'^data:image/(jpeg|png|webp);base64,' then
     raise exception 'Variation image is invalid or too large';
    end if;
   end loop;
@@ -189,7 +192,7 @@ end $$;
 
 -- Revoke a leaked supplier link without deleting the quotation or its audit trail.
 create or replace function public.proc_portal_revoke_link_v1(p_link_id uuid)
-returns boolean language plpgsql security definer set search_path='' as $
+returns boolean language plpgsql security definer set search_path='' as $$
 begin
  if auth.uid() is null or not private.proc_has_permission('procurement.rfq.manage') then
   raise exception 'Not authorized' using errcode='42501';
@@ -198,7 +201,7 @@ begin
  update public.proc_supplier_portal_links set revoked_at=now(),updated_at=now()
  where id=p_link_id and revoked_at is null;
  return found;
-end $;
+end $$;
 
 -- Authorized staff can inspect responses and their import status.
 create or replace function public.proc_portal_staff_responses_v1(p_rfq_id uuid)
@@ -225,12 +228,13 @@ end $$;
 -- Alternatives are intentionally NOT mistaken for exact stock-item matches.
 create or replace function public.proc_portal_import_confirmed_v1(
  p_link_id uuid,p_expected_revision integer
-) returns jsonb language plpgsql security definer set search_path='' as $
+) returns jsonb language plpgsql security definer set search_path='' as $$
 declare access record; offer jsonb; lines jsonb:='[]'::jsonb; snapshot jsonb; result jsonb;
 begin
  if auth.uid() is null or not private.proc_has_permission('procurement.rfq.manage') then
   raise exception 'Not authorized' using errcode='42501'; end if;
  perform private.proc_assert_access();
+ perform 1 from public.proc_rfqs r join public.proc_rfq_suppliers rs on rs.rfq_id=r.id join public.proc_supplier_portal_links l on l.rfq_supplier_id=rs.id where l.id=p_link_id for update of r;
  select l.*,rs.rfq_id,rs.supplier_id into access
  from public.proc_supplier_portal_links l
  join public.proc_rfq_suppliers rs on rs.id=l.rfq_supplier_id

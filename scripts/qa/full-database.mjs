@@ -14,7 +14,7 @@ for(const row of meta.migrations)assert.equal(hash(row.path),row.sha256,'Histori
 const db=new PGlite({extensions:{pgcrypto}}),log=[]
 async function execute(sql,label){try{return await db.exec(sql)}catch(e){throw new Error(label+': '+e.message,{cause:e})}}
 await execute(`CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role BYPASSRLS;
-CREATE SCHEMA auth;CREATE SCHEMA private;CREATE EXTENSION pgcrypto;
+CREATE SCHEMA auth;CREATE SCHEMA private;CREATE SCHEMA extensions;CREATE EXTENSION pgcrypto WITH SCHEMA extensions;GRANT USAGE ON SCHEMA extensions TO anon,authenticated,service_role;
 CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,raw_user_meta_data jsonb DEFAULT '{}',raw_app_meta_data jsonb DEFAULT '{}',created_at timestamptz DEFAULT now(),email_confirmed_at timestamptz,last_sign_in_at timestamptz);
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid$$;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$SELECT coalesce(nullif(current_setting('request.jwt.claim.role',true),''),nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'role')$$;
@@ -44,7 +44,7 @@ const applied=new Set(meta.migrations.map(x=>x.path)),patches=fs.readdirSync('su
 for(const file of patches)await execute(fs.readFileSync(file,'utf8'),'new migration '+file)
 console.log(`PASS isolated production definitions: ${snapshot.tables.length} tables, ${snapshot.functions.length} functions, ${snapshot.views.length} views; ${patches.length} new migration(s)`)
 function expand(file){return fs.readFileSync(file,'utf8').split('\n').map(line=>{const m=line.match(/^\\ir\s+(.+)$/);if(m)return expand(path.resolve(path.dirname(file),m[1]));return line.startsWith('\\')?'':line}).join('\n')}
-const defaults=['tests/procurement-workflow.sql','tests/sql/workflow-efficiency.sql','tests/sql/role-boundaries.sql','tests/sql/disabled-role-helper.sql','tests/sql/large-stock-count.sql','tests/sql/api-table-privileges.sql','tests/sql/additional-sizes.sql','tests/sql/quote-variations.sql','tests/sql/add-rfq-supplier.sql','tests/sql/company-items.sql','tests/sql/custom-role-cloning.sql','tests/sql/user-removal.sql','tests/sql/admin-data-management.sql','tests/sql/reset-preserves-company-catalogue.sql','tests/sql/admin-safeupdate-static.sql','tests/sql/company-submit-boundaries.sql','tests/sql/company-supplier-setup.sql','tests/sql/receiving-closure.sql']
+const defaults=['tests/procurement-workflow.sql','tests/sql/workflow-efficiency.sql','tests/sql/role-boundaries.sql','tests/sql/disabled-role-helper.sql','tests/sql/large-stock-count.sql','tests/sql/api-table-privileges.sql','tests/sql/additional-sizes.sql','tests/sql/quote-variations.sql','tests/sql/add-rfq-supplier.sql','tests/sql/company-items.sql','tests/sql/custom-role-cloning.sql','tests/sql/user-removal.sql','tests/sql/admin-data-management.sql','tests/sql/reset-preserves-company-catalogue.sql','tests/sql/admin-safeupdate-static.sql','tests/sql/company-submit-boundaries.sql','tests/sql/company-supplier-setup.sql','tests/sql/receiving-closure.sql','tests/sql/supplier-portal.sql','tests/sql/supplier-portal-boundaries.sql']
 const tableNames=snapshot.tables.map(t=>t.sql.match(/^CREATE TABLE (\S+)/)[1])
 async function rowCounts(){const counts={};for(const name of tableNames){const r=await db.query('SELECT count(*)::integer n FROM '+name);counts[name]=r.rows[0].n}return counts}
 const seededCounts=await rowCounts()

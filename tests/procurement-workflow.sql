@@ -95,7 +95,7 @@ begin
  begin perform public.proc_finalize_award_plan_v1(test_rfq_id,'[]'::jsonb); exception when insufficient_privilege then failure:=sqlerrm; end;
  if failure is null then raise exception 'Browser could bypass current award validation'; end if;
  execute 'reset role';
- update public.proc_quotes set valid_until=current_date-1 where rfq_id=test_rfq_id;
+ update public.proc_quotes set valid_until=(now() at time zone 'Asia/Colombo')::date-1 where rfq_id=test_rfq_id;
  execute 'set local role authenticated';
  failure:=null;
  begin perform public.proc_finalize_award_plan_v2(test_rfq_id,jsonb_build_array(jsonb_build_object('rfq_item_id',ria,'quote_line_id',qa,'qty',10))); exception when others then failure:=sqlerrm; end;

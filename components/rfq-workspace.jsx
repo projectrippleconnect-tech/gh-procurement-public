@@ -10,7 +10,7 @@ export function RfqWorkspace(props){
   <div className="rfq-workspace-tabs section" role="tablist" aria-label="RFQ type">
    <button className={'btn '+(tab==='general'?'primary':'')} type="button" role="tab" aria-selected={tab==='general'} onClick={()=>setTab('general')}>General RFQs</button>
    <button className={'btn '+(tab==='company'?'primary':'')} type="button" role="tab" aria-selected={tab==='company'} onClick={()=>setTab('company')}>Company RFQs</button>
-   {props.can?.('procurement.rfq.manage')&&<a className="btn" href={'/supplier-links'+(focusedId?'?rfq='+encodeURIComponent(focusedId):'')}>Supplier Links ↗</a>}
+   {props.can?.('procurement.rfq.manage')&&<a className="btn" href={'/supplier-links?workflow='+tab+(focusedId?'&rfq='+encodeURIComponent(focusedId):'')}>Supplier Links ↗</a>}
   </div>
   {tab==='general'?<Rfqs {...props} initialFilter={focusedId||props.initialFilter}/>:
    <CompanyRfqHistory onOpenPo={id=>props.navigate?.('po',id)} active={props.activeView==='rfq'} onOpen={id=>{setFocusedId(id);setTab('general')}}/>}
@@ -22,13 +22,14 @@ function CompanyRfqHistory({active,onOpen,onOpenPo}){
  const load=useCallback(async()=>{
   setBusy(true);setError('')
   try{
-   const [rfqs,orders]=await Promise.all([
+   const [rfqs,orders,portal]=await Promise.all([
     supabase.rpc('proc_company_rfq_history',{p_limit:150}),
-    supabase.rpc('proc_company_direct_po_history',{p_limit:150})
+    supabase.rpc('proc_company_direct_po_history',{p_limit:150}),
+    supabase.rpc('proc_portal_company_history_v1')
    ])
    if(rfqs.error)throw rfqs.error
    if(orders.error)throw orders.error
-   setRecords([...(rfqs.data||[]).map(r=>({...r,kind:'rfq'})),...(orders.data||[]).map(r=>({...r,kind:'direct_po',rfq_id:r.po_id,rfq_no:r.po_no,rfq_status:r.po_status,supplier_count:1}))].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)))
+   setRecords([...Array.from(new Map([...(rfqs.data||[]),...(portal.data||[])].map(r=>[r.rfq_id+':'+r.company_id,r])).values()).map(r=>({...r,kind:'rfq'})),...(orders.data||[]).map(r=>({...r,kind:'direct_po',rfq_id:r.po_id,rfq_no:r.po_no,rfq_status:r.po_status,supplier_count:1}))].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)))
   }catch(e){setError(e.message||'Could not load company RFQ history.')}finally{setBusy(false)}
  },[])
  useEffect(()=>{if(active)load()},[active,load])

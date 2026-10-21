@@ -13,16 +13,19 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Keep repeated builds independent of the host's persisted Turbopack database.
+  experimental: { turbopackFileSystemCacheForBuild: false },
   poweredByHeader: false,
-  outputFileTracingIncludes: {'/api/company-items/orders':['./assets/fonts/**/*'],'/api/company-items/rfqs':['./assets/fonts/**/*']},
+  outputFileTracingIncludes: {'/api/company-items/orders':['./assets/fonts/**/*'],'/api/company-items/rfqs':['./assets/fonts/**/*'],'/api/supplier-portal/worker':['./assets/fonts/**/*']},
   async headers() {
     return [
       { source: '/(.*)', headers: securityHeaders },
-      { source: '/supplier/quote', headers: [
+      { source: '/supplier/:path*', headers: [
         { key: 'Referrer-Policy', value: 'no-referrer' },
         { key: 'Cache-Control', value: 'private, no-store' },
         { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
       ] },
+      { source: '/supplier-links', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' },{ key: 'Cache-Control', value: 'private, no-store' }] },
     ]
   },
 }

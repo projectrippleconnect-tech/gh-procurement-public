@@ -31,7 +31,7 @@ test('anonymous clients cannot directly write official quotes or purchase orders
 })
 test('six-hour window, quote revisions, images and availability are validated in the database',()=>{
  assert.match(migration,/make_interval\(hours=>p_hours\)/)
- assert.match(migration,/now\(\)>=access\.closes_at/)
+ assert.match(migration,/clock_timestamp\(\)>=access\.closes_at/)
  assert.match(migration,/p_expected_revision is distinct from access\.revision/)
  assert.match(migration,/in_stock','no_stock','skip'/)
  assert.match(migration,/Maximum four variations per item/)

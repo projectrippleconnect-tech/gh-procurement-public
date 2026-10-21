@@ -1,6 +1,7 @@
 'use client'
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import SupplierRoundControls from '@/components/supplier-round-controls'
 
 const field={background:'#0d1829',border:'1px solid #40546b',borderRadius:9,padding:10,color:'white',minWidth:0,fontSize:15}
 const box={border:'1px solid #344861',background:'#132136',padding:14,borderRadius:14,marginBottom:12}
@@ -13,8 +14,11 @@ async function secureToken(){
  return {token,hash:Array.from(new Uint8Array(hash),x=>x.toString(16).padStart(2,'0')).join('')}
 }
 export default function SupplierLinks(){
+ const loadSequence=useRef(0),currentRfq=useRef('')
  const [requests,setRequests]=useState([])
+ const [workflow,setWorkflow]=useState('general')
  const [selected,setSelected]=useState('')
+ currentRfq.current=selected
  const [invitations,setInvitations]=useState([])
  const [responses,setResponses]=useState([])
  const [items,setItems]=useState([])
@@ -25,15 +29,21 @@ export default function SupplierLinks(){
  const [query,setQuery]=useState('')
  const [message,setMessage]=useState('')
  const refresh=useCallback(async()=>{
-  const {data,error}=await supabase.from('proc_rfqs').select('id,rfq_no,status,created_at').in('status',['draft','prepared','sent','partially_quoted','quoted']).order('created_at',{ascending:false}).limit(150)
+  const {data,error}=await supabase.from('proc_rfqs').select('id,rfq_no,status,created_at,items:proc_rfq_items(requirement:proc_requirements(company_id))').order('created_at',{ascending:false}).limit(150)
   if(error)throw error
   setRequests(data||[])
-  const requested=new URLSearchParams(window.location.search).get('rfq')||''
-  setSelected(s=>s||(data||[]).some(r=>r.id===requested)?(s||requested):(data?.[0]?.id||''))
+  const params=new URLSearchParams(window.location.search)
+  const requested=params.get('rfq')||''
+  const wanted=(data||[]).find(r=>r.id===requested)
+  const kind=wanted?(wanted.items?.some(i=>i.requirement?.company_id)?'company':'general'):(params.get('workflow')==='company'?'company':'general')
+  setWorkflow(kind)
+  const matching=(data||[]).filter(r=>(r.items?.some(i=>i.requirement?.company_id)?'company':'general')===kind)
+  setSelected(s=>s||(wanted?.id||matching[0]?.id||''))
  },[])
  useEffect(()=>{refresh().catch(e=>setError(e.message))},[refresh])
  const load=useCallback(async id=>{
   if(!id)return
+  const sequence=++loadSequence.current
   setError('')
   const [invs,quotes,lines]=await Promise.all([
    supabase.from('proc_rfq_suppliers').select('id,supplier_id,status,supplier:proc_suppliers(name,whatsapp,phone)').eq('rfq_id',id),
@@ -41,9 +51,10 @@ export default function SupplierLinks(){
    supabase.from('proc_rfq_items').select('id,requested_qty,requirement:proc_requirements(item:proc_items(description,size,uom))').eq('rfq_id',id)
   ])
   for(const result of [invs,quotes,lines])if(result.error)throw result.error
+  if(sequence!==loadSequence.current||id!==currentRfq.current)return
   setInvitations(invs.data||[]);setResponses(quotes.data||[]);setItems(lines.data||[])
  },[])
- useEffect(()=>{if(selected)load(selected).catch(e=>setError(e.message))},[selected,load])
+ useEffect(()=>{if(selected)load(selected).catch(e=>setError(e.message));return()=>{loadSequence.current++}},[selected,load])
  const identified=useMemo(()=>new Map(responses.map(r=>[r.rfq_supplier_id,r])),[responses])
  const priceSummary=useMemo(()=>{
   const byItem=new Map()
@@ -104,13 +115,13 @@ export default function SupplierLinks(){
  <div style={{maxWidth:850,margin:'0 auto'}}>
   <p style={{fontSize:12,letterSpacing:2,color:'#fbbf24'}}>GENERAL HARDWARE · PROCUREMENT</p>
   <h1>Supplier quotation links</h1>
-  <p style={{color:'#cbd5e1'}}>Each supplier receives a private link. They can save drafts, mark no stock, attach photos, and confirm. Your official Prices data changes only after authorized import.</p>
+  <p style={{color:'#cbd5e1'}}>Each supplier receives a private link. They can save drafts, mark no stock, attach photos, and confirm. Confirmed exact-item prices appear in GH Prices. Drafts and alternative variations remain separate.</p>
   <p><a style={{color:'#fbbf24'}} href="/">← Back to Procurement</a></p>
   {error&&<p role="alert" style={{color:'#fecaca'}}>{error}</p>}
   {message&&<p role="status" style={{color:'#86efac'}}>{message}</p>}
   <div style={box}>
-   <label>Choose RFQ</label>
-   <select style={{...field,width:'100%',margin:'8px 0'}} value={selected} onChange={e=>{setSelected(e.target.value);setLastLink(null)}}>{requests.map(r=><option key={r.id} value={r.id}>{r.rfq_no} · {r.status}</option>)}</select>
+   <label>Workflow </label><select disabled={!!busy} aria-label="Workflow" style={field} value={workflow} onChange={e=>{setWorkflow(e.target.value);setSelected('');setInvitations([]);setResponses([]);setItems([]);setLastLink(null)}}><option value="general">General Items</option><option value="company">Company Items</option></select><p>Choose RFQ</p>
+   <select disabled={!!busy} style={{...field,width:'100%',margin:'8px 0'}} value={selected} onChange={e=>{setSelected(e.target.value);setLastLink(null)}}><option value="">Select RFQ</option>{requests.filter(r=>(r.items?.some(i=>i.requirement?.company_id)?'company':'general')===workflow).map(r=><option key={r.id} value={r.id}>{r.rfq_no} · {r.status}</option>)}</select>
    <label>Supplier quotation window </label>
    <select style={{...field,marginLeft:8}} value={hours} onChange={e=>setHours(e.target.value)}><option value="2">2 hours</option><option value="4">4 hours</option><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="48">48 hours</option></select>
    <button type="button" style={{...btn,marginLeft:8}} onClick={()=>load(selected).catch(e=>setError(e.message))}>Refresh</button>
@@ -150,6 +161,7 @@ export default function SupplierLinks(){
     </details>}
    </section>
   })}
+  {selected&&<SupplierRoundControls key={selected} rfqId={selected} onChange={()=>load(selected).catch(e=>setError(e.message))}/>}
   {selectedRfq&&<section style={box}><h2>Provisional lowest unit rates</h2>
    <p style={{color:'#cbd5e1',fontSize:13}}>Informational only. GH Prices calculates full landed cost. Alternatives, freight, minimum orders, and quantities still require review.</p>
    {items.map(i=>{const best=priceSummary.get(i.id),item=i.requirement?.item
@@ -158,6 +170,6 @@ export default function SupplierLinks(){
     </div>
    })}
   </section>}
-  <p style={{color:'#cbd5e1',fontSize:13}}>Automatic PO generation and sending are intentionally OFF until the background scheduler, purchasing approval limits and end-to-end tests have been verified. This page does not send WhatsApp messages automatically.</p>
+  <p style={{color:'#cbd5e1',fontSize:13}}>Automatic PO generation and sending are intentionally OFF until separately approved server activation. Six-hour rounds and pending PO review are available above. This page does not send WhatsApp messages automatically.</p>
  </div></main>
 }
