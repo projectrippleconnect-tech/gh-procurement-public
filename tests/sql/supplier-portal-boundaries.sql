@@ -6,7 +6,7 @@ begin
  insert into public.proc_companies(id,company_code,name,created_by) values(company_v,'PORTAL-BOUNDARY','Portal company boundary',admin_v);
  insert into public.proc_items(id,item_code,category,description,uom,max_stock,reorder_level,movement) values(item_v,'PORTAL-BOUNDARY','ELECTRICAL','Portal boundary item','PCS',20,10,'FAST');
  insert into public.proc_suppliers(id,supplier_code,name,whatsapp,active) values(supplier_v,'PORTAL-BOUNDARY','Portal boundary supplier','0771234567',true);
- foreach mode in array array['company','budget','empty_scope','expired','manual_reserved','revoked','incomplete_draft'] loop
+ foreach mode in array array['company','budget','empty_scope','expired','manual_reserved','revoked','incomplete_draft','spec_changed'] loop
   req_v:=gen_random_uuid();rfq_v:=gen_random_uuid();ri_v:=gen_random_uuid();inv_v:=gen_random_uuid();token_v:=encode(extensions.gen_random_bytes(32),'hex');
   insert into public.proc_requirements(id,requirement_no,item_id,location_id,required_qty,adjusted_qty,created_by,source_type,company_id) values(req_v,'REQ-'||req_v,item_v,private.proc_default_location_id(),10,10,admin_v,'manual',case when mode='company' then company_v else null end);
   update public.proc_requirements set approval_status='approved',selected_for_order=true,approved_by=admin_v,approved_at=now() where id=req_v;
@@ -35,10 +35,16 @@ begin
    begin perform public.proc_portal_read_v1(token_v);raise exception 'TEST revoked token read';exception when insufficient_privilege then null;end;
    execute 'reset role';perform set_config('request.jwt.claim.sub',admin_v::text,true);
   end if;
+  if mode='spec_changed' then update public.proc_items set description='Changed specification' where id=item_v;end if;
   if mode='manual_reserved' then update public.proc_requirements set ordered_qty=7,status='partially_ordered' where id=req_v;end if;
   update public.proc_portal_rounds set opens_at=clock_timestamp()-interval '7 hours',closes_at=clock_timestamp()-interval '1 hour' where id=round_v;
   select count(*) into before_count from public.proc_purchase_orders;
-  if mode='budget' then
+  if mode='spec_changed' then
+   failure:=null;begin perform public.proc_portal_process_round_v1(round_v);exception when others then failure:=sqlerrm;end;
+   assert failure='Approved purchasing scope changed','Changed specification was ordered';
+   assert (select count(*) from public.proc_purchase_orders)=before_count,'Changed specification left a PO';
+   update public.proc_items set description='Portal boundary item' where id=item_v;
+  elsif mode='budget' then
    failure:=null;
    begin perform public.proc_portal_process_round_v1(round_v);exception when others then failure:=sqlerrm;end;
    assert failure like 'Purchasing limit exceeded:%','Budget exceeded without exception';
@@ -48,7 +54,7 @@ begin
    assert public.proc_portal_review_v1(rfq_v)->'round'->>'state'='exception','Exception was not recorded';
   else
    reply:=public.proc_portal_process_round_v1(round_v);
-   if mode in ('empty_scope','expired','revoked','incomplete_draft') then assert jsonb_array_length(reply->'allocations')=0,'Ineligible offer was purchased';
+   if mode in ('empty_scope','expired','revoked','incomplete_draft','spec_changed') then assert jsonb_array_length(reply->'allocations')=0,'Ineligible offer was purchased';
    elsif mode='manual_reserved' then assert (reply->'allocations'->0->>'qty')::numeric=3,'Manual allocation was ordered twice';
    elsif mode='company' then
     select p.id into pid from public.proc_purchase_orders p join public.proc_portal_po_jobs j on j.po_id=p.id where j.round_id=round_v;

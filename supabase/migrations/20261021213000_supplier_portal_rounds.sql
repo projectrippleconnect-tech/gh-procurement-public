@@ -288,7 +288,7 @@ begin
  if exists(select 1 from public.proc_portal_rounds where rfq_id=p_rfq_id) then raise exception 'Round already started'; end if;
  insert into public.proc_portal_rounds(rfq_id,root_rfq_id,round_no,company_id,opens_at,closes_at,policy,approved_by)
  values(p_rfq_id,p_rfq_id,1,cid,stamp,stamp+interval '6 hours',jsonb_build_object('max_po',p_max_po,'max_daily',p_max_daily,'max_unit',p_max_unit,'max_lead',p_max_lead,
- 'items',(select jsonb_agg(jsonb_build_object('requirement',r.id,'location',r.location_id,'category',i.category)) from public.proc_rfq_items ri join public.proc_requirements r on r.id=ri.requirement_id join public.proc_items i on i.id=r.item_id where ri.rfq_id=p_rfq_id),
+ 'items',(select jsonb_agg(jsonb_build_object('requirement',r.id,'location',r.location_id,'category',i.category,'item',i.id,'description',i.description,'size',i.size,'uom',i.uom,'brand',i.brand,'colour',i.colour,'variation',i.variation,'requested_qty',ri.requested_qty)) from public.proc_rfq_items ri join public.proc_requirements r on r.id=ri.requirement_id join public.proc_items i on i.id=r.item_id where ri.rfq_id=p_rfq_id),
  'suppliers',(select jsonb_agg(supplier_id) from public.proc_rfq_suppliers where rfq_id=p_rfq_id)),auth.uid()) returning id into rid;
  update public.proc_supplier_portal_links l set closes_at=stamp+interval '6 hours' from public.proc_rfq_suppliers rs where rs.id=l.rfq_supplier_id and rs.rfq_id=p_rfq_id;
  insert into public.proc_portal_round_audit(round_id,kind,detail) values(rid,'round_approved',jsonb_build_object('by',auth.uid()));
@@ -350,11 +350,13 @@ begin
  previous_context:=private.proc_portal_begin_context(rd.approved_by);
  perform 1 from public.proc_rfqs where id=rd.rfq_id and status in ('draft','prepared','sent','partially_quoted','quoted') for update;
  if not found then raise exception 'RFQ was finalized elsewhere; review required'; end if;
+ -- Lock current item specifications so an approved offer cannot switch products concurrently.
+ perform 1 from public.proc_items it join public.proc_requirements r on r.item_id=it.id join public.proc_rfq_items i on i.requirement_id=r.id where i.rfq_id=rd.rfq_id order by it.id for share of it;
  -- Lock all shared requirements BEFORE reading balances. Existing direct/manual orders win.
  perform 1 from public.proc_requirements r where r.id in (select requirement_id from public.proc_rfq_items where rfq_id=rd.rfq_id) order by r.id for update;
  for ri in select i.* from public.proc_rfq_items i where i.rfq_id=rd.rfq_id and i.selected_for_po order by i.id loop
   select * into req from public.proc_requirements where id=ri.requirement_id;
-  if not exists(select 1 from jsonb_array_elements(rd.policy->'items') z join public.proc_items it on it.id=req.item_id where z->>'requirement'=req.id::text and z->>'location'=req.location_id::text and z->>'category'=it.category) then raise exception 'Approved purchasing scope changed'; end if;
+  if not exists(select 1 from jsonb_array_elements(rd.policy->'items') z join public.proc_items it on it.id=req.item_id where z->>'requirement'=req.id::text and z->>'location'=req.location_id::text and z->>'category'=it.category and z->>'item'=it.id::text and z->>'description'=it.description and z->>'size' is not distinct from it.size and z->>'uom'=it.uom and z->>'brand' is not distinct from it.brand and z->>'colour' is not distinct from it.colour and z->>'variation' is not distinct from it.variation and ri.requested_qty<=(z->>'requested_qty')::numeric) then raise exception 'Approved purchasing scope changed'; end if;
   if req.approval_status<>'approved' or not req.selected_for_order or req.company_id is distinct from rd.company_id then raise exception 'Requirement approval or company changed'; end if;
   remaining:=least(ri.requested_qty,greatest(req.adjusted_qty-req.ordered_qty,0));
   -- Eligible landed costs are ranked AFTER filtering unavailable, stale and incompatible offers.

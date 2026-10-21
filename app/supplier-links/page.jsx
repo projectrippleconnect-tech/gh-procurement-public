@@ -77,7 +77,7 @@ export default function SupplierLinks(){
    const {token,hash}=await secureToken()
    const {data,error}=await supabase.rpc('proc_portal_issue_link_v1',{p_rfq_supplier_id:inv.id,p_token_hash:hash,p_hours:Number(hours)})
    if(error)throw error
-   const url=new URL('/supplier/quote',window.location.origin);url.searchParams.set('token',token)
+   const url=new URL('/supplier/quote',window.location.origin);url.hash=new URLSearchParams({token}).toString()
    setLastLink({id:inv.id,url:String(url),name:inv.supplier?.name||'Supplier',phone:inv.supplier?.whatsapp||inv.supplier?.phone||'',due:data.closes_at})
    await load(selected)
   }catch(e){setError(e.message)}finally{setBusy('')}

@@ -1,0 +1,403 @@
+{
+  "development_base": "8d12bd2bb799a9ddf5edaf04cbea53c919ee0cc5",
+  "unit_tests": {
+    "passed": 449,
+    "failed": 0
+  },
+  "database_suites": [
+    {
+      "file": "tests/procurement-workflow.sql",
+      "status": "passed",
+      "ms": 5281,
+      "checks": [
+        {
+          "check_name": "1: stock count computes shortages and preserves review",
+          "passed": true
+        },
+        {
+          "check_name": "2: approval, prepared RFQ and explicit sent confirmation",
+          "passed": true
+        },
+        {
+          "check_name": "3: one quote sufficient, partial supplier quotes, best prices, supplier POs, totals and duplicate award blocked",
+          "passed": true
+        },
+        {
+          "check_name": "4: approved/sent POs, receiving, stock, replay protection and invoice match",
+          "passed": true
+        },
+        {
+          "check_name": "PO dispatch: approved-only, saved recipient, unique claim and immutable finish",
+          "passed": true
+        },
+        {
+          "check_name": "PO dispatch: approved-only, saved recipient, unique claim and immutable finish",
+          "passed": true
+        },
+        {
+          "check_name": "security: atomic dispatch claim, duplicate block and immutable completion",
+          "passed": true
+        },
+        {
+          "check_name": "security: cancelled RFQ stays closed and non-finite quotes are rejected",
+          "passed": true
+        },
+        {
+          "check_name": "security: legacy award inaccessible and expired quotations blocked",
+          "passed": true
+        },
+        {
+          "check_name": "security: missing profile cannot call privileged RPC or read requirements",
+          "passed": true
+        },
+        {
+          "check_name": "supplier requests: selected items saved; foreign and empty selections blocked",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/workflow-efficiency.sql",
+      "status": "passed",
+      "ms": 2379,
+      "checks": [
+        {
+          "check_name": "Replacement receipt, duplicate protection, audited rebuy and preserved PO",
+          "passed": true
+        },
+        {
+          "check_name": "Cancel balance completes need without phantom deliveries",
+          "passed": true
+        },
+        {
+          "check_name": "Unauthorized release and audit reads denied",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/role-boundaries.sql",
+      "status": "passed",
+      "ms": 1176,
+      "checks": [
+        {
+          "role_key": "admin",
+          "passed": true
+        },
+        {
+          "role_key": "document_assistant",
+          "passed": true
+        },
+        {
+          "role_key": "inactive_admin",
+          "passed": true
+        },
+        {
+          "role_key": "procurement",
+          "passed": true
+        },
+        {
+          "role_key": "receiver",
+          "passed": true
+        },
+        {
+          "role_key": "stock_checker",
+          "passed": true
+        },
+        {
+          "role_key": "stock_handler",
+          "passed": true
+        },
+        {
+          "role_key": "viewer",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/disabled-role-helper.sql",
+      "status": "passed",
+      "ms": 599,
+      "checks": [
+        {
+          "result": "PASS disabled, inactive, mismatched and enabled custom role checks"
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/large-stock-count.sql",
+      "status": "passed",
+      "ms": 15494,
+      "checks": [
+        {
+          "check_name": "1000 entries preserve shortages; oversized and non-finite batches denied",
+          "passed": true,
+          "elapsed_ms": "15100.000000"
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/api-table-privileges.sql",
+      "status": "passed",
+      "ms": 1359,
+      "checks": [
+        {
+          "result": "PASS: all procurement tables retain RLS; API table-control privileges denied; dispatch audit read preserved"
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/additional-sizes.sql",
+      "status": "passed",
+      "ms": 526,
+      "checks": [
+        {
+          "set_config": "00000000-0000-4000-8000-000000000111"
+        },
+        {
+          "set_config": "authenticated"
+        },
+        {
+          "result": "PASS: authenticated save, repeat-save dedupe, atomic rollback, actual PO size/quantity/price/total and awarded guard"
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/quote-variations.sql",
+      "status": "passed",
+      "ms": 489,
+      "checks": [
+        {
+          "check_name": "1: stock count computes shortages and preserves review",
+          "passed": true
+        },
+        {
+          "check_name": "Variation 2 feet: 6 pieces \u00d7 Rs.40, separate PO/receiving line, correct total; invalid input leaves no partial order",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/add-rfq-supplier.sql",
+      "status": "passed",
+      "ms": 310,
+      "checks": [
+        {
+          "verification": "PASS: pending invitation, duplicate retry, inactive/missing supplier, missing/empty RFQ, coverage/override, quoted status, final states, granular permissions, missing profile, authentication and quotation preservation; all test data rolled back"
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/company-items.sql",
+      "status": "passed",
+      "ms": 2040,
+      "checks": [
+        {
+          "check_name": "Import is idempotent; blanks stay reviewable; reorder is 50%",
+          "passed": true
+        },
+        {
+          "check_name": "Maximum editing and category promotion retain item identities",
+          "passed": true
+        },
+        {
+          "check_name": "Manual approval, quantity-only PO and duplicate dispatch prevention",
+          "passed": true
+        },
+        {
+          "check_name": "Blank maximum is held; sufficient checkbox does not invent quantities",
+          "passed": true
+        },
+        {
+          "check_name": "Brand supplier split, selected attachments and unknown-outcome retry hold",
+          "passed": true
+        },
+        {
+          "check_name": "Staff follows admin configuration and cannot elevate approval access",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/custom-role-cloning.sql",
+      "status": "passed",
+      "ms": 188,
+      "checks": [
+        {
+          "check_name": "Super Admin cloning blocked",
+          "passed": true
+        },
+        {
+          "check_name": "Exact staff permission copy: procurement",
+          "passed": true
+        },
+        {
+          "check_name": "Exact staff permission copy: stock_handler",
+          "passed": true
+        },
+        {
+          "check_name": "Exact staff permission copy: stock_checker",
+          "passed": true
+        },
+        {
+          "check_name": "Exact staff permission copy: document_assistant",
+          "passed": true
+        },
+        {
+          "check_name": "Exact staff permission copy: receiver",
+          "passed": true
+        },
+        {
+          "check_name": "Exact staff permission copy: viewer",
+          "passed": true
+        },
+        {
+          "check_name": "Disabled template stays disabled",
+          "passed": true
+        },
+        {
+          "check_name": "Viewer role creation denied",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/user-removal.sql",
+      "status": "passed",
+      "ms": 165,
+      "checks": []
+    },
+    {
+      "file": "tests/sql/admin-data-management.sql",
+      "status": "passed",
+      "ms": 287,
+      "checks": []
+    },
+    {
+      "file": "tests/sql/reset-preserves-company-catalogue.sql",
+      "status": "passed",
+      "ms": 175,
+      "checks": []
+    },
+    {
+      "file": "tests/sql/admin-safeupdate-static.sql",
+      "status": "passed",
+      "ms": 249,
+      "checks": []
+    },
+    {
+      "file": "tests/sql/company-submit-boundaries.sql",
+      "status": "passed",
+      "ms": 342,
+      "checks": [
+        {
+          "check_name": "Null, future-dated and duplicate company counts rejected atomically",
+          "passed": true
+        },
+        {
+          "check_name": "Authorized legacy staff submission works without exposing internal routing",
+          "passed": true
+        },
+        {
+          "check_name": "Missing company-list permission and anonymous callers rejected",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/company-supplier-setup.sql",
+      "status": "passed",
+      "ms": 682,
+      "checks": [
+        {
+          "check_name": "Full assignment list and selected recipients persist independently in one save",
+          "passed": true
+        },
+        {
+          "check_name": "Direct PO recipient validation, multiple designated contacts and stale editor protection",
+          "passed": true
+        },
+        {
+          "check_name": "Failure after writing assignments rolls back assignments and recipients together",
+          "passed": true
+        },
+        {
+          "check_name": "Manual no-contact override is safe and settings saves create no documents",
+          "passed": true
+        },
+        {
+          "check_name": "Role boundaries and private privileged implementation remain intact",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/receiving-closure.sql",
+      "status": "passed",
+      "ms": 278,
+      "checks": [
+        {
+          "check_name": "Partial receipt, retry, return, credit and final closure preserve physical stock",
+          "passed": true
+        },
+        {
+          "check_name": "Closure requires edit and approval permissions even on retry",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "file": "tests/sql/supplier-portal.sql",
+      "status": "passed",
+      "ms": 702,
+      "checks": []
+    },
+    {
+      "file": "tests/sql/supplier-portal-boundaries.sql",
+      "status": "passed",
+      "ms": 526,
+      "checks": []
+    }
+  ],
+  "portal_browser": {
+    "results": [
+      {
+        "width": 320,
+        "status": "passed"
+      },
+      {
+        "width": 360,
+        "status": "passed"
+      },
+      {
+        "width": 390,
+        "status": "passed"
+      },
+      {
+        "width": 768,
+        "status": "passed"
+      },
+      {
+        "width": 1280,
+        "status": "passed"
+      }
+    ],
+    "checks": [
+      "incomplete draft",
+      "price and commercial terms",
+      "compressed product image",
+      "alternative without stock",
+      "final confirmation",
+      "persistent reload",
+      "fragment tokens",
+      "two-window stale save",
+      "disabled worker endpoint"
+    ]
+  },
+  "dependency_audit": {
+    "known_vulnerabilities": 0
+  },
+  "production_changes": false,
+  "native_concurrent_sessions_verified": false,
+  "live_gateway_delivery_verified": false
+}

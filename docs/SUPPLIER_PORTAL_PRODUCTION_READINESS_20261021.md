@@ -7,15 +7,15 @@ Starting commit: 606c605bea63a12086fdeefd907286f7f80b8c80
 
 **Release decision: HOLD for controlled staging verification.** Implementation and local
 regression testing are complete for the scope below. This is not a certification of live
-Supabase/PostgREST, mobile-browser behavior, concurrent PostgreSQL sessions, or WhatsApp
+Supabase/PostgREST, cross-browser/device coverage, concurrent PostgreSQL sessions, or WhatsApp
 delivery. Those checks remain release blockers; no production deployment, migration,
 supplier message, or live purchasing activation was performed.
 
 ## Implemented behavior
 
 - Supplier-specific, revocable 256-bit links; only SHA-256 token hashes are stored.
-  URLs are removed from browser history after capture; tab-scoped session storage supports
-  reload. Portal pages use no-referrer and no-store headers. Supplier entry has noindex tags.
+  New links use URL fragments so the token is not sent in page requests. Both fragment and legacy query links are accepted and removed from browser history after capture; tab-scoped session storage supports
+  reload. A separate anonymous Supabase client never reuses staff authentication. Portal pages use no-referrer and no-store headers. Supplier entry has noindex tags.
 - Prices, availability, optional compressed product photos, up to four priced variations,
   incomplete drafts, optimistic revisions, and final confirmation. Database validation
   enforces item scope, deadlines, finite amounts, two-decimal currency, three-decimal
@@ -26,7 +26,7 @@ supplier message, or live purchasing activation was performed.
   comparisons accurate for portal offers while retaining legacy calculation behavior for
   ordinary manual quotes.
 - An admin explicitly approves an RFQ's frozen supplier, requirement, category and location
-  scope and finite purchasing limits. That starts one shared six-hour deadline. General
+  scope and finite purchasing limits. Approved item identity, specification, UOM and requested quantity are also frozen; changing them blocks ordering. That starts one shared six-hour deadline. General
   Items and individual Company Items rounds cannot be mixed. Later-issued links use the
   same round deadline.
 - The due-round processor ranks eligible confirmed exact items by landed unit cost:
@@ -91,7 +91,8 @@ Large images/object-storage expansion and unlimited quotation rounds are outside
 | Production dependency audit | Passed; npm audit reported zero known vulnerabilities |
 | Production build | Passed; repeated-build cache corruption was eliminated by disabling Turbopack build filesystem persistence |
 | Production HTTP smoke | Passed: both portal pages, privacy headers, unauthorized worker rejection, automation disabled |
-| Mobile browser suite | Written for 360/390/768/1280 widths; NOT VERIFIED here because Chromium/headless downloads failed |
+| Portal browser validation | Passed in Chromium at 320/360/390/768/1280px: incomplete drafts, prices, terms, compressed images, alternatives, confirmation, reload, conflicting windows and disabled worker authorization; API calls mocked |
+| Mobile visual review | Passed individual-control bounds and full-page screenshot inspection; fixed nested variation/file-input overflow that page-width checks alone missed |
 | Cross-session PostgreSQL concurrency | NOT VERIFIED; PGlite serializes sessions. Idempotency and rollback are tested, real overlapping-session stress remains required |
 | Live Supabase/PostgREST and WhatsApp pilot | NOT RUN; requires an approved isolated environment and explicit release authorization |
 
@@ -108,9 +109,7 @@ subscription or deployment was changed. No GitHub Actions run or paid resource w
 
 ## Deployment blockers and controlled release procedure
 
-1. Finish real mobile browser checks, accessibility/overflow review and the existing app's
-   browser regression suite using an available Chromium installation. The executable test
-   is `node tests/supplier-portal-mobile.mjs` (optional GH_UI_BROWSER_PATH).
+1. Chromium portal layout and interaction checks are complete at five widths, including two-window stale-save preservation. Physical iOS/Android and other browser engines remain recommended pilot checks. Both the original mobile suite (including alternative photos) and the expanded save/reload/conflict suite passed. The executable tests are `node tests/supplier-portal-mobile.mjs` (optional GH_UI_BROWSER_PATH) and `node tests/supplier-portal-ui.mjs` (optional GH_UI_BROWSER_EXECUTABLE). Both use synthetic intercepted RPC responses; they do not certify a live Supabase round trip.
 2. On an explicitly approved, isolated Supabase/PostgreSQL test instance, apply only the
    reviewed portal migrations after checking that instance's actual history. Verify anonymous
    RPCs through PostgREST, RLS/ACL behavior, schema-cache refresh, image round trips, simultaneous
@@ -135,6 +134,16 @@ subscription or deployment was changed. No GitHub Actions run or paid resource w
    Orders approval and explicit recipient/document verification before automatic dispatch.
    Accepted or unknown sends must never be automatically retried or reset for a resend.
 
+## Additional verification and reconciliation
+
+A newer development commit (`8d12bd2`) arrived during this session. It was fast-forwarded and preserved before applying the final privacy, responsive layout, stale-edit and frozen-specification fixes. No competing automation schema or worker was layered over it. Machine-readable local results are in [verification/supplier-portal-validation-20261021.json](verification/supplier-portal-validation-20261021.json). Earlier scratch implementation checkpoints are not part of this release.
+
+Supplier form improvements include server-clock-adjusted expiry, an explicit refresh for the residual round, save/confirmation status messages, unsaved-edit protection and preservation of a successful save when an additional refresh would fail. Busy controls stay disabled while saving. Nested file and variation controls now fit 320px screens; the tests check actual control bounds as well as document width.
+
+Supabase schema/function compatibility and Railway configuration were inspected read-only using their existing connections. Railway's manual watch pattern and release branch remain unchanged; no staged changes or new worker variables were created. The existing Supabase security advisor also reported inherited privileged-function exposure notices and disabled leaked-password protection. Review those notices as part of release security review rather than treating local procurement tests as certification of the entire older project.
+
+The test environment's default Playwright download failed; an isolated Chromium binary was obtained without adding an application dependency. No browser screenshot is included as a deliverable, and all test records are synthetic. No GitHub Actions workflow or paid cloud resource was requested.
+
 ## Reproduce local validation
 
 ```sh
@@ -144,6 +153,7 @@ npm run test:database
 npm run build
 node tests/supplier-portal-http.mjs
 node tests/supplier-portal-mobile.mjs
+node tests/supplier-portal-ui.mjs
 ```
 
 Do not set live worker flags or use production credentials while running development tests.
