@@ -71,6 +71,16 @@ export default function SupplierLinks(){
    await load(selected)
   }catch(e){setError(e.message)}finally{setBusy('')}
  }
+ async function revokeLink(record){
+  if(busy||!window.confirm('Revoke this private supplier link immediately? Saved quotations and history will remain.'))return
+  setBusy(record.link_id);setError('');setMessage('')
+  try{
+   const {error}=await supabase.rpc('proc_portal_revoke_link_v1',{p_link_id:record.link_id})
+   if(error)throw error
+   setMessage('Supplier link revoked. To request another quotation, generate a new link.')
+   await load(selected)
+  }catch(e){setError(e.message)}finally{setBusy('')}
+ }
  async function importQuote(record){
   if(busy)return
   if(!window.confirm('Import this confirmed quotation into GH Prices? Existing rates for the same supplier may be replaced. Alternative variations require separate review.'))return
@@ -125,6 +135,7 @@ export default function SupplierLinks(){
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <button disabled={!!busy} style={btn} onClick={()=>issue(inv)}>{busy===inv.id?'Working…':record?'Replace link':'Create link'}</button>
       {canImport&&<button disabled={!!busy} style={{...btn,background:'#fbbf24',color:'#111'}} onClick={()=>importQuote(record)}>Import confirmed prices</button>}
+      {record&&<button disabled={!!busy} style={{...btn,borderColor:'#ef4444'}} onClick={()=>revokeLink(record)}>Revoke link</button>}
      </div>
     </div>
     {record?.response?.length>0&&<details style={{marginTop:12}}><summary>View supplier responses ({record.response.filter(x=>x.status==='in_stock').length} available)</summary>
