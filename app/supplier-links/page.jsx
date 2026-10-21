@@ -126,16 +126,16 @@ export default function SupplierLinks(){
   </div>}
   <input aria-label="Find supplier" placeholder="Search suppliers…" value={query} onChange={e=>setQuery(e.target.value)} style={{...field,width:'100%',boxSizing:'border-box',marginBottom:12}}/>
   {(invitations||[]).filter(x=>lower(x.supplier?.name).includes(lower(query))).map(inv=>{
-   const record=identified.get(inv.id),canImport=record?.status==='confirmed'&&record?.revision!==record?.imported_revision
+   const record=identified.get(inv.id),canImport=record?.status==='confirmed'&&!record?.revoked_at&&record?.revision!==record?.imported_revision
    return <section style={box} key={inv.id}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-     <div><strong>{inv.supplier?.name||'Unknown supplier'}</strong><div style={{fontSize:12,color:'#cbd5e1'}}>RFQ status: {inv.status} · Portal: {record?.status||'Not invited by link'}</div>
+     <div><strong>{inv.supplier?.name||'Unknown supplier'}</strong><div style={{fontSize:12,color:'#cbd5e1'}}>RFQ status: {inv.status} · Portal: {record?.revoked_at?'Revoked':record?.status||'Not invited by link'}</div>
       {record&&<div style={{fontSize:12,color:'#cbd5e1'}}>Window closes {new Date(record.closes_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})} · Revision {record.revision}</div>}
      </div>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <button disabled={!!busy} style={btn} onClick={()=>issue(inv)}>{busy===inv.id?'Working…':record?'Replace link':'Create link'}</button>
       {canImport&&<button disabled={!!busy} style={{...btn,background:'#fbbf24',color:'#111'}} onClick={()=>importQuote(record)}>Import confirmed prices</button>}
-      {record&&<button disabled={!!busy} style={{...btn,borderColor:'#ef4444'}} onClick={()=>revokeLink(record)}>Revoke link</button>}
+      {record&&!record.revoked_at&&<button disabled={!!busy} style={{...btn,borderColor:'#ef4444'}} onClick={()=>revokeLink(record)}>Revoke link</button>}
      </div>
     </div>
     {record?.response?.length>0&&<details style={{marginTop:12}}><summary>View supplier responses ({record.response.filter(x=>x.status==='in_stock').length} available)</summary>
