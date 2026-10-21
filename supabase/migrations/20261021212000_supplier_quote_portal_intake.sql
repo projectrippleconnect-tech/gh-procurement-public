@@ -165,7 +165,8 @@ begin
     raise exception 'Variation name must be 2–140 characters'; end if;
    begin price:=(option_line->>'price')::numeric;available:=(option_line->>'quantity')::numeric;
    exception when others then raise exception 'Invalid variation price or quantity'; end;
-   if price is null or price<0 or available is null or available<=0 then
+   if price is null or price<0 or available is null or available<=0
+       or price::text in ('NaN','Infinity','-Infinity') or available::text in ('NaN','Infinity','-Infinity') then
     raise exception 'Variation price or quantity is invalid'; end if;
    if length(coalesce(option_line->>'image',''))>210000
       or (option_line->>'image') is not null and option_line->>'image'!~'^data:image/(jpeg|png|webp);base64,' then
@@ -185,6 +186,19 @@ begin
  values(access.id,access.revision+1,p_confirm,summary);
  return jsonb_build_object('revision',access.revision+1,'status',case when p_confirm then 'confirmed' else 'draft' end,'closes_at',access.closes_at);
 end $$;
+
+-- Revoke a leaked supplier link without deleting the quotation or its audit trail.
+create or replace function public.proc_portal_revoke_link_v1(p_link_id uuid)
+returns boolean language plpgsql security definer set search_path='' as $
+begin
+ if auth.uid() is null or not private.proc_has_permission('procurement.rfq.manage') then
+  raise exception 'Not authorized' using errcode='42501';
+ end if;
+ perform private.proc_assert_access();
+ update public.proc_supplier_portal_links set revoked_at=now(),updated_at=now()
+ where id=p_link_id and revoked_at is null;
+ return found;
+end $;
 
 -- Authorized staff can inspect responses and their import status.
 create or replace function public.proc_portal_staff_responses_v1(p_rfq_id uuid)
@@ -243,11 +257,13 @@ begin
  return coalesce(result,'{}'::jsonb)||jsonb_build_object('status','imported','revision',access.revision);
 end $$;
 
+revoke all on function public.proc_portal_revoke_link_v1(uuid) from public,anon;
 revoke all on function public.proc_portal_issue_link_v1(uuid,text,integer) from public,anon;
 revoke all on function public.proc_portal_read_v1(text) from public,anon,authenticated;
 revoke all on function public.proc_portal_submit_v1(text,jsonb,integer,boolean) from public,anon,authenticated;
 revoke all on function public.proc_portal_staff_responses_v1(uuid) from public,anon;
 revoke all on function public.proc_portal_import_confirmed_v1(uuid,integer) from public,anon;
+grant execute on function public.proc_portal_revoke_link_v1(uuid) to authenticated;
 grant execute on function public.proc_portal_issue_link_v1(uuid,text,integer) to authenticated;
 grant execute on function public.proc_portal_read_v1(text) to anon,authenticated;
 grant execute on function public.proc_portal_submit_v1(text,jsonb,integer,boolean) to anon,authenticated;
