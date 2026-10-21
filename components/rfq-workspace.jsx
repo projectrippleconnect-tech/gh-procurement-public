@@ -10,6 +10,7 @@ export function RfqWorkspace(props){
   <div className="rfq-workspace-tabs section" role="tablist" aria-label="RFQ type">
    <button className={'btn '+(tab==='general'?'primary':'')} type="button" role="tab" aria-selected={tab==='general'} onClick={()=>setTab('general')}>General RFQs</button>
    <button className={'btn '+(tab==='company'?'primary':'')} type="button" role="tab" aria-selected={tab==='company'} onClick={()=>setTab('company')}>Company RFQs</button>
+   {props.can?.('procurement.rfq.manage')&&<a className="btn" href={'/supplier-links'+(focusedId?'?rfq='+encodeURIComponent(focusedId):'')}>Supplier Links ↗</a>}
   </div>
   {tab==='general'?<Rfqs {...props} initialFilter={focusedId||props.initialFilter}/>:
    <CompanyRfqHistory onOpenPo={id=>props.navigate?.('po',id)} active={props.activeView==='rfq'} onOpen={id=>{setFocusedId(id);setTab('general')}}/>}
