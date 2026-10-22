@@ -11,3 +11,4 @@ public/tesseract-core/
 public/tesseract-data/
 test-results/
 playwright-report/
+.netlify/

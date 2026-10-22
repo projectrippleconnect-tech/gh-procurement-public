@@ -1,0 +1,16 @@
+# Manual release target. Do not link a Git repository or enable automatic builds.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "24"
+  NEXT_TELEMETRY_DISABLED = "1"
+  GH_PORTAL_SCHEDULER_MODE = "database"
+  GH_PORTAL_PROCESSING_ENABLED = "false"
+  GH_PORTAL_DISPATCH_ENABLED = "false"
+  GH_PORTAL_DELIVERY_VERIFIED = "false"
+  WAHA_SENDING_ENABLED = "false"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

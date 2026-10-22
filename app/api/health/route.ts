@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL
   const key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-  const version=process.env.RAILWAY_GIT_COMMIT_SHA||process.env.GH_MANUAL_RELEASE_REV||process.env.VERCEL_GIT_COMMIT_SHA||process.env.GITHUB_SHA||'local'
+  const version=process.env.RAILWAY_GIT_COMMIT_SHA||process.env.GH_MANUAL_RELEASE_REV||process.env.VERCEL_GIT_COMMIT_SHA||process.env.COMMIT_REF||process.env.GITHUB_SHA||'local'
   let database='unavailable',schemaReady=false
   try{
     if(url&&key){

@@ -1,6 +1,9 @@
 // Read-only checks: no login, messages or business records are created.
 import assert from 'node:assert/strict'
-const root='https://gh-procurement-production.up.railway.app'
+const root=process.env.GH_PRODUCTION_URL||'https://gh-procurement-production.up.railway.app'
+const target=new URL(root)
+assert.ok(target.protocol==='https:'||(target.protocol==='http:'&&['localhost','127.0.0.1'].includes(target.hostname)),'Use HTTPS for hosted release checks')
+assert.ok(!target.username&&!target.password&&!target.search&&!target.hash,'Release URL must not contain credentials, query parameters or fragments')
 async function request(path,options={}){
  const response=await fetch(root+path,{...options,signal:AbortSignal.timeout(15000)})
  return response

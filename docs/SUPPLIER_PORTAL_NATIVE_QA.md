@@ -97,3 +97,28 @@ the host isolates loopback networking per command.
 Actual hosted Supabase post-migration configuration and WhatsApp delivery still require the
 controlled release checks and an explicitly authorized recipient. Local simulation never
 activates production purchasing or proves a real delivered message.
+
+## Native database scheduler and real pg_cron
+
+The 22 October continuation reran all **23** SQL suites and all eight native concurrency
+scenarios against the scheduler migration. Five additional scheduler scenarios passed on
+PostgreSQL 17.11 with pg_cron 1.6.4, in a disposable Alpine VM. The VM used its normal
+non-root postgres account, official signed packages and a checksum-verified official ISO.
+
+For reproduction, preload `pg_cron` in the disposable cluster and set
+`cron.database_name=gh_portal_qa_concurrency` and `cron.use_background_workers=on` before
+starting PostgreSQL. After the native concurrency runner succeeds, use the same guarded
+loopback QA URL and `GH_PORTAL_QA_ALLOW_BOOTSTRAP=1` with:
+
+```sh
+npm run test:portal:scheduler
+```
+
+The runner requires the synthetic fixture marker, the QA location and the local cluster
+superuser. It does not accept the production database URL. It tests a simultaneous
+scheduler tick, a worker waiting behind the scheduler, one inactive owner cron job,
+refusal to overwrite that job, actual cron processing without a request JWT, disabled
+defaults, pending-approval POs and the combined control/job stop switch. A temporary
+one-second cron schedule makes the isolated test deterministic within its bounded wait;
+the operator release script still uses the one-minute production schedule. The runner
+disables both switches in its cleanup. Output: `test-results/portal-native-scheduler.json`.

@@ -11,7 +11,8 @@
     "test": "node --test tests/*.test.mjs",
     "test:ui": "node tests/ui-smoke.mjs",
     "test:database": "node scripts/qa/full-database.mjs",
-    "test:portal:concurrency": "node scripts/qa/portal-native-concurrency.mjs"
+    "test:portal:concurrency": "node scripts/qa/portal-native-concurrency.mjs",
+    "test:portal:scheduler": "node scripts/qa/portal-native-scheduler.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
+    "@netlify/plugin-nextjs": "5.16.4",
     "@types/node": "22.10.2",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",

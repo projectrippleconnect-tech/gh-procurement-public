@@ -5,11 +5,12 @@ Repository: projectrippleconnect-tech/gh-procurement-public
 Branch: feature/supplier-quote-portal-20261021
 Continuation base: 4ec146f2f764b2b710986a508f3cc0dfc5ecd7ed
 
-**Current continuation status — database scheduler implemented, production HOLD.**
-The scheduler extension passes 452 unit tests, 23 isolated SQL suites, TypeScript
-checks and the production build. Earlier native PostgreSQL/API/concurrency evidence
-below predates this extension; native scheduler and real pg_cron replay are still
-required before releasing the new code. No production migration or activation occurred.
+**Current continuation status — native scheduler verified; production database HOLD.**
+The scheduler extension now passes 452 unit tests, all 23 SQL suites on both PGlite
+and native PostgreSQL 17.11, eight native concurrency scenarios, and five additional
+scheduler scenarios including actual pg_cron 1.6.4 execution. TypeScript and the
+production build pass. Netlify manual-host preparation is recorded in the latest
+continuation below. No production migration or purchasing/dispatch activation occurred.
 
 **Earlier release decision: release candidate for a controlled manual rollout. Live purchasing and dispatch
 remain on HOLD until the production release and real-delivery checks below are approved.**
@@ -330,3 +331,46 @@ timeout. This is a separate access failure from the expired Railway OAuth connec
 No paid upgrade, new service, purchasing activation or supplier message was used as
 a workaround. The production backup, release access and verified delivery pilot
 remain unresolved.
+
+## Native scheduler verification and Netlify preparation — 22 October 2026
+
+Continuation source base: `113e0c3b7339d31d65c5433b4d9fbe1c8ca9e168`.
+
+- Re-ran 452 unit tests, all 23 PGlite suites, TypeScript and the production build:
+  passed. The production dependency audit reports zero known vulnerabilities.
+- Built a disposable Alpine 3.22.2 software VM using a checksum-verified official ISO
+  and signed Alpine PostgreSQL packages. PostgreSQL ran as the guest's normal
+  non-root postgres user. No production credentials entered the VM.
+- All 23 native PostgreSQL 17.11 SQL suites and eight native concurrency scenarios
+  passed against the scheduler migration. This supersedes the earlier native-scheduler
+  limitation; it does not retroactively change the earlier API test results.
+- Added an opt-in native scheduler runner. Five scenarios passed with real pg_cron
+  1.6.4: overlapping tick exclusion; a service worker waiting behind a scheduler
+  transaction with one PO/allocation; an inactive owner job that cannot be replaced;
+  actual owner-session execution with no request JWT and disabled-control gating;
+  and the combined control/job stop switch leaving new due demand untouched.
+  Actual purchasing results retain the separate PO approval and dispatch gates.
+- Committed evidence is in
+  `verification/supplier-portal-native-scheduler-20261022.json`; reproduction is in
+  `SUPPLIER_PORTAL_NATIVE_QA.md`. These tests used synthetic disposable records only.
+- Rechecked GH NEXUS: healthy, pgcrypto and pg_cron installed, no portal-link or
+  scheduler-control table, and no portal migration history entries. A current
+  restorable backup is still unverified. No production migration was applied.
+- The old Railway URL passed the read-only production smoke and reported
+  `35e0a2443bc7eac6b5cc69fbb7e86328b627456f`. It was not redeployed or removed.
+- Netlify account authorization succeeded. The account is Free, with no payment
+  method, 300 included credits, zero used at the initial check and overages disabled.
+  Created `gh-procurement` without repository linking or CI hooks. No paid resource
+  or automatic deployment was enabled. Added a pinned Netlify adapter and manual
+  configuration; the framework versions remain unchanged.
+- A Netlify build produced its server ZIP and edge bundle, exiting successfully
+  despite a dependency-fetch warning during edge configuration extraction. The
+  manual deployment and hosted checks must complete before announcing this URL as
+  working. See `NETLIFY_MANUAL_RELEASE_20261022.md` for scope and remaining gates.
+- Only browser-safe Supabase settings and disabled automation flags were supplied
+  to Netlify. WhatsApp gateway and Google Sheets server integrations are not yet
+  connected there; Railway private gateway DNS is not reachable from Netlify.
+
+Production database backup, the four reviewed migrations, hosted API/permission
+checks and a verified real-delivery pilot remain required. All live purchasing and
+dispatch activation stays disabled. No supplier message was sent.
