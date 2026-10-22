@@ -5,7 +5,13 @@ Repository: projectrippleconnect-tech/gh-procurement-public
 Branch: feature/supplier-quote-portal-20261021
 Continuation base: 4ec146f2f764b2b710986a508f3cc0dfc5ecd7ed
 
-**Decision: release candidate for a controlled manual rollout. Live purchasing and dispatch
+**Current continuation status — database scheduler implemented, production HOLD.**
+The scheduler extension passes 452 unit tests, 23 isolated SQL suites, TypeScript
+checks and the production build. Earlier native PostgreSQL/API/concurrency evidence
+below predates this extension; native scheduler and real pg_cron replay are still
+required before releasing the new code. No production migration or activation occurred.
+
+**Earlier release decision: release candidate for a controlled manual rollout. Live purchasing and dispatch
 remain on HOLD until the production release and real-delivery checks below are approved.**
 The development implementation has passed isolated native PostgreSQL, real PostgREST/SDK,
 mobile browser and simulated gateway tests. The production portal migrations remain
@@ -252,3 +258,75 @@ the actual release, bounded approvals and delivery safeguards are verified.
 No production migration, deployment, business-record change, supplier message, live
 purchasing activation, paid resource creation or GitHub Actions run was performed in
 this continuation. Production remains on its existing version.
+
+
+## Database scheduling implementation — 22 October 2026
+
+The purchasing timer no longer has to run in the web process. The new pending
+migration `20261022073557_supplier_portal_database_scheduler.sql` extracts the
+previous purchasing implementation into a private, database-owner-only core.
+The existing public RPC retains staff/service-role authorization and locks the
+approved round before calling that core. The core retains scope/approver checks,
+transactional budget/quantity locks, PO approval requirements, audit history and
+24-hour residual-round behavior.
+
+The new private scheduler calls that core directly as its database owner. It
+never fabricates a staff JWT or stores an HTTP worker secret. Its private activation
+row defaults to disabled, its bounded batch defaults to five due rounds, and one
+advisory lock prevents overlapping ticks. Future rounds are untouched. Each failed
+round rolls back its allocations/POs and becomes an audited exception instead of
+being retried indefinitely. A completed round is not purchased again.
+
+`scripts/portal-database-schedule.sql` It creates one INACTIVE cron job after the
+migrations; it refuses to overwrite an existing job. No job was installed by this
+work. Once explicitly activated after release checks, the job checks once per
+minute; normal deadline resolution is approximately one minute, with additional
+delay possible under backlog or database contention. This is not a hard real-time
+guarantee. The Supabase project must remain active and cron health must be monitored.
+
+Set `GH_PORTAL_SCHEDULER_MODE=database` on web deployments to suppress the old web
+purchasing timer. Dispatch is independent: the database scheduler neither sends
+messages nor authorizes PO dispatch. Stop database purchasing by disabling both
+`private.proc_portal_scheduler_control.enabled` and the cron job. Web environment
+flags alone do not stop an activated database-owned schedule.
+
+### Fresh verification
+
+- 452 unit/contract tests passed, zero failures.
+- All 23 isolated PGlite SQL regression suites passed, including scheduler-disabled
+  defaults, bounded batches, future deadlines, monetary-limit rollback, 24-hour
+  residuals, duplicate prevention, empty JWT context, no dispatch activation and
+  owner-only execution/control access.
+- TypeScript, JavaScript syntax, production build and diff checks passed.
+- Native PostgreSQL and actual pg_cron execution were not rerun for the extension.
+  This environment cannot start the required native database toolchain. Do not
+  reuse the earlier native results as certification of the changed authorization
+  wrapper or scheduler.
+- Existing production was not used for fixtures or scheduling experiments.
+
+Apply this fourth migration only after the original three pending portal/conflict
+migrations and after backup/prerequisite checks. Install the inactive cron job as a
+separate operator step. Native concurrency, hosted permission tests and cron owner,
+job state, timing, exception visibility and stop-switch checks remain release gates.
+
+### Alternative-host checks
+
+Render Free was rejected because the user requires an available supplier-facing
+app without its idle sleep. No Render resource was created. Cloudflare access was
+searched through the connected-plugin catalog; no Cloudflare integration was found.
+
+An isolated worktree tested OpenNext 1.20.13 and Wrangler 4.151.3. Their dependency
+requirements required Next 16.4.1 in that worktree only. OpenNext generated an
+intermediate bundle, but the Wrangler deployment dry run failed with nine unresolved
+Sharp image-module imports. Local Worker preview also failed on the environment's
+network-interface enumeration. No Cloudflare deployment is certified or was attempted,
+no account was created, and none of those experimental dependency changes was applied
+to the GH Procurement development branch. The main app remains on its existing
+locked dependencies.
+
+Direct Railway CLI installation was also attempted through the official npm
+package. Its official GitHub release binary download failed with a proxy tunnel
+timeout. This is a separate access failure from the expired Railway OAuth connection.
+No paid upgrade, new service, purchasing activation or supplier message was used as
+a workaround. The production backup, release access and verified delivery pilot
+remain unresolved.

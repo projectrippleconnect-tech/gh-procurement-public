@@ -1,0 +1,122 @@
+{
+  "date_sri_lanka": "2026-10-22",
+  "parent_commit": "f86ed69d706f98a572f05e17594447acbba66cab",
+  "unit_tests": {
+    "passed": 452,
+    "failed": 0
+  },
+  "isolated_sql_suites": [
+    {
+      "file": "tests/procurement-workflow.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/workflow-efficiency.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/role-boundaries.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/disabled-role-helper.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/large-stock-count.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/api-table-privileges.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/additional-sizes.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/quote-variations.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/add-rfq-supplier.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/company-items.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/custom-role-cloning.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/user-removal.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/admin-data-management.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/reset-preserves-company-catalogue.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/admin-safeupdate-static.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/company-submit-boundaries.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/company-supplier-setup.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/receiving-closure.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/supplier-portal.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/supplier-portal-boundaries.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/supplier-portal-native-fixture.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/rpc-business-conflicts.sql",
+      "status": "passed"
+    },
+    {
+      "file": "tests/sql/portal-database-scheduler.sql",
+      "status": "passed"
+    }
+  ],
+  "typescript": "passed",
+  "production_build": "passed",
+  "native_scheduler_replay": "not_run",
+  "hosted_pg_cron_activation": "not_run",
+  "production_changes": false,
+  "cloudflare": {
+    "intermediate_build": "passed",
+    "deployment_dry_run": "failed: nine unresolved Sharp module imports",
+    "runtime_preview": "blocked: network interface enumeration",
+    "deployed": false
+  },
+  "source_hashes": {
+    "supabase/migrations/20261022073557_supplier_portal_database_scheduler.sql": "8285b697f9b49e3c8cadebcb51f3896d2a15a9d81a00fab1f438a4a9f897efdb",
+    "scripts/portal-database-schedule.sql": "f44f6b01d35501045d9e90d2831647e0a294f4c33dfe1d2943e21ad06440117e",
+    "instrumentation.ts": "2dbb44afc7b7cd2305fbea64b9905e7a6f2f6f7c81bf917f932db17538e55766",
+    "lib/supplier-portal-worker.mjs": "9ca59d8830bb943dd6d30e7774604347ec3fc44f1d12d2c928c0e1150eafd946",
+    "tests/sql/portal-database-scheduler.sql": "f590bcb95c94b78753ee9495b0055fa5d4aa84effea9d2f51971cb6714fabc36",
+    "tests/supplier-worker.test.mjs": "85ce1396e78eb3081365bf212c526771cb73618720fd425122d0252201d74fae",
+    "scripts/qa/database-regression.mjs": "50657da8a5c84e0f964d461034759f9dd0e69e855e928e1ab1a1708303c6f9b5"
+  }
+}

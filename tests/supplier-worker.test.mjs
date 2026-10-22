@@ -13,6 +13,12 @@ function fixture({reply,fetcher}={}){
 test('worker is disabled by default, without touching database or gateway',async()=>{
  const f=fixture();assert.deepEqual(await runPortalWorker({...f,env:{}}),{status:'disabled'});assert.equal(f.calls.length,0);assert.equal(f.requests.length,0)
 })
+test('database scheduling avoids a second web purchasing processor',async()=>{
+ const f=fixture();const mode={GH_PORTAL_PROCESSING_ENABLED:'true',GH_PORTAL_SCHEDULER_MODE:'database'}
+ assert.deepEqual(await runPortalWorker({...f,env:mode}),{status:'disabled'});assert.equal(f.calls.length,0)
+ const g=fixture();const result=await runPortalWorker({...g,env:{...env,GH_PORTAL_SCHEDULER_MODE:'database'}})
+ assert.equal(result.dispatch.status,'accepted');assert.ok(!g.calls.some(c=>c.name==='proc_portal_due_rounds_v1'||c.name==='proc_portal_process_round_v1'))
+})
 test('worker endpoint requires a long exact secret, including byte-safe comparison',()=>{
  const secret='x'.repeat(32)
  assert.equal(authorizedWorker(new Request('http://localhost',{headers:{authorization:'Bearer '+secret}}),{GH_PORTAL_WORKER_SECRET:secret}),true)
