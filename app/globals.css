@@ -75,7 +75,7 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 @media(max-width:760px){
  .stock-work-header{position:relative}
  .stock-mode-tabs{display:grid;grid-template-columns:1fr 1fr}
- .stock-filter-summary{position:sticky;top:62px;z-index:9;background:rgba(11,22,38,.96);backdrop-filter:blur(10px)}
+ .stock-filter-summary{position:static;background:rgba(11,22,38,.96)}
  .guided-count-shell{margin-top:10px}
  .guided-item{padding:14px}
  .guided-item h2{font-size:22px}
@@ -220,7 +220,7 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .help-topic-grid{grid-template-columns:1fr}.help-center-backdrop{align-items:end}.help-center{max-height:85dvh}
  .stock-work-header{padding:9px!important}.stock-work-header>.sectionhead{grid-template-columns:minmax(0,1fr) auto;display:grid;align-items:center;margin-bottom:6px}.stock-work-header>.sectionhead p{display:none}.stock-work-header>.sectionhead h3{font-size:15px}.stock-work-header>.sectionhead .btn{min-height:36px;padding:6px 9px;font-size:11px}
  .stock-search-launch{min-height:42px;padding:6px 9px;border-radius:10px;gap:8px}.stock-search-launch strong{font-size:12px}.stock-search-launch small{font-size:9px}.stock-search-icon{font-size:20px}
- .stock-work-header .section{margin-top:7px}.stock-mode-tabs .btn,.movement-tabs .btn{min-height:36px!important;height:36px!important;padding:5px 6px!important;font-size:10px}.stock-filter-summary{min-height:38px;padding:5px 8px;top:62px}.stock-filter-summary .btn{min-height:34px!important;height:34px!important;padding:4px 8px;font-size:10px}
+ .stock-work-header .section{margin-top:7px}.stock-mode-tabs .btn,.movement-tabs .btn{min-height:36px!important;height:36px!important;padding:5px 6px!important;font-size:10px}.stock-filter-summary{min-height:38px;padding:5px 8px}.stock-filter-summary .btn{min-height:34px!important;height:34px!important;padding:4px 8px;font-size:10px}
  .stock-fast-panel{padding:6px!important;margin-top:7px!important;border-radius:12px}.stock-fast-head{margin:0 1px 4px}.stock-fast-head h3{font-size:13px}.stock-fast-head p{font-size:9px}.stock-page-tools label>span{display:none}.dense-page-select{min-width:58px!important;height:31px!important;min-height:31px!important;font-size:10px}
  .dense-pagination{margin:3px 0 5px}.dense-pagination .btn{min-height:32px!important;height:32px!important;padding:3px 8px!important;font-size:10px}.dense-pagination strong{font-size:10px}
  .mobile-card-list.stock-dense-list{display:block}.stock-dense-row{min-height:47px}.stock-dense-info{min-height:46px}.stock-dense-title{font-size:12px}.dense-stock-input{font-size:16px!important}
@@ -824,7 +824,7 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .stock-submit-dock{width:calc(100% - 20px);min-height:48px}
  .app:has(.entry-focus) .task-dock{bottom:env(safe-area-inset-bottom)}
  .company-count-workspace{padding:8px}
- .company-stock-header{position:sticky;top:-10px;z-index:8;background:var(--bg,#08111f);padding:8px 0}
+ .company-stock-header{position:static;background:var(--bg,#08111f);padding:8px 0}
  .company-stock-filters:not([open]){margin-top:6px}
  .compact-journey{padding:8px;margin-bottom:8px}
  .compact-journey .guide-title small{display:none}
@@ -1389,3 +1389,18 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 
 /* All item-entry text is visually uppercase; numbers and item identifiers are unchanged. */
 input.item-uppercase{ text-transform:uppercase; }
+
+/* Keep General submission history reachable without locating a submitted item. */
+.app-history-nav .stock-history-nav-button{margin-left:auto;min-width:92px;white-space:nowrap}
+.general-stock-history-backdrop{z-index:100;align-items:center;justify-content:center}
+.modal.card.general-stock-history-modal{width:min(820px,100%);max-height:88dvh;overflow-y:auto;overscroll-behavior:contain;padding:14px}
+.general-stock-history-modal .stock-history-head{position:sticky;top:-14px;z-index:2;background:var(--panel);padding:6px 0 10px;align-items:center}
+.general-stock-history-actions{display:flex;gap:6px;flex-shrink:0}
+.general-stock-history-modal .stock-history-list{max-height:none}
+@media(max-width:700px){
+ .app-history-nav .stock-history-nav-button{min-width:82px;padding:5px 8px;font-size:12px}
+ .general-stock-history-backdrop{align-items:end}
+ .modal.card.general-stock-history-modal{width:100%;max-height:86dvh;padding:12px 10px;border-radius:18px 18px 0 0}
+ .general-stock-history-modal .stock-history-head{top:-12px}
+}
+@media print{.general-stock-history-backdrop{display:none!important}}

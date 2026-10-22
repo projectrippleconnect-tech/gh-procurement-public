@@ -305,6 +305,11 @@ try{
    else if(name==='proc_submit_stock_and_continue_v3'){stockSubmissions.push(req.postDataJSON());data={automation:{status:'review_required',submitted_items:1,requirements:1}}}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
    else if(name==='proc_admin_reset_preview_v1')data={scope:req.postDataJSON().p_scope,counts:{proc_purchase_orders:2,proc_stock_balances:1},token:'fixture-preview-token'}
+   else if(name==='proc_stock_submission_history_v1')data=[
+    {count_id:'general-history',count_no:'GENERAL-HISTORY',category:'GENERAL',submitted_at:'2026-10-22T09:00:00Z',item_count:1,counted_by_name:'Fixture staff'},
+    {count_id:'company-history',count_no:'COMPANY-HISTORY',category:'COMPANY: Fixture company',submitted_at:'2026-10-22T08:00:00Z',item_count:1}
+   ]
+   else if(name==='proc_stock_submission_detail_v1')data=[{line_id:'history-line',description:'HISTORICAL ITEM',size:'2 inch',uom:'PCS',current_stock:7,required_qty:3}]
    else if(name==='proc_stock_count_lines')data=[{count_id:'count-fixture'}]
    else if(name==='proc_stock_counts')data=[{id:'count-fixture',count_no:'COUNT-FIXTURE',submitted_at:'2026-10-12T09:00:00Z',counted_by:profile.id}]
    else if(name==='proc_settings'){if(req.method()==='POST')interfacePreference=req.postDataJSON().value;data=[{key:'company_profile',value:{name:'General Hardware',town:'Nawalapitiya'}},...(interfacePreference?[{key:'interface_preferences',value:interfacePreference}]:[])]}
@@ -385,6 +390,29 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_STOCK_HISTORY==='1'){
+   await navigate('✓ Stock Entry')
+   const shortcut=page.getByRole('button',{name:'Open General stock submission history',exact:true})
+   await shortcut.click()
+   const dialog=page.getByRole('dialog',{name:'General stock submission history',exact:true})
+   await dialog.getByRole('button',{name:/GENERAL-HISTORY/}).waitFor()
+   assert.equal(await dialog.getByText('COMPANY-HISTORY',{exact:true}).count(),0)
+   await dialog.getByRole('button',{name:/GENERAL-HISTORY/}).click()
+   await dialog.getByText('HISTORICAL ITEM · 2 INCH',{exact:true}).waitFor()
+   assert.equal(await dialog.locator('.stock-history-detail-row>b').first().innerText(),'7')
+   await page.keyboard.press('Escape')
+   await dialog.waitFor({state:'hidden'})
+   assert.equal(await shortcut.evaluate(el=>document.activeElement===el),true)
+   if(width<=700)assert.equal(await page.locator('.stock-filter-summary').evaluate(el=>getComputedStyle(el).position),'static')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   await page.locator('.company-stock-header').waitFor()
+   assert.equal(await shortcut.count(),0)
+   if(width<=700)assert.equal(await page.locator('.company-stock-header').evaluate(el=>getComputedStyle(el).position),'static')
+   assert.equal(stockSubmissions.length,0,'Viewing history never submits a stock count')
+   assert.deepEqual(errors,[])
+   console.log('PASS General history, Company separation, detail, focus return and scrolling controls at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_BOTTOM_STEPS==='1'){
    await navigate('✓ Stock Entry')
