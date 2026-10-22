@@ -28,12 +28,15 @@ export default function SupplierLinks(){
  const [lastLink,setLastLink]=useState(null)
  const [query,setQuery]=useState('')
  const [message,setMessage]=useState('')
+ const [supplierFilter,setSupplierFilter]=useState('')
+ const [portalReady,setPortalReady]=useState(true)
  const refresh=useCallback(async()=>{
   const {data,error}=await supabase.from('proc_rfqs').select('id,rfq_no,status,created_at,items:proc_rfq_items(requirement:proc_requirements(company_id))').order('created_at',{ascending:false}).limit(150)
   if(error)throw error
   setRequests(data||[])
   const params=new URLSearchParams(window.location.search)
   const requested=params.get('rfq')||''
+  setSupplierFilter(params.get('supplier')||'')
   const wanted=(data||[]).find(r=>r.id===requested)
   const kind=wanted?(wanted.items?.some(i=>i.requirement?.company_id)?'company':'general'):(params.get('workflow')==='company'?'company':'general')
   setWorkflow(kind)
@@ -50,9 +53,11 @@ export default function SupplierLinks(){
    supabase.rpc('proc_portal_staff_responses_v1',{p_rfq_id:id}),
    supabase.from('proc_rfq_items').select('id,requested_qty,requirement:proc_requirements(item:proc_items(description,size,uom))').eq('rfq_id',id)
   ])
-  for(const result of [invs,quotes,lines])if(result.error)throw result.error
+  for(const result of [invs,lines])if(result.error)throw result.error
+  const unavailable=quotes.error&&['PGRST202','42883'].includes(quotes.error.code)
+  if(quotes.error&&!unavailable)throw quotes.error
   if(sequence!==loadSequence.current||id!==currentRfq.current)return
-  setInvitations(invs.data||[]);setResponses(quotes.data||[]);setItems(lines.data||[])
+  setPortalReady(!unavailable);setInvitations(invs.data||[]);setResponses(quotes.data||[]);setItems(lines.data||[])
  },[])
  useEffect(()=>{if(selected)load(selected).catch(e=>setError(e.message));return()=>{loadSequence.current++}},[selected,load])
  const identified=useMemo(()=>new Map(responses.map(r=>[r.rfq_supplier_id,r])),[responses])
@@ -70,7 +75,7 @@ export default function SupplierLinks(){
   return byItem
  },[responses])
  async function issue(inv){
-  if(busy)return
+  if(busy||!portalReady)return
   if(identified.get(inv.id)&&!window.confirm('Generate a new link? Any previously shared link for this supplier will stop working. Saved responses remain.'))return
   setBusy(inv.id);setError('');setMessage('')
   try{
@@ -118,6 +123,7 @@ export default function SupplierLinks(){
   <p style={{color:'#cbd5e1'}}>Each supplier receives a private link. They can save drafts, mark no stock, attach photos, and confirm. Confirmed exact-item prices appear in GH Prices. Drafts and alternative variations remain separate.</p>
   <p><a style={{color:'#fbbf24'}} href="/">← Back to Procurement</a></p>
   {error&&<p role="alert" style={{color:'#fecaca'}}>{error}</p>}
+  {!portalReady&&<div role="status" style={{...box,borderColor:'#fbbf24'}}><strong>Supplier portal setup is pending</strong><p>The live database has not been configured for private supplier quote links yet. Links cannot be created or received until setup is completed. Your existing RFQs and manually entered prices remain available.</p></div>}
   {message&&<p role="status" style={{color:'#86efac'}}>{message}</p>}
   <div style={box}>
    <label>Workflow </label><select disabled={!!busy} aria-label="Workflow" style={field} value={workflow} onChange={e=>{setWorkflow(e.target.value);setSelected('');setInvitations([]);setResponses([]);setItems([]);setLastLink(null)}}><option value="general">General Items</option><option value="company">Company Items</option></select><p>Choose RFQ</p>
@@ -136,7 +142,8 @@ export default function SupplierLinks(){
    </div>
   </div>}
   <input aria-label="Find supplier" placeholder="Search suppliers…" value={query} onChange={e=>setQuery(e.target.value)} style={{...field,width:'100%',boxSizing:'border-box',marginBottom:12}}/>
-  {(invitations||[]).filter(x=>lower(x.supplier?.name).includes(lower(query))).map(inv=>{
+  {supplierFilter&&<p>Showing the selected supplier. <button style={btn} onClick={()=>setSupplierFilter('')}>Show all RFQ suppliers</button></p>}
+  {(invitations||[]).filter(x=>!supplierFilter||x.supplier_id===supplierFilter).filter(x=>lower(x.supplier?.name).includes(lower(query))).map(inv=>{
    const record=identified.get(inv.id),canImport=record?.status==='confirmed'&&!record?.revoked_at&&record?.revision!==record?.imported_revision
    return <section style={box} key={inv.id}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
@@ -144,7 +151,7 @@ export default function SupplierLinks(){
       {record&&<div style={{fontSize:12,color:'#cbd5e1'}}>Window closes {new Date(record.closes_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})} · Revision {record.revision}</div>}
      </div>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <button disabled={!!busy} style={btn} onClick={()=>issue(inv)}>{busy===inv.id?'Working…':record?'Replace link':'Create link'}</button>
+      <button disabled={!!busy||!portalReady} style={btn} onClick={()=>issue(inv)}>{busy===inv.id?'Working…':record?'Replace link':'Create link'}</button>
       {canImport&&<button disabled={!!busy} style={{...btn,background:'#fbbf24',color:'#111'}} onClick={()=>importQuote(record)}>Import confirmed prices</button>}
       {record&&!record.revoked_at&&<button disabled={!!busy} style={{...btn,borderColor:'#ef4444'}} onClick={()=>revokeLink(record)}>Revoke link</button>}
      </div>
@@ -161,7 +168,7 @@ export default function SupplierLinks(){
     </details>}
    </section>
   })}
-  {selected&&<SupplierRoundControls key={selected} rfqId={selected} onChange={()=>load(selected).catch(e=>setError(e.message))}/>}
+  {selected&&portalReady&&<SupplierRoundControls key={selected} rfqId={selected} onChange={()=>load(selected).catch(e=>setError(e.message))}/>}
   {selectedRfq&&<section style={box}><h2>Provisional lowest unit rates</h2>
    <p style={{color:'#cbd5e1',fontSize:13}}>Informational only. GH Prices calculates full landed cost. Alternatives, freight, minimum orders, and quantities still require review.</p>
    {items.map(i=>{const best=priceSummary.get(i.id),item=i.requirement?.item
