@@ -1389,3 +1389,18 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
 
 /* All item-entry text is visually uppercase; numbers and item identifiers are unchanged. */
 input.item-uppercase{ text-transform:uppercase; }
+
+/* Keep General submission history reachable without locating a submitted item. */
+.app-history-nav .stock-history-nav-button{margin-left:auto;min-width:92px;white-space:nowrap}
+.general-stock-history-backdrop{z-index:100;align-items:center;justify-content:center}
+.modal.card.general-stock-history-modal{width:min(820px,100%);max-height:88dvh;overflow-y:auto;overscroll-behavior:contain;padding:14px}
+.general-stock-history-modal .stock-history-head{position:sticky;top:-14px;z-index:2;background:var(--panel);padding:6px 0 10px;align-items:center}
+.general-stock-history-actions{display:flex;gap:6px;flex-shrink:0}
+.general-stock-history-modal .stock-history-list{max-height:none}
+@media(max-width:700px){
+ .app-history-nav .stock-history-nav-button{min-width:82px;padding:5px 8px;font-size:12px}
+ .general-stock-history-backdrop{align-items:end}
+ .modal.card.general-stock-history-modal{width:100%;max-height:86dvh;padding:12px 10px;border-radius:18px 18px 0 0}
+ .general-stock-history-modal .stock-history-head{top:-12px}
+}
+@media print{.general-stock-history-backdrop{display:none!important}}
