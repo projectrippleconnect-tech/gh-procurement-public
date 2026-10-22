@@ -13,7 +13,7 @@ import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes,ITEM_TEXT_FI
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
 import {stockLotReview} from '@/lib/stock-lot.mjs'
-import {latestStockMarkers} from '@/lib/stock-item-history.mjs'
+import {latestStockMarkers,generalStockHistoryRows} from '@/lib/stock-item-history.mjs'
 import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
@@ -103,7 +103,7 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
+export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange}){
  const confirmAction=useActionConfirmation()
  const[stockTab,setStockTab]=useState(()=>{try{return can('company_lists.view')&&localStorage.getItem('gh-stock-list-tab:'+profile.id)==='company'?'company':'general'}catch{return 'general'}})
  function changeStockTab(value){setStockTab(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
@@ -131,6 +131,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
+ const[historyError,setHistoryError]=useState(''),historyCloseRef=useRef(null)
  const[itemHistory,setItemHistory]=useState(null)
  const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[markersReady,setMarkersReady]=useState(false),[explicitRecounts,setExplicitRecounts]=useState(new Set())
  const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false)
@@ -620,13 +621,30 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   try{return new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Colombo'})}catch{return String(v)}
  }
  async function loadStockHistory(){
-  setHistoryLoading(true)
+  setHistoryLoading(true);setHistoryError('')
   try{
-   const r=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:30})
+   const r=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:100})
    if(r.error)throw r.error
-   setHistoryRows(r.data||[])
-  }catch(e){fail(e)}finally{setHistoryLoading(false)}
+   setHistoryRows(generalStockHistoryRows(r.data))
+  }catch(e){
+   setHistoryError('General stock history could not be loaded. Please retry.')
+   console.warn('General stock history unavailable',e)
+  }finally{setHistoryLoading(false)}
  }
+ useEffect(()=>{onStockTabChange?.(stockTab)},[onStockTabChange,stockTab])
+ useEffect(()=>{
+  if(historyRequest>0&&stockTab==='general'&&isActiveView('stock')){
+   setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()
+  }
+ },[historyRequest])
+ useEffect(()=>{
+  if(!historyOpen)return
+  const previous=document.activeElement
+  historyCloseRef.current?.focus()
+  const onEscape=e=>{if(e.key==='Escape')setHistoryOpen(false)}
+  window.addEventListener('keydown',onEscape)
+  return()=>{window.removeEventListener('keydown',onEscape);previous?.focus?.()}
+ },[historyOpen])
  async function openHistoryRow(row){
   if(historyDetail?.count_id===row.count_id){setHistoryDetail(null);return}
   setHistoryLoading(true)
@@ -683,18 +701,19 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   </div>}
   {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
-   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Finalizing…':`Review · ${submitCount}`}</span></button></StockSubmitAction></div></div>
+   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Finalizing…':`Review · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
     <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
     <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>
    </div>}
-   {historyOpen&&<div className="stock-history-panel section">
-    <div className="stock-history-head"><div><strong>{t('stock.history_title','Stock Submission History')}</strong><span>{t('stock.history_hint','Recount anytime. The latest count updates current stock; older submissions stay unchanged.')}</span></div><button className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button></div>
-    {historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div>{canSeePurchaseHistory&&<div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div>}<div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
+   {historyOpen&&<div className="modal-backdrop general-stock-history-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setHistoryOpen(false)}}><section className="modal card stock-history-panel section general-stock-history-modal" role="dialog" aria-modal="true" aria-label="General stock submission history">
+    <div className="stock-history-head"><div><strong>General Stock Submission History</strong><span>Recent General / Bathroom counts. Search, page and movement filters do not affect this history.</span></div><div className="general-stock-history-actions"><button type="button" className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button><button type="button" className="btn small" ref={historyCloseRef} aria-label="Close General stock history" onClick={()=>setHistoryOpen(false)}>✕</button></div></div>
+    {historyError&&<p role="alert" className="notice">{historyError} <button type="button" className="btn small" onClick={loadStockHistory} disabled={historyLoading}>Retry</button></p>}
+    {!historyError&&(historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div>{canSeePurchaseHistory&&<div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div>}<div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
      <div className="stock-history-list">{historyRows.map(h=><div className="stock-history-record" key={h.count_id}><button className="stock-history-row" onClick={()=>openHistoryRow(h)}><div><strong>{h.count_no}</strong><span>{submissionTime(h.submitted_at)} · {h.counted_by_name||'Staff'}{h.category?' · '+h.category:''}</span></div><div className="stock-history-numbers"><b>{h.item_count||0} {t('stock.items_label','items')}</b>{canSeePurchaseHistory&&<span>{h.shortage_count||0} {t('stock.need_order','need order')}</span>}</div><span className="stock-history-chevron">{historyDetail?.count_id===h.count_id?'⌃':'⌄'}</span></button>
       {historyDetail?.count_id===h.count_id&&<div className="stock-history-detail"><div className="stock-history-detail-head" style={!canSeePurchaseHistory?{gridTemplateColumns:'minmax(0,1fr) 110px'}:undefined}><span>{t('stock.item','ITEM')}</span><span>{t('stock.submitted_stock','SUBMITTED STOCK')}</span>{canSeePurchaseHistory&&<span>{t('stock.order','ORDER')}</span>}</div>{historyDetail.lines.map(line=><div className="stock-history-detail-row" key={line.line_id} style={!canSeePurchaseHistory?{gridTemplateColumns:'minmax(0,1fr) 110px'}:undefined}><div><strong>{uppercaseItemText([line.description,line.size].filter(Boolean).join(' · '))}</strong><small>{[line.item_code,uppercaseItemText(line.uom)].filter(Boolean).join(' · ')}</small></div><b>{qty(line.current_stock)}</b>{canSeePurchaseHistory&&<b className={Number(line.required_qty)>0?'warn-text':''}>{Number(line.required_qty)>0?qty(line.required_qty):'—'}</b>}</div>)}</div>}
-     </div>)}</div></>:<div className="muted tiny section">{t('stock.history_empty','No submitted stock counts yet.')}</div>}
-   </div>}
+     </div>)}</div></>:<div className="muted tiny section">No recent General stock submissions were found.</div>}
+   )}</section></div>}
 
    <button className="stock-search-launch" onClick={()=>{setSearchOpen(true);setTimeout(()=>document.getElementById('stock-global-search')?.focus(),60)}}>
     <span className="stock-search-icon">⌕</span><span><strong>{t('stock.search_any','Search any item')}</strong><small>{t('stock.search_hint','Name, size, code, brand or group')}</small></span><span>›</span>
