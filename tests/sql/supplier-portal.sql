@@ -36,7 +36,7 @@ begin
  payload:=jsonb_build_array(jsonb_build_object('id',ri,'status','in_stock','price','50','quantity','6','image',null,'variations',jsonb_build_array(jsonb_build_object('name','Larger size','price',70,'quantity',3,'image',null)),
  'discount','0','tax','0','freight_unit','5','moq','0','multiple','1','lead_days','2','valid_until',current_date+2,'uom','PCS','terms_confirmed',true));
  result:=public.proc_portal_submit_v1(token,payload,0,false);assert result->>'status'='draft';
- begin perform public.proc_portal_submit_v1(token,payload,0,true);raise exception 'TEST stale revision allowed';exception when serialization_failure then null;end;
+ begin perform public.proc_portal_submit_v1(token,payload,0,true);raise exception 'TEST stale revision allowed';exception when sqlstate 'PT409' then null;end;
  begin perform public.proc_portal_submit_v1(token,jsonb_set(payload,'{0,id}',to_jsonb(gen_random_uuid())),1,true);raise exception 'TEST item swap allowed';exception when others then if sqlerrm='TEST item swap allowed' then raise;end if;end;
  begin perform public.proc_portal_submit_v1(token,jsonb_set(payload,'{0,price}','"NaN"'),1,true);raise exception 'TEST NaN allowed';exception when others then if sqlerrm='TEST NaN allowed' then raise;end if;end;
  begin perform public.proc_portal_submit_v1(token,jsonb_set(payload,'{0,image}',to_jsonb('data:image/svg+xml;base64,AAA'::text)),1,true);raise exception 'TEST SVG allowed';exception when others then if sqlerrm='TEST SVG allowed' then raise;end if;end;

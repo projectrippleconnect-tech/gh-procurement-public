@@ -887,7 +887,7 @@ export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=
    try{localStorage.removeItem(draftStorageKey(active.id,supplier))}catch{}
    await open({...active,status:r.data.status},nextSupplier?.supplier_id||supplier,false);void load()
    if(isActiveView('rfq')){setPriceFilter(additional.length?'all':'requested');guideTo(nextSupplier?4:5)}
-  }catch(e){if(path&&!quoteSaved)await supabase.storage.from('gh-procurement').remove([path]);if(e.code==='40001'){rememberQuoteDraft();await loadExistingQuote(active.id,supplier,false)}fail(e)}finally{setBusy(false)}
+  }catch(e){if(path&&!quoteSaved)await supabase.storage.from('gh-procurement').remove([path]);if(['PT409','40001'].includes(e.code)){rememberQuoteDraft();await loadExistingQuote(active.id,supplier,false)}fail(e)}finally{setBusy(false)}
  }
 
  async function togglePoItem(i,on){

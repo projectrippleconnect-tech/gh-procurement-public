@@ -125,7 +125,9 @@ begin
  end if;
  if access.status='imported' then raise exception 'Quotation already imported: request a new link'; end if;
  if p_expected_revision is distinct from access.revision then
-  raise exception 'Quotation was changed in another window. Reload before saving' using errcode='40001';
+  -- A stale business revision is an HTTP conflict, not a retryable engine error.
+  -- PostgREST 14 retries custom 40001 indefinitely; PT409 returns promptly.
+  raise exception 'Quotation was changed in another window. Reload before saving' using errcode='PT409';
  end if;
  if p_response is null or jsonb_typeof(p_response)<>'array' or jsonb_array_length(p_response)>100
     or octet_length(p_response::text)>1500000 then

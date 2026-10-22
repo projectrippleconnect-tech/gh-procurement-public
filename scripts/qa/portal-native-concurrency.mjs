@@ -5,6 +5,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import pg from 'pg'
 import {nativeQaConfig,assertEmptyNativeDatabase} from './native-guard.mjs'
 import {bootstrapProcurementSchema} from './schema-bootstrap.mjs'
+import {runDatabaseRegression} from './database-regression.mjs'
 const config=nativeQaConfig(),clients=[],results=[]
 async function connect(){const c=new pg.Client(config);await c.connect();clients.push(c);return c}
 const adminId='00000000-0000-4000-8000-000000000111'
@@ -28,7 +29,11 @@ async function check(name,fn){const start=Date.now();await fn();results.push({na
 try{
  const owner=await connect()
  await assertEmptyNativeDatabase(owner)
- await bootstrapProcurementSchema({exec:sql=>owner.query(sql),query:(sql,args)=>owner.query(sql,args)})
+ const adapter={exec:async sql=>{const r=await owner.query(sql);return Array.isArray(r)?r:[r]},query:(sql,args)=>owner.query(sql,args)}
+ const {snapshot,meta,patches}=await bootstrapProcurementSchema(adapter)
+ const regression=await runDatabaseRegression(adapter,snapshot)
+ fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/native-full-database.json',JSON.stringify({engine:'native PostgreSQL',baseline:meta.source_commit,patches,results:regression},null,2))
+ assert.equal(regression.filter(r=>r.status!=='passed').length,0,'Native existing-feature regression failed')
  await owner.query(fs.readFileSync('tests/fixtures/supplier-portal-native.sql','utf8'))
  const a=await connect(),b=await connect()
  async function fixture(budget=1000000){return value(owner,'select private.qa_portal_fixture($1) v',[budget])}
@@ -39,14 +44,17 @@ try{
   await value(a,'select public.proc_portal_submit_v1($1,$2,1,false) v',[f.token,JSON.stringify(f.payload)])
   const loser=settled(value(b,'select public.proc_portal_submit_v1($1,$2,1,false) v',[f.token,JSON.stringify(f.payload)]))
   await blocked(owner,b);await a.query('COMMIT')
-  assert.equal((await loser).error?.code,'40001');await b.query('ROLLBACK')
+  assert.equal((await loser).error?.code,'PT409');await b.query('ROLLBACK')
   assert.equal(await value(owner,'select revision v from public.proc_supplier_portal_links where token_hash=encode(extensions.digest($1,\'sha256\'),\'hex\')',[f.token]),2)
  })
  await check('a submit waiting on the RFQ rechecks the deadline after the lock',async()=>{
-  const f=await fixture();await a.query('BEGIN');await a.query('select 1 from public.proc_rfqs where id=$1 for update',[f.rfq]);await begin(b,'anon')
+  const f=await fixture();await a.query('BEGIN');await a.query('select 1 from public.proc_rfqs where id=$1 for update',[f.rfq])
+  await a.query("update public.proc_portal_rounds set opens_at=clock_timestamp()-interval '6 hours',closes_at=clock_timestamp()+interval '2 seconds' where id=$1",[f.round])
+  await a.query("update public.proc_supplier_portal_links set closes_at=clock_timestamp()+interval '2 seconds' where rfq_supplier_id in(select id from public.proc_rfq_suppliers where rfq_id=$1)",[f.rfq])
+  await begin(b,'anon')
   const late=settled(value(b,'select public.proc_portal_submit_v1($1,$2,1,true) v',[f.token,JSON.stringify(f.payload)]))
   await blocked(owner,b)
-  await a.query("update public.proc_supplier_portal_links set closes_at=clock_timestamp()-interval '1 second' where rfq_supplier_id in(select id from public.proc_rfq_suppliers where rfq_id=$1)",[f.rfq])
+  await a.query('select pg_sleep(greatest(extract(epoch from closes_at-clock_timestamp()),0)::double precision+0.05) from public.proc_portal_rounds where id=$1',[f.round])
   await a.query('COMMIT');assert.match((await late).error?.message||'',/Quotation window is closed/);await b.query('ROLLBACK')
  })
  await check('two workers return one persisted round result and one PO',async()=>{
@@ -64,6 +72,19 @@ try{
   await begin(b);const auto=settled(process(b,f));await blocked(owner,b);await a.query('COMMIT')
   const reply=await auto;assert.ifError(reply.error);assert.equal(Number(reply.value.allocations[0].qty),3);await b.query('COMMIT')
   assert.equal(Number(await value(owner,'select ordered_qty v from public.proc_requirements where id=$1',[f.requirement])),10)
+ })
+ await check('manual award finalization and automatic ordering have one winner',async()=>{
+  for(const manualFirst of [true,false]){
+   const f=await fixture();await due(f)
+   const q=await value(owner,'select id v from public.proc_quote_lines where rfq_item_id=$1',[f.item])
+   const plan=JSON.stringify([{rfq_item_id:f.item,quote_line_id:q,qty:10}])
+   const manual=c=>value(c,'select public.proc_finalize_award_plan_v2($1,$2) v',[f.rfq,plan])
+   await begin(a,manualFirst?'authenticated':'service_role');await begin(b,manualFirst?'service_role':'authenticated')
+   await (manualFirst?manual(a):process(a,f));const loser=settled(manualFirst?process(b,f):manual(b))
+   await blocked(owner,b);await a.query('COMMIT');assert.ok((await loser).error,'Both ordering paths finalized the same RFQ');await b.query('ROLLBACK')
+   assert.equal(await value(owner,'select count(distinct po_id)::int v from public.proc_po_lines where requirement_id=$1',[f.requirement]),1)
+   assert.equal(Number(await value(owner,'select ordered_qty v from public.proc_requirements where id=$1',[f.requirement])),10)
+  }
  })
  await check('two RFQs cannot concurrently overspend one daily budget',async()=>{
   const spent=Number(await value(owner,"select coalesce(sum(total),0) v from public.proc_purchase_orders where status<>'cancelled' and po_date=(clock_timestamp() at time zone 'Asia/Colombo')::date"))

@@ -18,7 +18,7 @@ try{
   const request=route.request(),name=new URL(request.url()).pathname.split('/').at(-1),body=request.postDataJSON()
   if(name==='proc_portal_read_v1')return route.fulfill({json:{rfq_no:'RFQ-PORTAL-QA',supplier_name:'Fixture supplier',closes_at:new Date(Date.now()+21600000).toISOString(),server_now:new Date().toISOString(),can_edit:true,revision,response,status,items}})
   if(name==='proc_portal_submit_v1'){
-   if(body.p_expected_revision!==revision)return route.fulfill({status:409,json:{message:'Quotation was changed in another window. Reload before saving',code:'40001'}})
+   if(body.p_expected_revision!==revision)return route.fulfill({status:409,json:{message:'Quotation was changed in another window. Reload before saving',code:'PT409'}})
    assert.equal(body.p_token,token);response=body.p_response;revision++;status=body.p_confirm?'confirmed':'draft';saves.push(body)
    return route.fulfill({json:{revision,status}})
   }

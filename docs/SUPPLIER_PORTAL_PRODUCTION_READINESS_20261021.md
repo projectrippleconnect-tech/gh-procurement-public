@@ -1,15 +1,17 @@
-# GH Procurement Supplier Quotation Portal — readiness report
+# GH Procurement Supplier Quotation Portal — production-readiness report
 
-Date: 21 October 2026 (Sri Lanka project date)
+Updated: 22 October 2026 (Sri Lanka)
 Repository: projectrippleconnect-tech/gh-procurement-public
-Development branch: feature/supplier-quote-portal-20261021
-Starting commit: 606c605bea63a12086fdeefd907286f7f80b8c80
+Branch: feature/supplier-quote-portal-20261021
+Continuation base: 4ec146f2f764b2b710986a508f3cc0dfc5ecd7ed
 
-**Release decision: HOLD for controlled staging verification.** Implementation and local
-regression testing are complete for the scope below. This is not a certification of live
-Supabase/PostgREST, cross-browser/device coverage, concurrent PostgreSQL sessions, or WhatsApp
-delivery. Those checks remain release blockers; no production deployment, migration,
-supplier message, or live purchasing activation was performed.
+**Decision: release candidate for a controlled manual rollout. Live purchasing and dispatch
+remain on HOLD until the production release and real-delivery checks below are approved.**
+The development implementation has passed isolated native PostgreSQL, real PostgREST/SDK,
+mobile browser and simulated gateway tests. The production portal migrations remain
+unapplied. No production deployment, live supplier message or purchasing activation occurred.
+This report distinguishes verified implementation behavior from the remaining production
+operator checks; it does not certify an unperformed live deployment or WhatsApp delivery.
 
 ## Implemented behavior
 
@@ -67,7 +69,7 @@ supplier message, or live purchasing activation was performed.
 ## Security and preservation
 
 No production business records were read for fixtures or changed. Tests use synthetic
-records in an in-memory PostgreSQL engine seeded with repository schema definitions.
+records in isolated PostgreSQL engines seeded with repository schema definitions.
 Existing schema/migration checksums remain enforced by the test harness. The new optional
 quote columns do not rewrite existing business rows. No existing feature was removed.
 
@@ -87,106 +89,107 @@ Large images/object-storage expansion and unlimited quotation rounds are outside
 
 | Check | Result |
 |---|---|
-| Locked dependency install | Passed (`npm ci --offline --ignore-scripts`; build copies required workers) |
-| Existing plus new unit/contract tests | 451 passed; no failures |
-| Focused worker/portal tests | 18 passed; rendering, approval gates, failed/unknown sends, audit failures |
-| Isolated database regression | 21 suites passed; original purchasing/roles/company/receiving plus portal suites |
-| Portal SQL lifecycle | Passed with a service-role worker and no human JWT subject |
-| Boundary SQL cases | Passed: Company PO identity/history, caps and rollback, empty scopes, expired/revoked offers, existing manual reservations, incomplete drafts, RFQ subsets, cancelled requirements, award history and scope-exception preservation |
-| Existing app browser regression | Passed at 320/390/768/1366px: focused tasks, draft recovery, submission timestamps, review guards, font settings and request-specific CSP |
-| TypeScript and JSX checks | Passed |
-| Production dependency audit | Passed; npm audit reported zero known vulnerabilities |
-| Production build | Passed; repeated-build cache corruption was eliminated by disabling Turbopack build filesystem persistence |
-| Production HTTP smoke | Passed: both portal pages, privacy headers, unauthorized worker rejection, automation disabled |
-| Portal browser validation | Passed in Chromium at 320/360/390/768/1280px: incomplete drafts, prices, terms, compressed images, alternatives, confirmation, reload, conflicting windows and disabled worker authorization; API calls mocked |
-| Mobile visual review | Passed individual-control bounds and full-page screenshot inspection; fixed nested variation/file-input overflow that page-width checks alone missed |
-| Cross-session PostgreSQL concurrency | NOT VERIFIED; PGlite serializes sessions. Idempotency and rollback are tested, real overlapping-session stress remains required |
-| Live Supabase/PostgREST and WhatsApp pilot | NOT RUN; requires an approved isolated environment and explicit release authorization |
+| Locked dependency installation | Passed; Node 24, npm ci with install scripts disabled |
+| Existing and new unit/contract tests | 451 passed; zero failures |
+| In-memory SQL regression | 22 suites passed; all fixture business rows rolled back |
+| Native PostgreSQL SQL regression | 22 suites passed; existing purchasing, roles, Company Items, receiving and portal behavior |
+| Native concurrency | 8 scenarios passed; real separate sessions and observed lock waits |
+| Real API and browser integration | 8 scenarios passed with PostgreSQL 17.11, PostgREST 14.18 and @supabase/supabase-js 2.117.2 |
+| Gateway integration | Local simulator passed real PNG generation, approval gating, single dispatch, acceptance/delivery separation and uncertain-outcome no-resend |
+| Portal mobile browser regression | Passed at 320, 360, 390, 768 and 1280 px; drafts, price/image/variation entry, final confirmation, reload and stale edits |
+| Browser with actual database responses | Passed at 320/390 px, including two windows and persisted price changes; only local API origin and test credential substituted |
+| Existing app browser regression | Final full run passed at 320/390/768/1366 px, including staff stale-quote draft recovery and existing workflow guards |
+| TypeScript/JSX checks | Passed |
+| Production build and HTTP smoke | Passed; privacy headers and unauthorized worker rejection checked; automation disabled |
+| Dependency audit | Zero known vulnerabilities |
+| Hosted Supabase compatibility | Read-only check: PostgreSQL 17.11, pgcrypto in extensions, portal migrations absent |
+| Real WhatsApp delivery | NOT RUN; no recipient has been authorized for a live pilot |
 
-The original lifecycle test initially failed because its expired-date fixture used the
-host's date while award validation uses Sri Lanka's business date. The fixture now uses
-Asia/Colombo explicitly, and the entire lifecycle passes. The test adapter also installs
-pgcrypto into the production-compatible extensions schema.
+The eight native concurrency scenarios verify one winner for stale saves, rechecking an
+elapsed deadline after a lock wait, duplicate worker idempotency, shared requirement balances,
+manual versus automatic award finalization in both winning orders, a shared daily budget,
+exclusive dispatch claims and blocking after recipient changes.
 
-The production Supabase connection was checked read-only: the existing procurement tables
-are present and the supplier portal tables are absent. Migration history was read only.
-Railway still points to release/uppercase-items-on-live-20261019 at d9fd03ef197ae7555e85abc240477931244cae26,
-with the existing manual-trigger watch pattern. No Railway setting, service, variable,
-subscription or deployment was changed. No GitHub Actions run or paid resource was requested.
+The eight API scenarios cover actual anonymous grants and invalid JWT/token rejection,
+existing Prices and Company directory conflicts without mutation, draft withdrawal and
+photo/variation round trips, overlapping confirmations returning HTTP
+409, the mobile browser against actual database responses, worker-created awards/POs and
+24-hour residuals, approved PNG dispatch and verified receipt state, and unknown outcomes
+that cannot trigger a second send. The gateway is a loopback simulator; acceptance and
+receipt evidence in these tests are synthetic.
 
-## Deployment blockers and controlled release procedure
+A software-emulated, offline Alpine VM ran native PostgreSQL without Docker or a paid cloud
+resource. PostgreSQL ran as its normal non-root guest user. Signed Alpine packages and a
+checksum-verified official OS image were used; no production credentials entered the VM.
+The same schema bootstrap and SQL regression module serve both database engines. The native
+fixture and historical migration hashes are checked, and test records use synthetic IDs.
 
-1. Chromium portal layout and interaction checks are complete at five widths, including two-window stale-save preservation. Physical iOS/Android and other browser engines remain recommended pilot checks. Both the original mobile suite (including alternative photos) and the expanded save/reload/conflict suite passed. The executable tests are `node tests/supplier-portal-mobile.mjs` (optional GH_UI_BROWSER_PATH) and `node tests/supplier-portal-ui.mjs` (optional GH_UI_BROWSER_EXECUTABLE). Both use synthetic intercepted RPC responses; they do not certify a live Supabase round trip.
-2. On an explicitly approved, isolated Supabase/PostgreSQL test instance, apply only the
-   reviewed portal migrations after checking that instance's actual history. Verify anonymous
-   RPCs through PostgREST, RLS/ACL behavior, schema-cache refresh, image round trips, simultaneous
-   submissions, deadline-versus-submit races, manual-versus-automatic ordering and two workers
-   contending for a budget and dispatch. Local fixtures do not substitute for these checks.
-3. Perform an explicitly approved test-supplier gateway pilot, including an interrupted send,
-   duplicate attempt, recipient change and verified delivery reconciliation. No real supplier
-   should receive an unsolicited development message.
-4. Review existing resource quotas and cost controls. The implementation creates no new paid
-   services and uses the existing Railway process for a once-per-minute timer after activation;
-   normal existing Railway/Supabase usage still applies. Do not enable auto deployment.
-5. Only after explicit approval: back up production, reconcile its migration history, apply
-   20261021212000_supplier_quote_portal_intake.sql and 20261021213000_supplier_portal_rounds.sql,
-   and perform a manual Railway deployment. Do not replay all fixture patches against production.
-6. Deploy initially with both processing and dispatch disabled. Separately approve activation.
-   Keep SUPABASE_SERVICE_ROLE_KEY and a random GH_PORTAL_WORKER_SECRET (at least 32 characters)
-   server-only. Processing requires GH_PORTAL_PROCESSING_ENABLED=true. Dispatch also requires
-   GH_PORTAL_DISPATCH_ENABLED=true, GH_PORTAL_DELIVERY_VERIFIED=true, WAHA_SENDING_ENABLED=true
-   and the existing private WAHA configuration. The existing web process owns the timer; no
-   additional cron service is needed. Disabled flags are the immediate stop switch.
-7. Each real round still needs its bounded admin approval. Each generated PO still needs GH
-   Orders approval and explicit recipient/document verification before automatic dispatch.
-   Accepted or unknown sends must never be automatically retried or reset for a resend.
+Machine-readable results are in
+[verification/supplier-portal-validation-20261022.json](verification/supplier-portal-validation-20261022.json).
+See [SUPPLIER_PORTAL_NATIVE_QA.md](SUPPLIER_PORTAL_NATIVE_QA.md) to reproduce the native/API tests.
 
-## Additional verification and reconciliation
+## Release-blocking defect found and fixed
 
-A newer development commit (`8d12bd2`) arrived during this session. It was fast-forwarded and preserved before applying the final privacy, responsive layout, stale-edit and frozen-specification fixes. No competing automation schema or worker was layered over it. Machine-readable local results are in [verification/supplier-portal-validation-20261021.json](verification/supplier-portal-validation-20261021.json). Earlier scratch implementation checkpoints are not part of this release.
+Actual HTTP testing reproduced an infinite retry loop that database-only and mocked-browser
+tests could not reveal. A stale quotation revision used custom SQLSTATE 40001; PostgREST 14
+treats that as a transient transaction failure and repeatedly retries it. Native SQL calls
+returned an error normally, while the HTTP request stalled and consumed database CPU.
 
-Supplier form improvements include server-clock-adjusted expiry, an explicit refresh for the residual round, save/confirmation status messages, unsaved-edit protection and preservation of a successful save when an additional refresh would fail. Busy controls stay disabled while saving. Nested file and variation controls now fit 320px screens; the tests check actual control bounds as well as document width.
+The pending intake migration now raises PT409 for a business revision conflict. Actual HTTP
+and browser tests verify a prompt HTTP 409, one successful writer, preserved unsaved browser
+edits and unchanged database quantities after the rejected save. Dedicated supplier and worker
+clients now have 20-second database-request timeouts and disable automatic request retries.
+Existing staff clients retain their connection configuration. Staff Prices recognizes PT409
+and retains compatibility with older 40001 responses, preserving draft recovery and refresh. A separate narrow migration also fixes
+three legacy Prices/Company-contact conflict entry points using PT409 while retaining their
+bodies, owners, signatures, settings and ACLs. SQL and actual HTTP tests verify that stale
+edits return 409 and leave the stored quotation/contact unchanged. Historic migration
+files are preserved.
 
-Supabase schema/function compatibility and Railway configuration were inspected read-only using their existing connections. Railway's manual watch pattern and release branch remain unchanged; no staged changes or new worker variables were created. The existing Supabase security advisor also reported inherited privileged-function exposure notices and disabled leaked-password protection. Review those notices as part of release security review rather than treating local procurement tests as certification of the entire older project.
+Supabase documents the behavior and the PT409 resolution here:
+[SQLSTATE 40001 in an RPC function causes infinite retries](https://supabase.com/kb/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions).
+No looping production session was created; the defect was reproduced only in the isolated VM.
 
-The test environment's default Playwright download failed; an isolated Chromium binary was obtained without adding an application dependency. No browser screenshot is included as a deliverable, and all test records are synthetic. No GitHub Actions workflow or paid cloud resource was requested.
+Other continuation fixes remain verified: partial RFQ subsets reopen only their unallocated
+requested quantities; fully allocated subsets do not reopen unrelated shortages; supplier
+scope exceptions survive round two; automatic POs populate existing award history and selected
+quote statuses; cancelled, closed or received requirements cannot be automatically ordered.
 
-## Reproduce local validation
+## Remaining release gates
 
-```sh
-npm run lint
-npm test
-npm run test:database
-npm run build
-node tests/supplier-portal-http.mjs
-node tests/supplier-portal-mobile.mjs
-node tests/supplier-portal-ui.mjs
-```
+1. **Explicit production migration and manual Railway deployment approval.** Back up the
+   database, reconcile actual migration history and review prerequisites. Apply only the
+   approved intake, round and business-conflict migrations in order; do not replay the QA bootstrap or
+   all repository migration files. The pending files are
+   20261021212000_supplier_quote_portal_intake.sql and
+   20261021213000_supplier_portal_rounds.sql, followed by
+   20261022020929_procurement_rpc_revision_http_conflicts.sql. Each file is transactional; no business-row migration is performed. Never install tests/fixtures or QA principals on production.
+2. **Hosted post-migration smoke test while automation stays disabled.** Check the actual
+   Supabase API key/JWT mapping, PostgREST schema-cache visibility, revocation, staff roles,
+   image payloads, quotation-to-Prices synchronization and existing General/Company screens.
+   Local native/API tests cover the implementation; they do not substitute for verifying
+   the deployed project's configuration. Review inherited Supabase advisor findings, including
+   privileged-function notices and leaked-password protection, as a separate existing-project
+   security gate. Do not silently rewrite unrelated production authorization.
+3. **Explicitly authorized test recipient and real gateway pilot.** Verify exact recipient,
+   generated document, gateway health, one accepted message, actual delivered-message evidence,
+   interrupted/unknown outcomes and duplicate blocking. The simulator proves code behavior,
+   not WhatsApp delivery. Never send development messages to an arbitrary supplier.
+4. **Separate live purchasing/dispatch activation approval.** Deploy initially with processing
+   and dispatch disabled. Processing requires GH_PORTAL_PROCESSING_ENABLED=true. Dispatch also
+   requires GH_PORTAL_DISPATCH_ENABLED=true, GH_PORTAL_DELIVERY_VERIFIED=true and
+   WAHA_SENDING_ENABLED=true, plus verified private WAHA configuration. Keep
+   SUPABASE_SERVICE_ROLE_KEY and GH_PORTAL_WORKER_SECRET (at least 32 random characters)
+   server-only. The existing web process owns the timer; no paid cron service is required.
+   Disabling the flags is the immediate stop switch.
+5. Every real round still requires bounded admin approval. Every generated PO requires GH
+   Orders approval and independent recipient/document verification. Accepted or unknown sends
+   must never be reset for an automatic resend. Physical iOS/Android pilot checks remain
+   recommended; Chromium layouts and interactions have been tested at the widths above.
 
-Do not set live worker flags or use production credentials while running development tests.
-
-## Continuation verification
-
-The subsequent review reproduced a real subset-quantity defect before fixing it: a
-requirement for 10 with an RFQ requesting 5 and an allocation of 3 incorrectly reopened 5.
-It now reopens 2; an allocation of all 5 creates no follow-up round. Regression assertions
-also verify preserved supplier-scope exceptions, existing award records and selected quote
-statuses, and rollback when a requirement was cancelled after round approval.
-
-The in-memory regression now includes 21 suites and the unit/contract run includes 451
-passing tests. The normal SQL runner and a new native runner share the same checksummed
-schema bootstrap. The native fixture itself passes the SQL regression and connection
-guards have passing unit tests. The native runner covers stale supplier saves, deadline
-rechecks after lock waits, duplicate processors, requirement reservations, daily-budget
-contention, dispatch claims and changed recipients. See
-[SUPPLIER_PORTAL_NATIVE_QA.md](SUPPLIER_PORTAL_NATIVE_QA.md) for a local Docker procedure.
-It accepts only an explicitly enabled, empty loopback database and never uses application
-credentials. The added PostgreSQL client is a development dependency only.
-
-**Native concurrency remains NOT RUN.** This workspace has no native PostgreSQL or Docker,
-cannot start PostgreSQL as a separate OS user, and the connected Free-plan Supabase project
-has no development branch. No cloud branch, resource, subscription or production schema was
-created to work around that limitation. Preparing an executable runner is not evidence of
-passing its concurrent scenarios. Supabase/PostgREST staging verification and an explicitly
-authorized real gateway recipient remain necessary before production readiness can be
-certified. Existing production deployment, migrations and purchasing flags remain untouched.
+Optional Supabase CLI telemetry was blocked by automatic approval review after the local
+migration file was generated. It was not retried; local editing and verification continued.
+No cloud resource, paid subscription, GitHub Actions run or automatic deployment was requested.
+Production Railway configuration was not modified. Its previously observed manual-trigger
+watch pattern remains the required release method. No live procurement business row was
+created, updated or deleted by this work.
