@@ -42,6 +42,6 @@ test('six-hour window, quote revisions, images and availability are validated in
 test('supplier portal changes do not initiate unattended purchase orders',()=>{
  assert.doesNotMatch(migration,/insert into public\.proc_purchase_orders/i)
  assert.doesNotMatch(portal,/WAHA|sendWhatsApp|autoPurchase/)
- assert.match(staff,/Automatic PO generation and sending are intentionally OFF/)
+ assert.match(staff,/Every round requires approved limits/)
  assert.match(read('components/rfq-workspace.jsx'),/Supplier Links ↗/)
 })

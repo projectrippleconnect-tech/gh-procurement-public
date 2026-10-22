@@ -177,6 +177,6 @@ export default function SupplierLinks(){
     </div>
    })}
   </section>}
-  <p style={{color:'#cbd5e1',fontSize:13}}>Automatic PO generation and sending are intentionally OFF until separately approved server activation. Six-hour rounds and pending PO review are available above. This page does not send WhatsApp messages automatically.</p>
+  <p style={{color:'#cbd5e1',fontSize:13}}>Approved six-hour rounds can generate pending purchase orders when the database timer is enabled. Every round requires approved limits, and each PO requires review. Automatic WhatsApp sending also requires a connected, verified gateway.</p>
  </div></main>
 }

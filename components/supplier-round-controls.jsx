@@ -45,6 +45,6 @@ export default function SupplierRoundControls({rfqId,onChange}){
    {data.round.result?.unfulfilled?.length>0&&<p>{data.round.result.unfulfilled.length} uncovered item balance(s) {data.round.round_no===2?'require manual follow-up after the final round.':'moved to the next round.'}</p>}
    <details><summary>Round audit</summary>{(data.audit||[]).map(a=><p key={a.id}>{a.kind} · {new Date(a.created_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})}</p>)}</details>
   </>}
-  <p style={{fontSize:13,color:'#cbd5e1'}}>Background processing and dispatch require separately approved server activation. Approve each generated PO in GH Orders, then verify its recipient here. Gateway acceptance is not delivery confirmation.</p>
+  <p style={{fontSize:13,color:'#cbd5e1'}}>The database timer processes due rounds only after their scope and purchasing limits are approved. Approve each generated PO in GH Orders, then verify its recipient here. Automatic dispatch requires a verified gateway; gateway acceptance is not delivery confirmation.</p>
  </section>
 }
