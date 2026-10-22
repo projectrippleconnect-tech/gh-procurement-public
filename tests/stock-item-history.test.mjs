@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {latestStockMarkers,submissionQuantity,stockSubmissionDate} from '../lib/stock-item-history.mjs'
+import {latestStockMarkers,submissionQuantity,stockSubmissionDate,generalStockHistoryRows} from '../lib/stock-item-history.mjs'
 
 test('latest submission lookup chunks large catalogues and deduplicates identifiers',async()=>{
  const calls=[]
@@ -51,4 +51,23 @@ test('new history SQL stays read-only, item-scoped, and hides other staff counts
  assert.match(sql,/c\.category='COMPANY: '\|\|company_name/)
  assert.doesNotMatch(sql,/INSERT INTO public\./i)
  assert.doesNotMatch(sql,/UPDATE public\.proc_requirements/i)
+})
+
+test('General stock history excludes Company submissions independent of visible catalogue',()=>{
+ const records=[{count_id:'g1',category:'GENERAL'},{count_id:'c1',category:'COMPANY: KEVILTON'},{count_id:'g2',category:'BATHROOM'},{count_id:'c2',category:' company: TEST'}]
+ assert.deepEqual(generalStockHistoryRows(records).map(r=>r.count_id),['g1','g2'])
+ assert.deepEqual(generalStockHistoryRows(null),[])
+})
+test('General history shortcut is accessible on mobile and preserves per-item recount',()=>{
+ const app=readFileSync(new URL('../components/procurement-app.jsx',import.meta.url),'utf8')
+ const stock=readFileSync(new URL('../components/modules-stock.jsx',import.meta.url),'utf8')
+ const css=readFileSync(new URL('../app/globals.css',import.meta.url),'utf8')
+ assert.match(app,/aria-label="Open General stock submission history"/)
+ assert.match(app,/historyRequest=\{stockHistoryRequest\}/)
+ assert.match(stock,/general-stock-history-modal/)
+ assert.match(stock,/generalStockHistoryRows\(r\.data\)/)
+ assert.match(stock,/historyError&&<p role="alert"/)
+ assert.match(stock,/StockHistoryLink itemName=\{stockItemLabel\(i\)\}/)
+ assert.match(stock,/async function allowRecount\(id\)/)
+ assert.match(css,/\.general-stock-history-backdrop/)
 })
