@@ -193,3 +193,62 @@ No cloud resource, paid subscription, GitHub Actions run or automatic deployment
 Production Railway configuration was not modified. Its previously observed manual-trigger
 watch pattern remains the required release method. No live procurement business row was
 created, updated or deleted by this work.
+
+
+## Release continuation — 22 October 2026
+
+The user authorized continuation of the remaining release steps after reviewing the
+previous status. Routine migration/deployment approval does not need to be requested
+again within that scope. Runtime purchasing and dispatch gates remain closed until
+the actual release, bounded approvals and delivery safeguards are verified.
+
+### Fresh checks on the development release candidate
+
+- Checked out branch head `4a7fcc7523fa6053983f6faaf0b4361c0ee6be30`.
+- Reinstalled the locked dependencies with lifecycle scripts disabled.
+- Re-ran 451 unit/contract tests: all passed, none skipped.
+- Re-ran all 22 isolated PGlite database regression suites: all passed.
+- Re-ran TypeScript checks and production build: passed.
+- Verified all six recorded source hashes against the previous native/API validation
+  evidence. Native concurrency, actual local PostgREST/browser and simulated gateway
+  tests were not re-run in this continuation; their earlier evidence remains identified
+  above rather than being presented as a new run.
+- Ran the read-only production smoke script successfully. It checked health,
+  database/schema connection, login CSP/no-store, OCR asset availability and rejection
+  of unauthenticated RFQ sending. The running app reported version
+  `35e0a2443bc7eac6b5cc69fbb7e86328b627456f`, not the portal release candidate.
+- Rechecked the existing GH NEXUS Supabase project's catalog and migration history:
+  PostgreSQL 17.11, pgcrypto in extensions, existing purchasing/RFQ tables with RLS,
+  no supplier-portal tables and no portal migration entries.
+- The three existing Prices/directory conflict functions still contain the old
+  retryable conflict code. The pending narrow conflict migration is still required.
+- Reviewed hosted security advisors. Existing privileged-function notices and
+  disabled leaked-password protection remain inherited findings; no unrelated
+  authorization settings were changed.
+
+### Current blockers and safe resume order
+
+1. Railway's existing OAuth connection returned `UNAUTHORIZED`, specifically
+   reauthentication required. Project configuration, variables, billing/quota state,
+   deployment and gateway status cannot currently be verified through that connection.
+   Reconnect the existing Railway app; do not create another service or enable paid
+   resources as a workaround.
+2. A current, restorable pre-migration backup has not been verified or created in this
+   continuation. The available SQL connection is not a full backup/export connection;
+   no direct database credentials are available locally. After access is restored,
+   verify or create a backup using the existing approved backup path. Do not claim that
+   catalog inspection or regression fixtures constitute a production backup.
+3. After backup and configuration checks, apply only the three reviewed migrations in
+   their documented order, manually deploy the tested candidate to the existing
+   service, observe a successful deployment, and repeat hosted checks with automation
+   disabled. Preserve the manual deployment configuration.
+4. A test WhatsApp recipient has not yet been specified and verified for the real
+   gateway pilot. Obtain the intended test number, verify its identity and consent,
+   then perform the bounded pilot. Do not use an arbitrary supplier's number.
+5. Verify actual delivered-message evidence and every independent activation safeguard
+   before enabling live purchasing or dispatch. Missing backup/access/delivery evidence
+   is a release blocker, not a reason to bypass these checks.
+
+No production migration, deployment, business-record change, supplier message, live
+purchasing activation, paid resource creation or GitHub Actions run was performed in
+this continuation. Production remains on its existing version.
