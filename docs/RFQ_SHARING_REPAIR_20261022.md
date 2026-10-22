@@ -23,3 +23,12 @@ bundle byte for byte; unchanged compiled edge middleware reused for manual relea
 Live GH NEXUS read-only check found proc_portal_issue_link_v1 absent. Portal database
 activation remains pending the previously recorded restorable-backup prerequisite.
 No migrations or WhatsApp gateway/dispatch activation are included in this release.
+
+## Live verification
+
+Released at https://gh-procurement.netlify.app/ via manual Netlify deployment
+`6ada1957018323066541ca6d`, code revision
+`b7acc93c9de682c27ca64c7d3f863647a98aebd3`. Health reports that exact revision,
+connected database and ready existing schema. Both changed hosted JavaScript files
+match local SHA-256 hashes. Supplier pages return 200; unauthenticated RFQ sending
+and worker access return 401. Production portal functions remain absent.
