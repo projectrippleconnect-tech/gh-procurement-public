@@ -61,3 +61,17 @@ The user subsequently explicitly approved making the tested changes live, in
 response to the request to publish the code and enable public Netlify production
 access while retaining app authentication. The release can proceed within that
 scope. Database backup, migration and messaging gates above remain unchanged.
+
+## Publication and current authentication blocker
+
+Approved code publication succeeded through the connected GitHub app at commit
+`73f6128c837e9c8fbf422b887b8181d844698dc5`. Shell Git authentication was absent;
+no additional CI or auto-deploy was enabled.
+
+Netlify CLI reported NOT_LOGGED_IN and the browser showed the normal Netlify
+login screen. The user selected Google and the existing account through secure
+browser authentication. Google advanced to its security-code challenge; a
+secure code request returned user_took_over, and the last observed page remained
+on that challenge. Manual authentication handoff is open. No live deployment or
+Netlify access change has occurred in this continuation. Resume by verifying
+Netlify's signed-in state, then deploy the tested candidate and run hosted checks.
