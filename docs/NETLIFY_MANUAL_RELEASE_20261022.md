@@ -6,6 +6,35 @@ Source base: `113e0c3b7339d31d65c5433b4d9fbe1c8ca9e168`
 Site: `gh-procurement` (`b36357ec-4dda-4373-a3d7-95f9c8f3ad9e`)
 URL: https://gh-procurement.netlify.app
 
+## Deployment result
+
+Deployment `6ad9de3fb4d412d483fff6cd` reached **ready** and was published on
+22 October 2026 at 15:36:24 Sri Lanka time. The account's default project visibility
+is private. Unauthenticated requests receive HTTP 401 and the cloud browser shows
+“This site is private — Sign in with an invited Netlify account to view it.”
+This is a deployed private review build, not a publicly usable supplier portal.
+
+Automatic approval review rejected disabling site-wide Netlify SSO, explaining that
+public exposure changes the project's access boundary and requires explicit user
+approval. No workaround was attempted after that rejection. Obtain approval specifically
+for public production access while retaining the app's existing sign-in/database
+authorization and keeping preview deployments private. Then verify hosted health,
+nonce middleware, portal privacy headers and unauthenticated send rejection.
+
+The CLI regenerated a complete 28,583,529-byte function archive, with SHA-256
+`b5c01ceeb2995c688a072363862ef427f683b2a6e62311cc6f7b777bbe01e0fc`.
+Its 1,349 ZIP entries passed CRC verification. A separate stale cached archive was
+truncated; a diagnostic upload of that cache was rejected as an invalid ZIP. The
+complete regenerated archive is the one declared by the successful deployment.
+Do not reuse an unvalidated stale functions cache for a later release.
+
+A fresh local mobile rerun did not pass in this environment: the headless browser
+timed out waiting for a row to become visible, although a separate DOM/layout
+inspection showed that row with visible bounds and no page errors. A graphics/process
+compatibility attempt crashed in ANGLE initialization. These observations do not
+certify a fresh mobile pass or establish that the app has a rendering defect.
+Repeat the mobile/browser flow on a supported browser before clearing the release gate.
+
 ## Scope
 
 This is a controlled alternative-host review release, not certification of the new

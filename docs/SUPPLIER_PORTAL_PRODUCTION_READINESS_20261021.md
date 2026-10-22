@@ -374,3 +374,28 @@ Continuation source base: `113e0c3b7339d31d65c5433b4d9fbe1c8ca9e168`.
 Production database backup, the four reviewed migrations, hosted API/permission
 checks and a verified real-delivery pilot remain required. All live purchasing and
 dispatch activation stays disabled. No supplier message was sent.
+
+### Final hosting outcome for this continuation
+
+Netlify deployment `6ad9de3fb4d412d483fff6cd` is **ready**, published at
+15:36:24 Sri Lanka time on 22 October 2026. The URL is
+https://gh-procurement.netlify.app. It remains **private behind Netlify login**;
+the anonymous hosted smoke stopped at HTTP 401 before reaching the application.
+The cloud browser independently confirmed the private-project screen. This is
+not a working public supplier-link release, and hosted app health has not passed.
+
+Automatic approval review rejected disabling site-wide Netlify SSO because that
+would expose the deployment publicly without specific access-change approval.
+No indirect workaround was used after the rejection. Public production access,
+with the existing app login/database authorization intact and previews private,
+requires explicit user approval before continuing the hosted checks.
+
+Fresh local mobile verification also remains unresolved: the default rerun timed
+out on a row-visibility check; separate DOM inspection showed visible bounds with
+no page errors, and a browser compatibility attempt failed during graphics startup.
+No new mobile pass is claimed. Native database/concurrency/scheduler passes above
+are complete and saved; they do not substitute for this remaining browser gate.
+
+The four production migrations are still unapplied pending a verified restorable
+backup. WhatsApp and Google Sheets server integrations are not connected to the
+Netlify review deployment. Purchasing, dispatch and messaging remain disabled.
