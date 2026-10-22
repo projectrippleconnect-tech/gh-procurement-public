@@ -1,5 +1,55 @@
 # GH Procurement stock fixes — 22 October 2026
 
+## Latest outcome — live release verified
+
+The UI update is live at https://gh-procurement.netlify.app/ on 22 October 2026.
+Successful deployment: `6ada137695ff439257bf5b0e`.
+Verified application version: `73f6128c837e9c8fbf422b887b8181d844698dc5`.
+This latest outcome supersedes the earlier deployment and authentication blockers
+recorded below. Supplier portal database/activation gates are unchanged.
+
+Fresh hosted checks passed:
+- Public application login screen; approved GH accounts only, registration disabled.
+- HTTP 200 health, connected existing database and ready existing schema; exact version above.
+- Login CSP nonce and no-store; local OCR language asset HTTP 200.
+- Unauthenticated RFQ sending and supplier-portal worker both rejected with HTTP 401.
+- Supplier entry/link pages HTTP 200 with private/no-store and no-referrer headers.
+- Hosted JavaScript `2s7e-40c0064_.js` and CSS `0x7itexm_-15r.css`
+  have exactly the SHA-256 hashes of the tested release files, including General
+  history controls and scrolling styles. No live staff login or business write used.
+
+The user explicitly approved the Netlify CLI access scope after automatic review
+rejected its earlier authorization. CLI authentication then succeeded. Production
+is public; non-production deployments retain Netlify SSO. Repository linking remains
+off. Account checks showed no payment method, 300 included credits and disabled
+overage accumulation. No paid plan, billing method or automatic deployment was added.
+
+Packaging and corrections:
+- Next build and TypeScript passed. Netlify optional type/dependency lookups stalled;
+  bounded local fetch/process timeouts were tried without changing application code.
+- The new middleware inputs and ESZIP are byte-identical to the verified prior build:
+  SHA-256 `f827d2904647fb4eefccaed5799da420674cb08c8f79e57a52c3478881d8d9b3`.
+  That unchanged artifact was reused, with fresh app/static files and deployment blobs.
+- An initial published package omitted routing metadata and returned 404. A corrected
+  package routed requests but failed initialization because its generated archive base
+  still pointed to the build directory. Both defects were fixed in the final package:
+  source/manifest paths aligned, includedFilesBasePath rebased, cached functions bypassed,
+  and the runtime module successfully imported locally before the successful release.
+  Server ZIP: 1,348 entries; CRC check passed; root handler and runtime modules present.
+- An attempted restore of the previous deployment was rejected by automatic approval
+  review because rollback was not explicitly authorized. No alternate rollback occurred;
+  the approved new deployment was corrected and passed all hosted checks above.
+- The generated static directory was explicitly deployed, resolving the OCR-file 404
+  observed on the old review deployment. Do not upload the restored raw .next build
+  directory after a separate adapter build; retain the adapter's generated static assets,
+  function source/config/manifest paths, deployment blobs and edge bundle together.
+
+Purchasing, dispatch, verified-delivery and WAHA sending flags are false in this
+release; database scheduler mode is selected. No production migration or business-row
+change occurred. The four portal migrations still require a verified restorable backup
+and hosted permission checks. Real WhatsApp delivery and Google Sheets/WhatsApp server
+integration checks are still pending; this UI release does not certify those features.
+
 Branch: `feature/supplier-quote-portal-20261021`
 Base: `3ed39372d40ffdb8ac21ea0748084e479ea2b2e1`
 
