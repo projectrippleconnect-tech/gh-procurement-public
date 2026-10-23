@@ -218,7 +218,7 @@ try{
    else if(name==='proc_company_rfq_history')data=[{rfq_id:rfq.id,rfq_no:rfq.rfq_no,company_id:'company-fixture',company_name:'Fixture company',rfq_status:'prepared',created_at:new Date().toISOString(),item_count:2,supplier_count:2,sent_count:1,failed_count:1}]
    else if(name==='proc_companies')data=[{id:'company-fixture',company_code:'COMP-FIXTURE',name:'Fixture company',active:true,company_list_enabled:true,...(routingMode?{default_supplier_id:setupDefaultId,updated_at:setupRoute.updated_at}:process.env.GH_UI_CONTACT_PASTE==='1'?{default_supplier_id:supplier.id}:{})}]
    else if(name==='proc_company_list_items'&&process.env.GH_UI_DENSE_STOCK==='1')data=Array.from({length:12},(_,i)=>({id:'dense-row-'+i,item_id:'dense-item-'+i,target_stock:20,item:{...item,id:'dense-item-'+i,description:'ALKATHENE HOSE '+['1/2IN 200FT','3/4IN 100FT','3/4IN 200FT','1IN 100FT','1IN 200FT','1 1/2IN 100FT'][i%6],category:'ALKATHINE',subgroup:'',size:'',uom:'PCS'}}))
-   else if(name==='proc_company_list_items')data=[{id:'company-row-one',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
+   else if(name==='proc_company_list_items')data=[{id:'company-row-one',company_id:'company-fixture',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',company_id:'company-fixture',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
@@ -305,6 +305,7 @@ try{
    else if(name==='proc_submit_stock_and_continue_v3'){stockSubmissions.push(req.postDataJSON());data={automation:{status:'review_required',submitted_items:1,requirements:1}}}
    else if(name==='proc_begin_stock_count_session_v1')data=new Date().toISOString()
    else if(name==='proc_admin_reset_preview_v1')data={scope:req.postDataJSON().p_scope,counts:{proc_purchase_orders:2,proc_stock_balances:1},token:'fixture-preview-token'}
+   else if(name==='proc_stock_latest_item_submissions_v1')data=process.env.GH_UI_COMPANY_ITEMS==='1'&&companyCountAttempt>0?[{item_id:item.id,count_id:'saved-company-count',count_no:companyCountAttempt>1?'035':'034',submitted_at:new Date().toISOString(),current_stock:companyCountAttempt>1?0:1}]:[]
    else if(name==='proc_stock_submission_history_v1')data=[
     {count_id:'general-history',count_no:'GENERAL-HISTORY',category:'GENERAL',submitted_at:'2026-10-22T09:00:00Z',item_count:1,counted_by_name:'Fixture staff'},
     {count_id:'company-history',count_no:'COMPANY-HISTORY',category:'COMPANY: Fixture company',submitted_at:'2026-10-22T08:00:00Z',item_count:1}
@@ -605,7 +606,7 @@ try{
    await page.getByLabel('Search receiving items',{exact:true}).waitFor()
    const mobile=width<=700
    const row=mobile?view.locator('.receive-entry-row').first():view.locator('.desktop-table tbody tr').first()
-   if(mobile){await row.getByLabel('Received '+item.description+' · '+item.size,{exact:true}).fill('6');await row.locator('summary').click();await row.getByLabel('Rejected '+item.description+' · '+item.size,{exact:true}).fill('2');await row.getByLabel('Rejection reason '+item.description+' · '+item.size,{exact:true}).fill('Broken')}
+   if(mobile){await row.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('6');await row.locator('summary').click();await row.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('2');await row.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Broken')}
    else{await row.locator('input').nth(1).fill('6');await row.locator('input').nth(3).fill('2');await row.locator('input').nth(4).fill('Broken')}
    const reviewButton=view.getByRole('button',{name:'Review receipt (1) →',exact:true})
    await reviewButton.click()
@@ -1077,10 +1078,10 @@ try{
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
    await navigate('✓ Stock Entry')
    const stockHeader=page.locator('section:not([hidden]) .stock-work-header')
-   await stockHeader.getByRole('button',{name:/Submit Stock/}).waitFor()
-   assert.equal(await page.getByRole('navigation',{name:'Guided procurement navigation',exact:true}).count(),0,'Procurement stage banner must not appear on Stock Entry')
+   await page.getByRole('button',{name:/^Review Lot ·/}).waitFor()
+   assert.deepEqual(await page.getByRole('navigation',{name:'Guided procurement navigation',exact:true}).getByRole('button').allTextContents(),['✓Stock','≡Review','₨Prices','▤Order','⇩Receive'],'Admin navigation retains all five authorized stages')
    assert.equal(await page.locator('section:not([hidden]) .stock-simple-flow').count(),0,'Redundant Enter stock → Submit Stock → Review progress strip is absent')
-   await page.locator('.stock-work-header').getByRole('button',{name:'Filters',exact:true}).click()
+   await page.getByRole('button',{name:'Filters',exact:true}).click()
    assert.equal(await page.locator('.stock-filter-panel input[type="file"]').count(),0,'Paper sheet upload is not shown in Stock Entry')
    for(const label of ['FAST Checklist PDF','NORMAL Checklist PDF','SLOW Checklist PDF','Stock Taking PDF']){
     assert.equal(await page.getByRole('button',{name:label,exact:true}).count(),0,label+' is not shown in Stock Entry')
@@ -1088,6 +1089,7 @@ try{
    assert.equal(await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).count(),1,'The separate customizable printing tool is preserved')
    await page.getByRole('tab',{name:'Company Items',exact:true}).click()
    const view=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
+   await chooseOption(view.getByLabel('Company list',{exact:true}),'company-fixture')
    await view.locator('.company-item-name').first().waitFor()
    const enough=view.getByRole('checkbox',{name:'Sufficient stock: '+item.description,exact:true})
    const current=view.getByLabel('Current stock: '+item.description,{exact:true})
@@ -1109,7 +1111,7 @@ try{
    assert.equal(await grid.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Expanded editing fits without horizontal scrolling')
    await grid.locator('details.company-item-edit summary').first().click()
    assert.equal(await view.locator('.company-stock-filters').getAttribute('open'),null)
-   assert.equal(await view.locator('.company-stock-tools').getAttribute('open'),null)
+   assert.equal(await view.locator('.company-stock-tools').count(),0,'Setup tools stay outside the counting workspace')
    await view.locator('.company-stock-filters>summary').click()
    await chooseOption(view.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
    assert.equal(await grid.locator('tbody tr.company-stock-item-row').count(),1)
@@ -1118,6 +1120,7 @@ try{
    assert.equal(await grid.locator('tbody tr.company-stock-item-row').count(),2)
    assert.equal(await view.getByLabel('Company movement',{exact:true}).count(),0,'Company lists have no movement filter')
    assert.equal(await view.locator('.company-item-meta').first().getByText(/Movement/i).count(),0,'Compact item metadata excludes movement')
+   await view.getByRole('button',{name:'Company setup',exact:true}).click()
    await view.locator('.company-stock-tools>summary').click()
    await view.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true})
@@ -1139,20 +1142,27 @@ try{
    assert.equal(await nestedManager.getByLabel('Section parent',{exact:true}).count(),1,'Parent section picker is available')
    assert.equal(await nestedManager.getByLabel('Move items to section',{exact:true}).count(),1,'Bulk move destination is available')
    await nestedManager.locator(':scope > summary').click()
-   await view.getByText('Company settings, groups, contacts & attachments',{exact:true}).click()
+   await view.getByText('Company details, legacy fallback & attachments',{exact:true}).click()
    assert.equal(await view.getByRole('checkbox',{name:'movement',exact:true}).count(),0,'Movement is absent from Company Items')
    assert.equal(await view.getByRole('checkbox',{name:'variation',exact:true}).count(),0,'Company-specific layout toggles were removed')
+   await view.getByRole('button',{name:'Back to stock',exact:true}).click()
    assert.equal(await grid.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Company stock table remains within the viewport')
    // Real submission wording distinguishes physical shortages from new requirement records.
    await current.fill('1')
-   await view.getByRole('button',{name:'Submit Count',exact:true}).click()
-   await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+   await page.getByRole('button',{name:'Review company stock lot with 1 items',exact:true}).click()
+   await page.getByRole('dialog',{name:'Review company stock lot',exact:true}).getByRole('button',{name:'Finalize · 1',exact:true}).click()
+   await page.getByRole('dialog',{name:'Final confirm · Company stock',exact:true}).getByRole('button',{name:'Finalize company lot',exact:true}).click()
    const result=view.getByRole('region',{name:'Company stock submission result',exact:true})
    await result.getByText(/Existing purchase orders cover 1 shortage item/).waitFor()
-   assert.equal(await current.inputValue(),'','A saved count clears only the submitted draft')
+   await view.getByRole('button',{name:'Recount',exact:true}).first().waitFor()
+   assert.equal(await current.count(),0,'A finalized count requires an intentional recount')
+   await view.getByRole('button',{name:'Recount',exact:true}).first().click()
+   await page.getByRole('dialog',{name:'Previously submitted · recount?',exact:true}).getByRole('button',{name:'Allow recount',exact:true}).click()
+   assert.equal(await current.inputValue(),'','Submitted draft is cleared before recount')
    await current.fill('0')
-   await view.getByRole('button',{name:'Submit Count',exact:true}).click()
-   await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
+   await page.getByRole('button',{name:'Review company stock lot with 1 items',exact:true}).click()
+   await page.getByRole('dialog',{name:'Review company stock lot',exact:true}).getByRole('button',{name:'Finalize · 1',exact:true}).click()
+   await page.getByRole('dialog',{name:'Final confirm · Company stock',exact:true}).getByRole('button',{name:'Finalize company lot',exact:true}).click()
    await result.getByText(/1 item\(s\) need review/).waitFor()
    await result.locator('summary').click()
    await result.getByText(/Stock shortage: 20.*In existing POs: 19.*Uncovered: 1/).waitFor()
@@ -1172,14 +1182,14 @@ try{
    assert.equal(await print.getByLabel('Maximum tables per page',{exact:true}).getAttribute('data-value'),'3')
    assert.equal(await print.getByLabel('Print movement',{exact:true}).count(),0,'Company lists have no movement filtering')
    const download=page.waitForEvent('download');await print.getByRole('button',{name:'Download Printable PDF',exact:true}).click()
-   const pdf=await download,bytes=await readFile(await pdf.path());const pdfText=b=>[...b.toString('latin1').matchAll(/\(([^()]*)\)\s*Tj/g)].map(m=>m[1]).join(' ');assert.ok(pdfText(bytes).includes('Fixture switch'));assert.ok(bytes.includes(Buffer.from('Stocks Checked By')))
+   const pdf=await download,bytes=await readFile(await pdf.path());const pdfText=b=>[...b.toString('latin1').matchAll(/\(([^()]*)\)\s*Tj/g)].map(m=>m[1]).join(' ');assert.ok(pdfText(bytes).toUpperCase().includes('FIXTURE SWITCH'));assert.ok(bytes.includes(Buffer.from('Stocks Checked By')))
    await writeFile('test-results/'+width+'-company-stock-custom.pdf',bytes)
    await chooseOption(print.getByLabel('Print subcategory',{exact:true}),'Switches')
    const one=page.waitForEvent('download');await print.getByRole('button',{name:'Download Printable PDF',exact:true}).click()
-   const selected=await one,selectedBytes=await readFile(await selected.path());assert.ok(pdfText(selectedBytes).includes('Fixture switch'));assert.ok(!pdfText(selectedBytes).includes(item.description))
+   const selected=await one,selectedBytes=await readFile(await selected.path());assert.ok(pdfText(selectedBytes).toUpperCase().includes('FIXTURE SWITCH'));assert.ok(!pdfText(selectedBytes).toUpperCase().includes(item.description.toUpperCase()))
    await print.getByRole('button',{name:'Close',exact:true}).click()
+   rfq.status='prepared'
    await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
-   await page.locator('.journey-shortcuts > summary').click();await chooseOption(page.getByLabel('Go to procurement section',{exact:true}),'3')
    await page.getByRole('button',{name:'Edit RFQ Document Template',exact:true}).click()
    const editor=page.getByRole('dialog',{name:'Supplier document template',exact:true});await editor.waitFor()
    await editor.getByLabel('Document business header',{exact:true}).fill('General Ceramics')
@@ -1206,9 +1216,9 @@ try{
    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('gh-stock-count-draft:00000000-0000-4000-8000-000000000002')||'{}').entry?.['00000000-0000-4000-8000-000000000003']==='101')
    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
    await navigate('✓ Stock Entry');await stock.waitFor();assert.equal(await stock.inputValue(),'101')
-   await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
-   const submitDialog=page.getByRole('dialog',{name:'Submit stock count',exact:true})
-   await submitDialog.waitFor();await submitDialog.getByRole('button',{name:'Cancel',exact:true}).click()
+   await page.getByRole('button',{name:'Review Lot · 1',exact:true}).click()
+   const submitDialog=page.getByRole('dialog',{name:'Review stock lot before final submission',exact:true})
+   await submitDialog.waitFor();await submitDialog.getByRole('button',{name:'Save stock draft and pause',exact:true}).click()
    assert.equal(await stock.inputValue(),'101','Cancelling the modern dialog preserves the count draft')
    await navigate('□ Items')
    await page.getByText('FIXTURE-ITEM',{exact:true}).filter({visible:true}).first().waitFor()
@@ -1304,6 +1314,7 @@ try{
   const quick=page.locator('.card').filter({has:page.getByRole('heading',{name:'Quick Add Item',exact:true})}).last()
   await quick.getByLabel('Item name',{exact:true}).fill('New fixture lock')
   await quick.getByLabel('Size',{exact:true}).fill('2 ft')
+  await quick.getByLabel('Maximum stock',{exact:true}).fill('12')
   await chooseOption(quick.getByRole('button',{name:'Category',exact:true}),'BATHROOM')
   await quick.getByRole('button',{name:'+ New category',exact:true}).click()
   await quick.getByRole('button',{name:'Use category',exact:true}).click()
@@ -1333,8 +1344,8 @@ try{
   await ocrPanel.getByRole('button',{name:'Apply Reviewed GRN Rows',exact:true}).click()
   await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
   if(width<=700){
-   assert.equal(await page.getByLabel('Received '+item.description+' · 2 inch',{exact:true}).inputValue(),'6')
-   assert.equal(await page.getByLabel('Accepted '+item.description+' · 2 inch',{exact:true}).inputValue(),'')
+   assert.equal(await page.getByLabel('Received '+(item.description+' · 2 inch').toUpperCase(),{exact:true}).inputValue(),'6')
+   assert.equal(await page.getByLabel('Accepted '+(item.description+' · 2 inch').toUpperCase(),{exact:true}).inputValue(),'')
   }else{
    const quantities=page.locator('section:not([hidden]) .desktop-table tbody .stock-entry')
    assert.equal(await quantities.nth(0).inputValue(),'6');assert.equal(await quantities.nth(1).inputValue(),'')
@@ -1464,6 +1475,46 @@ try{
    console.log('PASS focused tasks, draft recovery, submission time, review guards and font settings '+width+'px')
    await context.close();continue
   }
+  if(process.env.GH_UI_PO_MANUAL==='1'){
+   poFixtureStatus='approved'
+   let gatewayPosts=0
+   await context.route(root+'/api/integrations/whatsapp/po**',route=>{
+    if(route.request().method()==='POST')gatewayPosts++
+    return route.fulfill({status:503,json:{configured:false,connected:false,sendingEnabled:false,error:'Fixture gateway unavailable'}})
+   })
+   await page.evaluate(()=>{
+    window.poShares=[];window.poCaptions=[]
+    Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true})
+    Object.defineProperty(navigator,'share',{configurable:true,value:async data=>window.poShares.push({text:data.text,name:data.files[0].name,type:data.files[0].type,size:data.files[0].size})})
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.poCaptions.push(text)}})
+   })
+   await navigate('PO Orders');await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   const manual=page.getByRole('region',{name:'Manual supplier WhatsApp PO sharing',exact:true})
+   const share=manual.getByRole('button',{name:'Share PO PNG + Caption',exact:true})
+   await share.click();await page.waitForFunction(()=>window.poShares.length===1)
+   const [shared]=await page.evaluate(()=>window.poShares)
+   assert.equal(shared.type,'image/png');assert.ok(shared.size>100);assert.match(shared.text,/PO-FIXTURE/);assert.ok(shared.text.includes(supplier.name))
+   await page.evaluate(()=>Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false}))
+   const download=page.waitForEvent('download');await share.click()
+   const png=await download,bytes=await readFile(await png.path())
+   assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a')
+   await page.waitForFunction(()=>window.poCaptions.length===1)
+   assert.equal((await page.evaluate(()=>window.poCaptions))[0],shared.text)
+   await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw new Error('Fixture clipboard denied')}}}))
+   const deniedDownload=page.waitForEvent('download');await share.click();await deniedDownload
+   await page.getByText('PO PNG downloaded. Use Copy PO Caption, open the supplier chat, attach the saved PNG and paste the caption.',{exact:true}).waitFor()
+   let cancelledDownloads=0;const onDownload=()=>cancelledDownloads++;page.on('download',onDownload)
+   await page.evaluate(()=>{
+    Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true})
+    Object.defineProperty(navigator,'share',{configurable:true,value:async()=>{throw new DOMException('Fixture cancelled','AbortError')}})
+   })
+   await share.click();await page.waitForFunction(()=>!document.querySelector('[aria-label="Manual supplier WhatsApp PO sharing"] button').disabled)
+   page.off('download',onDownload)
+   assert.equal(cancelledDownloads,0);assert.equal(gatewayPosts,0);assert.equal(poFixtureStatus,'approved','Manual sharing never marks the PO sent')
+   await page.screenshot({path:'test-results/'+width+'-po-manual-no-gateway.png'})
+   console.log('PASS manual PO native PNG/caption, download fallback, clipboard denial, cancellation and no automatic send at '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_SIZE_ORDER==='1'){
    rfqItemCount=1
    await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
@@ -1590,45 +1641,46 @@ try{
   const historyStockInput=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
   await historyStockInput.waitFor()
   await historyStockInput.fill('8')
-  await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
-  const stockDialog=page.getByRole('dialog',{name:'Submit stock count',exact:true})
+  await page.getByRole('button',{name:'Review Lot · 1',exact:true}).click()
+  const stockDialog=page.getByRole('dialog',{name:'Review stock lot before final submission',exact:true})
   await stockDialog.waitFor()
   await page.screenshot({path:'test-results/stock-confirmation-'+width+'.png'})
-  assert.equal(await page.locator('[inert]').count(),1)
-  await stockDialog.getByRole('button',{name:'Cancel',exact:true}).click()
+  assert.equal(await stockDialog.getAttribute('aria-modal'),'true')
+  await stockDialog.getByRole('button',{name:'Save stock draft and pause',exact:true}).click()
   assert.equal(stockSubmissions.length,0,'Cancel leaves the stock draft unchanged')
   assert.equal(await historyStockInput.inputValue(),'8')
-  await page.getByRole('button',{name:'Submit Stock · 1',exact:true}).click()
-  await stockDialog.getByRole('button',{name:'Submit stock',exact:true}).click()
+  await page.getByRole('button',{name:'Review Lot · 1',exact:true}).click()
+  await stockDialog.getByRole('button',{name:'Final confirmation for 1 stock items',exact:true}).click()
+  await page.getByRole('dialog',{name:'Final confirmation · 1 items',exact:true}).getByRole('button',{name:'Finalize entire lot',exact:true}).click()
   await page.getByRole('heading',{name:'Procurement Review',exact:true}).waitFor()
   assert.equal(stockSubmissions.length,1)
   assert.equal(stockSubmissions[0].p_lines[0].current_stock,8)
   const guide=page.getByRole('navigation',{name:'Guided procurement navigation',exact:true})
-  assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).getAttribute('data-value'),'2','Stock submission automatically advances to Review')
+  await guide.getByText('Step 2 of 5 · Review',{exact:true}).waitFor({state:'attached'})
   if(process.env.GH_UI_GUIDE_APPROVAL==='1'){
    rfqItemCount=1
    await page.getByRole('button',{name:'Select All Visible',exact:true}).click()
    await page.getByRole('button',{name:'Approve & Continue',exact:true}).click()
    const builder=page.locator('.rfq-builder')
    await builder.waitFor()
-   assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).getAttribute('data-value'),'3','Approval advances to the supplier builder')
-   await builder.getByLabel(supplier.name,{exact:true}).check()
+   assert.ok(await builder.isVisible(),'Approval advances to the supplier builder')
+   await builder.getByRole('checkbox',{name:new RegExp('^'+supplier.name+' ')}).check()
    await builder.getByPlaceholder('Required override reason',{exact:true}).fill('Guided workflow test supplier')
    await builder.getByRole('button',{name:'Create RFQ & Continue',exact:true}).click()
    await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
-   assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).getAttribute('data-value'),'3','Creation opens the exact RFQ at the sending step')
+   await guide.getByText('Step 3 of 5 · Prices',{exact:true}).waitFor({state:'attached'})
    await page.locator('.rfq-individual-options > summary').click()
    await page.getByRole('button',{name:'Confirm Sent',exact:true}).click()
    await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
-   await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.getAttribute('data-value')==='4')
+   await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
    const price=page.locator('[data-rfq-price-item]').filter({visible:true}).first()
    await price.waitFor();await price.fill('05');assert.equal(await price.inputValue(),'5');await price.fill('123.45')
    if(width<760){const row=page.locator('.quote-bill-row').first();assert.ok((await row.boundingBox()).height<160,'Long item stays compact');await row.locator('summary').click();await row.getByRole('button',{name:'+ Add size variation',exact:true}).click();await row.getByPlaceholder('e.g. 1½ inch').fill('2 feet');await row.getByPlaceholder('Price',{exact:true}).fill('40');await row.getByLabel('Additional size required quantity',{exact:true}).fill('6');await page.screenshot({path:'test-results/compact-quote-variation-'+width+'.png'});await row.getByRole('button',{name:'Remove size',exact:true}).click();await row.locator('summary').click()}
    await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
-   await page.waitForFunction(()=>document.querySelector('[aria-label="Go to procurement section"]')?.getAttribute('data-value')==='5')
+   await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).filter({visible:true}).waitFor()
    await page.getByRole('button',{name:'Review & Create Supplier Orders',exact:true}).click()
    await page.locator('.award-review').waitFor()
-   assert.equal(await guide.getByLabel('Go to procurement section',{exact:true}).getAttribute('data-value'),'6')
+   await page.getByRole('heading',{name:'Choose prices · Review & create orders',exact:true}).waitFor()
    assert.ok(!queries.some(u=>u.pathname.endsWith('/proc_finalize_award_plan_v2')),'Guided Next never creates an order without final confirmation')
    await page.screenshot({path:'test-results/six-step-award-'+width+'.png'})
    console.log('PASS complete guided stock → approval → exact RFQ → sent → quote save → comparison → order review at '+width+'px')
@@ -2139,12 +2191,12 @@ try{
      const heights=await receivingRows.locator('.receive-entry-row').evaluateAll(rows=>rows.map(r=>r.getBoundingClientRect().height))
      assert.ok(heights.every(h=>h<=110),'Closed receiving rows must be compact: '+heights.join(','))
      const firstRow=receivingRows.locator('.receive-entry-row').first()
-     await firstRow.getByLabel('Received '+item.description+' · '+item.size,{exact:true}).fill('5')
-     assert.equal(await firstRow.getByLabel('Accepted '+item.description+' · '+item.size,{exact:true}).inputValue(),'5','Row receipt entry preserves automatic acceptance')
+     await firstRow.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('5')
+     assert.equal(await firstRow.getByLabel('Accepted '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).inputValue(),'5','Row receipt entry preserves automatic acceptance')
      await firstRow.locator('summary').click()
-     await firstRow.getByLabel('Rejected '+item.description+' · '+item.size,{exact:true}).fill('1')
-     assert.equal(await firstRow.getByLabel('Accepted '+item.description+' · '+item.size,{exact:true}).inputValue(),'4','Expanded damage entry preserves acceptance math')
-     await firstRow.getByLabel('Rejection reason '+item.description+' · '+item.size,{exact:true}).fill('Damaged packaging')
+     await firstRow.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('1')
+     assert.equal(await firstRow.getByLabel('Accepted '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).inputValue(),'4','Expanded damage entry preserves acceptance math')
+     await firstRow.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Damaged packaging')
      await firstRow.locator('summary').click()
      console.log('PASS nine compact receiving rows, inline quantities and expandable rejection at '+width+'px')
     }
