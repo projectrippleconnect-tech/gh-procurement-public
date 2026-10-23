@@ -1,6 +1,6 @@
 // Read-only checks: no login, messages or business records are created.
 import assert from 'node:assert/strict'
-const root='https://gh-procurement-production.up.railway.app'
+const root=process.env.GH_PRODUCTION_URL||'https://gh-procurement.netlify.app'
 async function request(path,options={}){
  const response=await fetch(root+path,{...options,signal:AbortSignal.timeout(15000)})
  return response
