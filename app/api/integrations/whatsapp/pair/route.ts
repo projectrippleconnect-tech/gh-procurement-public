@@ -1,3 +1,4 @@
+import {approvedGatewayUrl} from '@/lib/waha-gateway.mjs'
 import {createClient} from '@supabase/supabase-js'
 
 export const runtime='nodejs'
@@ -9,8 +10,8 @@ function privateGateway(){
  const key=process.env.WAHA_API_KEY||''
  if(!raw||!key)return null
  try{
-  const url=new URL(raw)
-  if(url.protocol!=='http:'||!url.hostname.endsWith('.railway.internal')||url.username||url.password||url.pathname!=='/'||url.search)return null
+  const url=approvedGatewayUrl(raw,process.env,{allowLoopback:true})
+  if(!url)return null
   const session=process.env.WAHA_SESSION||'default'
   if(!/^[\w-]{1,50}$/.test(session))return null
   return {base:url.origin,key,session}
@@ -36,7 +37,7 @@ async function callWaha(config:{base:string;key:string;session:string},path:stri
   method,
   headers:{'X-Api-Key':config.key,Accept:accept,...(body?{'Content-Type':'application/json'}:{})},
   ...(body?{body:JSON.stringify(body)}:{}),
-  signal:AbortSignal.timeout(10000),cache:'no-store'
+  signal:AbortSignal.timeout(10000),redirect:'error',cache:'no-store'
  })
  const data=await response.json().catch(()=>null)
  return {response,data}

@@ -1,3 +1,4 @@
+import {approvedGatewayUrl} from '@/lib/waha-gateway.mjs'
 import {companyAccess,companyBody,companyReply} from '@/lib/company-server'
 import {companyOrderImages} from '@/lib/company-order-image.mjs'
 import {routeCaption} from '@/lib/company-route-template.mjs'
@@ -11,10 +12,11 @@ export async function POST(request:Request){
  try{
   const {db}=await companyAccess(request),body=await companyBody(request)
   const raw=process.env.WAHA_BASE_URL,key=process.env.WAHA_API_KEY,session=process.env.WAHA_SESSION||'default'
-  if(!raw||!key||process.env.WAHA_SENDING_ENABLED!=='true')throw new Error('RFQs remain queued. Enable automatic WhatsApp sending.')
-  const url=new URL(raw)
-  if(!['http:','https:'].includes(url.protocol)||!url.hostname.endsWith('.railway.internal')||url.username||url.password||url.pathname!=='/'||url.search||url.hash||!/^[\w-]{1,50}$/.test(session))throw new Error('Invalid private gateway configuration.')
-  const check=await fetch(url.origin+'/api/sessions/'+session,{headers:{'X-Api-Key':key},signal:AbortSignal.timeout(5000),cache:'no-store'})
+  if(!raw||!key||(process.env.WAHA_SENDING_ENABLED!=='true'||process.env.GH_PORTAL_DELIVERY_VERIFIED!=='true'))throw new Error('RFQs remain queued. Enable automatic WhatsApp sending.')
+  const url=approvedGatewayUrl(raw)
+  if(!url)throw new Error('Invalid private gateway configuration.')
+  if(!/^[\w-]{1,50}$/.test(session))throw new Error('Invalid private gateway configuration.')
+  const check=await fetch(url.origin+'/api/sessions/'+session,{headers:{'X-Api-Key':key},signal:AbortSignal.timeout(5000),redirect:'error',cache:'no-store'})
   if(!check.ok||(await check.json()).status!=='WORKING')throw new Error('WhatsApp is offline; RFQ images remain queued.')
   let query=db.from('proc_company_rfq_queue').select('id').in('status',['pending','failed']).order('created_at').limit(50)
   if(body.companyId)query=query.eq('company_id',body.companyId)
@@ -34,7 +36,7 @@ export async function POST(request:Request){
    try{
     const chatId=normalizeSupplierChatId(claim.phone)
     for(let i=0;i<images.length;i++){
-     const response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:job.rfq_no+'-'+(i+1)+'.png',data:images[i].toString('base64')},caption:caption+'\nPage '+(i+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),cache:'no-store'})
+     const response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:job.rfq_no+'-'+(i+1)+'.png',data:images[i].toString('base64')},caption:caption+'\nPage '+(i+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'})
      if(!response.ok){status=i>0||response.status>=500?'unknown':'failed';lastError='WhatsApp rejected the image (HTTP '+response.status+').';break}
      messageId=extractWahaMessageId(await response.json().catch(()=>({})))
      if(i===images.length-1)status='accepted'

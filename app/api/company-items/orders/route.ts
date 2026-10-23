@@ -1,3 +1,4 @@
+import {approvedGatewayUrl} from '@/lib/waha-gateway.mjs'
 import {companyAccess,companyBody,companyReply} from '@/lib/company-server'
 import {extractWahaMessageId,normalizeSupplierChatId} from '@/lib/waha-rfq'
 import {companyOrderImages} from '@/lib/company-order-image.mjs'
@@ -10,9 +11,10 @@ export async function POST(request:Request){
  try{
   const {db}=await companyAccess(request),body=await companyBody(request)
   const raw=process.env.WAHA_BASE_URL,key=process.env.WAHA_API_KEY,session=process.env.WAHA_SESSION||'default'
-  if(!raw||!key||process.env.WAHA_SENDING_ENABLED!=='true')throw new Error('Company orders are queued. Automatic WhatsApp sending is not configured or enabled.')
-  const url=new URL(raw);if(!['http:','https:'].includes(url.protocol)||!url.hostname.endsWith('.railway.internal')||url.username||url.password||url.pathname!=='/'||url.search||url.hash||!/^[\w-]{1,50}$/.test(session))throw new Error('Invalid private WhatsApp gateway configuration.')
-  const check=await fetch(url.origin+'/api/sessions/'+session,{headers:{'X-Api-Key':key},signal:AbortSignal.timeout(5000),cache:'no-store'})
+  if(!raw||!key||(process.env.WAHA_SENDING_ENABLED!=='true'||process.env.GH_PORTAL_DELIVERY_VERIFIED!=='true'))throw new Error('Company orders are queued. Automatic WhatsApp sending is not configured or enabled.')
+  const url=approvedGatewayUrl(raw)
+  if(!url)throw new Error('Invalid private gateway configuration.');if(!/^[\w-]{1,50}$/.test(session))throw new Error('Invalid private WhatsApp gateway configuration.')
+  const check=await fetch(url.origin+'/api/sessions/'+session,{headers:{'X-Api-Key':key},signal:AbortSignal.timeout(5000),redirect:'error',cache:'no-store'})
   if(!check.ok||(await check.json()).status!=='WORKING')throw new Error('WhatsApp is offline. Company orders remain queued.')
   let query=db.from('proc_company_dispatch_queue').select('id').in('status',['pending','failed']).order('created_at').limit(5)
   if(body.companyId)query=query.eq('company_id',body.companyId)
@@ -33,7 +35,7 @@ export async function POST(request:Request){
     let response:Response|null=null
     for(let page=0;page<images.length;page++){
      contacted=true
-     response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:'PO-'+job.po_no+'-'+(page+1)+'.png',data:images[page].toString('base64')},caption:routeCaption(job)+'\nPage '+(page+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),cache:'no-store'})
+     response=await fetch(url.origin+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:'PO-'+job.po_no+'-'+(page+1)+'.png',data:images[page].toString('base64')},caption:routeCaption(job)+'\nPage '+(page+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'})
      if(!response.ok)break
     }
     if(!response)throw new Error('No order image was generated.')
@@ -43,7 +45,7 @@ export async function POST(request:Request){
      for(const attachment of job.attachments||[]){
       const {data:file,error:downloadError}=await db.storage.from('gh-procurement').download(attachment.storage_path);if(downloadError||!file)throw new Error('PO accepted, but its selected attachment could not be loaded.');
       if(file.size>10*1024*1024)throw new Error('Selected attachment exceeds 10 MB.');
-      const sent=await fetch(url.origin+'/api/sendFile',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:attachment.mime_type,filename:attachment.name,data:Buffer.from(await file.arrayBuffer()).toString('base64')},caption:[attachment.remarks,attachment.discount_percent?'Discount: '+attachment.discount_percent+'%':'',attachment.discount_amount?'Fixed discount: '+attachment.discount_amount:''].filter(Boolean).join('\n').slice(0,2000)}),signal:AbortSignal.timeout(25000),cache:'no-store'});if(!sent.ok)throw new Error('PO accepted, but a selected attachment was rejected.');
+      const sent=await fetch(url.origin+'/api/sendFile',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:attachment.mime_type,filename:attachment.name,data:Buffer.from(await file.arrayBuffer()).toString('base64')},caption:[attachment.remarks,attachment.discount_percent?'Discount: '+attachment.discount_percent+'%':'',attachment.discount_amount?'Fixed discount: '+attachment.discount_amount:''].filter(Boolean).join('\n').slice(0,2000)}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'});if(!sent.ok)throw new Error('PO accepted, but a selected attachment was rejected.');
      }
      accepted++
     }else lastError='WhatsApp rejected the order (HTTP '+response.status+').'
