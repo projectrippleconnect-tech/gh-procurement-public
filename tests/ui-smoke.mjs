@@ -1089,7 +1089,10 @@ try{
    assert.equal(await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).count(),1,'The separate customizable printing tool is preserved')
    await page.getByRole('tab',{name:'Company Items',exact:true}).click()
    const view=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
+   const scopedCompanyRows=page.waitForResponse(response=>{const u=new URL(response.url());return u.pathname.endsWith('/proc_company_list_items')&&u.searchParams.get('company_id')==='eq.company-fixture'})
    await chooseOption(view.getByLabel('Company list',{exact:true}),'company-fixture')
+   await scopedCompanyRows
+   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
    await view.locator('.company-item-name').first().waitFor()
    const enough=view.getByRole('checkbox',{name:'Sufficient stock: '+item.description,exact:true})
    const current=view.getByLabel('Current stock: '+item.description,{exact:true})
