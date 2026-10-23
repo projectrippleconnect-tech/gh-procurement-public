@@ -216,4 +216,3 @@ export default function SupplierQuotePortal(){
   </div>
  </main>
 }
-}
