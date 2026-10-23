@@ -813,3 +813,6 @@ body:has(.stock-search-overlay) .mobile-bottom-nav{display:none!important}
  .company-directory-record{grid-template-columns:minmax(0,1fr);gap:4px}
  .company-directory-record span{font-size:14px}
 }
+
+/* Item text entry displays uppercase without changing product codes or numeric fields. */
+input.item-uppercase { text-transform: uppercase; }

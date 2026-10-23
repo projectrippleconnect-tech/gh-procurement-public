@@ -9,6 +9,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation,useTextPrompt} from './danger-confirmation'
 import {businessDate,money,qty,stamp,itemTitle,whatsappUrl,formatSriLankaSupplierPhoneInput,toSriLankaSupplierPhone,normalizeWhatsAppNumber} from '@/lib/helpers'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
 import {additionalSizeLines,encodeSupplierQuoteNotes,decodeSupplierQuoteNotes,normalizePriceInput,validateSupplierQuoteVariants} from '@/lib/quote-line-notes'
 import {matchesRfqItem,supplierRequestItems,pricedReviewSelection,supplierQuoteProgress,nextQuoteSupplier} from '@/lib/rfq-sheet'
 import {OrderProgress,StockSubmissionDetails} from './order-progress'
@@ -277,7 +278,7 @@ export function Requirements({activeView='requirements',initialFilter='',profile
   {canAdd&&<details className="card pad procurement-manual-add">
    <summary className="procurement-manual-summary"><b>+ {t('requirements.manual_special','Manual / Special Purchase')}</b><span>{t('requirements.manual_special_hint','Use only when the item is not from a stock submission.')}</span></summary>
    <div className="section procurement-manual-body"><div className="sectionhead"><div><h3>{t('requirements.manual_special','Manual / Special Purchase')}</h3><p>{t('requirements.normal_shortages_hint','Optional. Normal shortages arrive automatically from submitted stock counts.')}</p></div><div className="toolbar"><button className={'btn '+(addMode==='standard'?'primary':'')} onClick={()=>{setAddMode('standard');setSpecialItem(null)}}>{t('requirements.standard','Standard')}</button>{specialEnabled&&<button className={'btn '+(addMode==='special'?'primary':'')} onClick={()=>setAddMode('special')}>{t('requirements.special','Special Purchase')}</button>}</div></div>
-   <div className="field"><label>{t('requirements.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('requirements.find_placeholder','Search item, code, brand or size')}/></div>
+   <div className="field"><label>{t('requirements.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(uppercaseItemText(e.target.value))} placeholder={t('requirements.find_placeholder','Search item, code, brand or size')}/></div>
 
    {addMode==='standard'&&<div className="formgrid section"><div className="field"><label>{t('requirements.required_qty','Required quantity')}</label><input className="input" inputMode="decimal" value={manualQty} onChange={e=>setManualQty(e.target.value)}/></div><div className="field"><label>{t('requirements.note_optional','Note (optional)')}</label><input className="input" value={manualNote} onChange={e=>setManualNote(e.target.value)}/></div></div>}
 
@@ -474,7 +475,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
       {scopeType==='category'&&<div className="field"><label>Category</label><ModernSelect className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select category…</option>{categories.map(c=><option key={c}>{c}</option>)}</ModernSelect></div>}
       {scopeType==='main_group'&&<div className="field"><label>Main Group</label><ModernSelect className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select main group…</option>{mainGroups.map(x=><option key={x}>{x}</option>)}</ModernSelect></div>}
       {scopeType==='subgroup'&&<div className="field"><label>Subgroup</label><ModernSelect className="select" value={scopeValue} onChange={e=>setScopeValue(e.target.value)}><option value="">Select subgroup…</option>{subgroups.map(x=><option key={x}>{x}</option>)}</ModernSelect></div>}
-      {scopeType==='item'&&<div className="field"><label>Search item</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder="Type item, code or size"/></div>}
+      {scopeType==='item'&&<div className="field"><label>Search item</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(uppercaseItemText(e.target.value))} placeholder="Type item, code or size"/></div>}
      </div>
      {scopeType!=='item'&&<button className="btn primary section" onClick={()=>addScope()}>{t('suppliers.add_coverage','Add Coverage Rule')}</button>}
      {scopeType==='item'&&itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addScope(i)}><div><strong>{itemTitle(i)}</strong><div className="muted tiny">{[i.item_code,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}

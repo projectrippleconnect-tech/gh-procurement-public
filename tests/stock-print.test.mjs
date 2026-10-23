@@ -19,7 +19,7 @@ test('custom stock PDF includes all 150 rows without modifying source data',()=>
  for(const layout of ['columns','stacked'])for(const orientation of ['portrait','landscape']){
   const pdf=buildCustomStockPdf({items:rows,company:{name:'General Hardware'},options:{layout,orientation,tablesPerPage:3,fontSize:7,rowHeight:5}})
   const text=pdf.output();const renderedText=[...text.matchAll(/\(([^()]*)\)\s*Tj/g)].map(m=>m[1]).join(' ')
-  for(let n=1;n<=150;n++)assert.ok(renderedText.includes('PVC Elbow '+String(n).padStart(3,'0')),String(n))
+  for(let n=1;n<=150;n++)assert.ok(renderedText.includes('PVC ELBOW '+String(n).padStart(3,'0')),String(n))
   assert.ok(text.includes('Stocks Checked By'));assert.ok(text.includes('Stocks Verified By'));assert.ok(text.includes('Order Approved By'))
   assert.ok(pdf.getNumberOfPages()>=1)
  }
@@ -66,5 +66,5 @@ test('adaptive tables preserve every row with many columns and long descriptions
  const pdf=buildCustomStockPdf({items:rows,options:{tablesPerPage:3,fontSize:11,columns:['no','description','size','uom','category','movement','max_stock','reorder_level','current_stock','brand']}})
  const text=pdf.output()
  for(const header of ['Reorder level','Current stock','Movement','Max stock'])assert.ok(text.includes('('+header+')'),header)
- assert.equal((text.match(/\(Long stock/g)||[]).length,90)
+ assert.equal((text.match(/\(LONG STOCK/g)||[]).length,90)
 })
