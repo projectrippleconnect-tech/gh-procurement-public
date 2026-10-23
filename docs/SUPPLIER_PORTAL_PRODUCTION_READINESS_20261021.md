@@ -1,3 +1,42 @@
+## Latest verified live state — portal database activated
+
+This section supersedes the earlier production HOLD and private-hosting statements
+below. The existing public Netlify deployment is healthy at
+https://gh-procurement.netlify.app/ and reports application revision
+`b7acc93c9de682c27ca64c7d3f863647a98aebd3`, connected database and ready schema.
+The live database now contains the intake, round schema, signed delegation, submit
+synchronization, review/deadline, processor, delivery guards, business-conflict and
+database-scheduler changes. The large round migration was installed in named
+transactional sections; do not replay the original full round file over them.
+
+Verified from the live database in this continuation:
+- Two confirmed supplier links, each with a six-hour window. Both confirmed
+  revisions have synchronized into Prices (`imported_revision=revision`).
+- Database scheduler control is enabled; the minute cron job is active.
+  Its latest 30 runs completed with zero failures. There are no approved rounds
+  or pending dispatch jobs yet; this check did not create either.
+- Anonymous callers can use capability-scoped read/submit functions, but cannot
+  process purchasing rounds or claim dispatches. Authenticated API roles cannot
+  execute the private processor core.
+- All seven portal/control/signing tables have RLS enabled and no direct SELECT
+  grant for anon or authenticated roles. No portal tokens, private signing key,
+  customer/supplier data or backup contents are included in this repository.
+
+A procurement-scoped logical recovery archive was saved separately before the
+migration. The isolated restore verified 63 tables and 9,941 records and verified
+that the planned migrations preserved the original records. It excludes Auth
+credentials/sessions, unrelated application tables and Storage file bytes, so it
+must not be described as a full Supabase project backup.
+
+Netlify remains the hosting target. Automatic WhatsApp delivery is not certified:
+the Netlify dashboard session must be restored to inspect/configure the reachable,
+paired gateway and independent dispatch flags. A verified recipient/document pilot
+and actual delivery evidence remain required. Existing manual PNG/caption sharing
+is available. This continuation performed read-only live verification and no
+supplier sends, new buying approvals, credential changes or paid upgrades.
+
+---
+
 # GH Procurement Supplier Quotation Portal — production-readiness report
 
 Updated: 22 October 2026 (Sri Lanka)
