@@ -1,3 +1,14 @@
+## 23 October 2026 10:16 SLST — independent continuation verification
+
+- GitHub's scheduled `Production Health` run [#39902168106](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/39902168106) **passed** on 2026-10-23 04:47:18 UTC. The Netlify health endpoint reported revision `b7acc93c9de682c27ca64c7d3f863647a98aebd3`; this is **not** the reviewed PO sharing candidate `6d0ef41b8ff6c5800a0787c3ba5a59a87e1c5056`. The old deployed application is healthy, but the candidate is not yet verified live.
+- The connected GH NEXUS Supabase project `huxhcjmcvlhblvpvrron` reported `ACTIVE_HEALTHY`; read-only metadata inspection confirmed supplier portal, round, and PO dispatch tables exist. No production business rows were edited or migrations applied in this continuation.
+- Netlify's official CLI documents `netlify deploy --prod --site`, `--secret-env` and `netlify sites:list --json`. The existing [manual-release workflow on main](https://github.com/projectrippleconnect-tech/gh-procurement-public/blob/main/.github/workflows/manual-netlify-release.yml) is pinned to the previously green release commit, checks the fixed site ID, uses an explicit `DEPLOY` confirmation, and contains no push/scheduled deployment trigger.
+- Security hardening commit `714d54c2850c13c662d0a2edb7f6a7949764ce76` removed the Netlify token from job-wide CI environment variables. It is now available only for the operator-authorization and Netlify CLI stages, not dependency install, unit tests, or browser tests.
+- **Release blocker:** there is no authenticated Netlify tool/session or `GH_NETLIFY_AUTH_TOKEN` accessible to this assistant, and the connected GitHub action surface lacks a `workflow_dispatch` execution method or secret-manager writer. Do not claim deployment or bypass with a push-triggered workflow. An authorized Netlify login / token grant and a manual release run remain necessary.
+- Keep `WAHA_SENDING_ENABLED=false`, `GH_PORTAL_DISPATCH_ENABLED=false`, `GH_PORTAL_DELIVERY_VERIFIED=false`, and `GH_PORTAL_PROCESSING_ENABLED=false` in the release configuration. Real Android WhatsApp handoff/recipient/delivery confirmation is not certified.
+
+---
+
 # GH Procurement — 23 October 2026 release checkpoint
 
 ## Scope and verified GitHub state
