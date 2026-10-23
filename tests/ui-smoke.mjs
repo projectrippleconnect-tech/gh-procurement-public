@@ -1165,7 +1165,7 @@ try{
   }
   if(process.env.GH_UI_PRINT_TEMPLATES==='1'){
    await navigate('CL Company Lists')
-   await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+   await page.locator('.company-item-name').filter({hasText:/fixture switch/i}).first().waitFor()
    await page.locator('.company-stock-tools>summary').filter({visible:true}).first().click()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
@@ -1241,13 +1241,13 @@ try{
   if(process.env.GH_UI_CATALOG==='1'){
   // Catalog actions use intercepted APIs; production is never mutated.
   await navigate('CL Company Lists')
-  await page.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+  await page.locator('.company-item-name').filter({hasText:/fixture switch/i}).first().waitFor()
   const companyView=page.locator('section:not([hidden])').filter({has:page.getByRole('heading',{name:'Company Lists',exact:true})})
   await companyView.locator('.company-stock-filters>summary').click()
   await chooseOption(companyView.getByLabel('Company list category',{exact:true}),'ELECTRICAL')
   assert.equal(await companyView.locator('input[aria-label="Company item description"]').filter({hasNotText:'__unused__'}).evaluateAll((nodes,name)=>nodes.filter(n=>n.value===name).length,item.description),0)
   await chooseOption(companyView.getByLabel('Company list subcategory',{exact:true}),'Switches')
-  await companyView.locator('.company-item-name').filter({hasText:'Fixture switch'}).first().waitFor()
+  await companyView.locator('.company-item-name').filter({hasText:/fixture switch/i}).first().waitFor()
   await companyView.locator('.company-stock-tools>summary').click()
   await companyView.getByRole('button',{name:'Remove company list',exact:true}).click()
   const companyWarning=page.getByRole('alertdialog',{name:'Remove company list',exact:true})
