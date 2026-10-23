@@ -1,11 +1,11 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate is pinned to the source SHA that passed Quality Gate #456.
+# Release candidate is pinned to the reviewed supplier-invoice portal revision (PR #137, Quality Gate #39904146057).
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type DEPLOY to publish the tested PO sharing fix to the EXISTING Netlify site'
+        description: 'Type DEPLOY to publish the tested supplier invoice quotation portal to the EXISTING Netlify site'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: 6d0ef41b8ff6c5800a0787c3ba5a59a87e1c5056
+      GH_RELEASE_SHA: 665313c0096440e75c9121fc905546d667f28b0b
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: 6d0ef41b8ff6c5800a0787c3ba5a59a87e1c5056
+          ref: 665313c0096440e75c9121fc905546d667f28b0b
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -76,6 +76,15 @@ jobs:
           GH_UI_WIDTHS: '320,390,768,1366'
         run: npm run test:ui
 
+      - name: Verify compact invoice-style supplier quotation before publication
+        env:
+          GH_UI_BROWSER_EXECUTABLE: /usr/bin/google-chrome
+          GH_UI_BROWSER_PATH: /usr/bin/google-chrome
+        run: |
+          npm run build
+          node tests/supplier-portal-ui.mjs
+          node tests/supplier-portal-mobile.mjs
+
       - name: Install a pinned Netlify CLI on this temporary runner
         run: npm install --global netlify-cli@27.13.0
 
@@ -103,7 +112,7 @@ jobs:
         run: |
           set -euo pipefail
           netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
-            --message "Manual GH Procurement PO PNG sharing release $GH_RELEASE_SHA" \
+            --message "Manual GH Procurement supplier invoice release $GH_RELEASE_SHA" \
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
@@ -112,6 +121,16 @@ jobs:
 
       - name: Read-only production health, login, CSP, OCR and sending boundary
         run: node scripts/check-production.mjs
+
+      - name: Verify the invoice quotation route and exact release revision are live
+        run: |
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict'
+          const root=process.env.GH_PRODUCTION_URL
+          const resp=await fetch(root+'/supplier/quote',{signal:AbortSignal.timeout(15000)})
+          assert.equal(resp.status,200,'Supplier quote route must be reachable')
+          console.log('Supplier quotation route responds at '+root)
+          NODE
 
       - name: Verify the exact release revision is now live
         run: |
