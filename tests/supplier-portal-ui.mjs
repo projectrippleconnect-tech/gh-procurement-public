@@ -34,6 +34,7 @@ try{
  await page.getByRole('button',{name:'Save draft',exact:true}).click()
  await page.getByRole('status').getByText(/Draft saved/).waitFor()
  assert.equal(saves[0].p_confirm,false);assert.equal(saves[0].p_response[0].variations[0].name,'')
+ await page.getByRole('button',{name:'Mark in stock for '+items[0].description,exact:true}).click()
  await page.getByLabel('Price for '+items[0].description,{exact:true}).fill('100')
  await page.getByLabel('Quantity for '+items[0].description,{exact:true}).fill('4')
  await page.getByLabel('Delivery days (all items)',{exact:true}).fill('2')
