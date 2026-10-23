@@ -57,3 +57,9 @@ commit;
 ```
 
 Web environment flags alone do not stop the database-owned timer. Dispatch remains independently disabled.
+
+## Subsequent access recovery attempt
+
+A fresh Google login resolved the expired-state failure but Netlify returned email_collision: the existing account uses email/password and Google is not linked. The normal secure email/password prompt was opened; the request was aborted by the user. After browser-session cleanup no authenticated Netlify tab remains. Do not retry credential collection without a renewed user request. No new frontend deployment occurred.
+
+Railway discovery still returns UNAUTHORIZED with reauthentication required. No direct Netlify plugin was found. Restoring the existing Netlify email/password session and Railway connection remains necessary to complete the hosting/integration work. Do not create paid resources, link automatic deploys or enable WhatsApp dispatch as a workaround.
