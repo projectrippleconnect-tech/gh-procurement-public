@@ -24,7 +24,6 @@ jobs:
       GH_RELEASE_SHA: 6d0ef41b8ff6c5800a0787c3ba5a59a87e1c5056
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
-      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
       GH_UI_BROWSER_CHANNEL: chrome
@@ -43,6 +42,7 @@ jobs:
       - name: Require manual confirmation, existing site credentials and exact revision
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -80,6 +80,8 @@ jobs:
         run: npm install --global netlify-cli@27.13.0
 
       - name: Check Netlify authorization and exact existing project
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,6 +97,8 @@ jobs:
           ' "$RUNNER_TEMP/netlify-sites.json"
 
       - name: Publish the reviewed build MANUALLY to existing Netlify site
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
