@@ -24,7 +24,10 @@ begin
  perform public.proc_portal_issue_link_v1(inv2,encode(extensions.digest(token2,'sha256'),'hex'),6);
  perform set_config('request.jwt.claim.sub','',true);
  execute 'set local role anon';
- assert jsonb_array_length(public.proc_portal_read_v1(token)->'items')=1,'Supplier cannot read invited item';
+ begin perform public.proc_portal_read_v1(token);raise exception 'TEST bearer-only read allowed';exception when insufficient_privilege then null;end;
+ execute 'reset role';
+ assert jsonb_array_length(public.proc_portal_read_v1(token)->'items')=1,'Server cannot read invited item';
+ execute 'set local role anon';
  begin perform public.proc_portal_read_v1(repeat('x',64));raise exception 'TEST invalid token allowed';exception when insufficient_privilege then null;end;
  begin perform public.proc_portal_staff_responses_v1(rfq);raise exception 'TEST anonymous staff access';exception when insufficient_privilege then null;end;
  begin perform private.proc_portal_begin_context(admin_id);raise exception 'TEST delegation helper exposed';exception when insufficient_privilege then null;end;
@@ -35,6 +38,7 @@ begin
  begin perform 1 from public.proc_supplier_portal_links;raise exception 'TEST direct portal table access';exception when insufficient_privilege then null;end;
  payload:=jsonb_build_array(jsonb_build_object('id',ri,'status','in_stock','price','50','quantity','6','image',null,'variations',jsonb_build_array(jsonb_build_object('name','Larger size','price',70,'quantity',3,'image',null)),
  'discount','0','tax','0','freight_unit','5','moq','0','multiple','1','lead_days','2','valid_until',current_date+2,'uom','PCS','terms_confirmed',true));
+ execute 'reset role';execute 'set local role service_role';
  result:=public.proc_portal_submit_v1(token,payload,0,false);assert result->>'status'='draft';
  begin perform public.proc_portal_submit_v1(token,payload,0,true);raise exception 'TEST stale revision allowed';exception when sqlstate 'PT409' then null;end;
  begin perform public.proc_portal_submit_v1(token,jsonb_set(payload,'{0,id}',to_jsonb(gen_random_uuid())),1,true);raise exception 'TEST item swap allowed';exception when others then if sqlerrm='TEST item swap allowed' then raise;end if;end;
@@ -48,11 +52,11 @@ begin
  assert (select count(*) from public.proc_quotes where rfq_id=rfq)=2,'Confirmed quotes not synchronized to Prices';
  assert (select count(*) from public.proc_quote_lines ql join public.proc_quotes q on q.id=ql.quote_id where q.rfq_id=rfq)=2,'Variations leaked into exact stock lines';
  -- Withdrawal of a confirmed response to draft removes prices until reconfirmed.
- execute 'set local role anon';
+ execute 'set local role service_role';
  perform public.proc_portal_submit_v1(token,payload,2,false);
  execute 'reset role';
  assert not exists(select 1 from public.proc_quote_lines ql join public.proc_quotes q on q.id=ql.quote_id where q.rfq_id=rfq and q.supplier_id=sid),'Draft left a stale confirmed price';
- execute 'set local role anon';perform public.proc_portal_submit_v1(token,payload,3,true);execute 'reset role';
+ execute 'set local role service_role';perform public.proc_portal_submit_v1(token,payload,3,true);execute 'reset role';
  -- Fixture-only time travel; actual code always uses PostgreSQL clock/deadlines.
  update public.proc_portal_rounds set opens_at=clock_timestamp()-interval '7 hours',closes_at=clock_timestamp()-interval '1 hour' where id=round_v;
  perform set_config('request.jwt.claim.sub','',true);
@@ -95,7 +99,7 @@ begin
  execute 'reset role';
  assert (select status from public.proc_purchase_orders where id=pid)='sent','Verified delivery did not integrate with existing PO workflow';
  -- Same supplier links now show just their residual-only second round; quotations reset.
- execute 'set local role anon';result:=public.proc_portal_read_v1(token);
+ execute 'set local role service_role';result:=public.proc_portal_read_v1(token);
 assert (result->'items'->0->>'requested_qty')::numeric=2;
  assert result->>'status'='draft' and result->'response'='[]','Residual round retained old supplier prices';
  execute 'reset role';

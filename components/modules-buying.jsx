@@ -520,7 +520,11 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
 export function Rfqs({activeView='rfq',initialFilter='',profile,fields,features=[],company,footer,flash,fail,can=()=>false,navigate=()=>{},guidedStep=4,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,onRfqSelected=()=>{},language='en',t=(k,f)=>f||k}){
  const textPrompt=useTextPrompt()
  const[documentTemplate,setDocumentTemplate]=useState(()=>defaultSupplierTemplate('rfq'))
- useEffect(()=>{try{const v=JSON.parse(localStorage.getItem('gh-rfq-document:'+profile.id)||'null');if(v)setDocumentTemplate({...defaultSupplierTemplate('rfq'),...v})}catch{}},[profile.id])
+ useEffect(()=>{let live=true;const key='gh-rfq-document:'+profile.id;let local=null;try{local=JSON.parse(localStorage.getItem(key)||'null')}catch{}
+  if(local)setDocumentTemplate({...defaultSupplierTemplate('rfq'),...local})
+  else supabase.rpc('proc_supplier_document_settings_v1').then(({data,error})=>{if(live&&!error)setDocumentTemplate(current=>JSON.stringify(current)===JSON.stringify(defaultSupplierTemplate('rfq'))?{...defaultSupplierTemplate('rfq'),...data?.rfq}:current)})
+  return()=>{live=false}
+ },[profile.id])
  function changeDocumentTemplate(v){setDocumentTemplate(v);try{localStorage.setItem('gh-rfq-document:'+profile.id,JSON.stringify(v))}catch{}}
  const guidedTargetHandled=useRef(''),rfqListRef=useRef(null),rfqSendRef=useRef(null),rfqHeaderRef=useRef(null)
  const confirmAction=useActionConfirmation()

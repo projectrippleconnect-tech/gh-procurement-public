@@ -19,7 +19,7 @@ begin
   execute 'reset role';perform set_config('request.jwt.claim.sub',admin_v::text,true);
   payload:=jsonb_build_array(jsonb_build_object('id',ri_v,'status','in_stock','price','50','quantity','10','variations','[]'::jsonb,'discount','0','tax','0','freight_unit','0','moq','0','multiple','1','lead_days','2','valid_until',case when mode='expired' then current_date-2 else current_date+2 end,'uom','PCS','terms_confirmed',true));
   if mode='partial_requested' then payload:=jsonb_set(payload,'{0,quantity}','"3"');end if;
-  perform set_config('request.jwt.claim.sub','',true);execute 'set local role anon';
+  perform set_config('request.jwt.claim.sub','',true);execute 'set local role service_role';
   if mode='empty_scope' then
    assert public.proc_portal_read_v1(token_v)->'items'='[]';
    begin perform public.proc_portal_submit_v1(token_v,payload,0,true);raise exception 'TEST empty item scope bypassed';exception when others then if sqlerrm='TEST empty item scope bypassed' then raise;end if;end;
@@ -32,7 +32,7 @@ begin
   end if;
   execute 'reset role';perform set_config('request.jwt.claim.sub',admin_v::text,true);
   if mode='revoked' then
-   execute 'set local role authenticated';perform public.proc_portal_revoke_link_v1(link_v);execute 'reset role';perform set_config('request.jwt.claim.sub',admin_v::text,true);perform set_config('request.jwt.claim.sub','',true);execute 'set local role anon';
+   execute 'set local role authenticated';perform public.proc_portal_revoke_link_v1(link_v);execute 'reset role';perform set_config('request.jwt.claim.sub',admin_v::text,true);perform set_config('request.jwt.claim.sub','',true);execute 'set local role service_role';
    begin perform public.proc_portal_read_v1(token_v);raise exception 'TEST revoked token read';exception when insufficient_privilege then null;end;
    execute 'reset role';perform set_config('request.jwt.claim.sub',admin_v::text,true);
   end if;

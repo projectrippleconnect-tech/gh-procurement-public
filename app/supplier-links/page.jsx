@@ -2,6 +2,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import SupplierRoundControls from '@/components/supplier-round-controls'
+import SupplierPortalSettings from '@/components/supplier-portal-settings'
 
 const field={background:'#0d1829',border:'1px solid #40546b',borderRadius:9,padding:10,color:'white',minWidth:0,fontSize:15}
 const box={border:'1px solid #344861',background:'#132136',padding:14,borderRadius:14,marginBottom:12}
@@ -76,6 +77,7 @@ export default function SupplierLinks(){
  },[responses])
  async function issue(inv){
   if(busy||!portalReady)return
+  if(!/^(?:07\d{8}|947\d{8}|00947\d{8})$/.test(String(inv.supplier?.whatsapp||inv.supplier?.phone||'').replace(/\D/g,''))){setError('Save a valid registered WhatsApp mobile number for this supplier before issuing a link.');return}
   if(identified.get(inv.id)&&!window.confirm('Generate a new link? Any previously shared link for this supplier will stop working. Saved responses remain.'))return
   setBusy(inv.id);setError('');setMessage('')
   try{
@@ -122,6 +124,7 @@ export default function SupplierLinks(){
   <h1>Supplier quotation links</h1>
   <p style={{color:'#cbd5e1'}}>Each supplier receives a private link. They can save drafts, mark no stock, attach photos, and confirm. Confirmed exact-item prices appear in GH Prices. Drafts and alternative variations remain separate.</p>
   <p><a style={{color:'#fbbf24'}} href="/">← Back to Procurement</a></p>
+  <SupplierPortalSettings/>
   {error&&<p role="alert" style={{color:'#fecaca'}}>{error}</p>}
   {!portalReady&&<div role="status" style={{...box,borderColor:'#fbbf24'}}><strong>Supplier portal setup is pending</strong><p>The live database has not been configured for private supplier quote links yet. Links cannot be created or received until setup is completed. Your existing RFQs and manually entered prices remain available.</p></div>}
   {message&&<p role="status" style={{color:'#86efac'}}>{message}</p>}
@@ -147,7 +150,7 @@ export default function SupplierLinks(){
    const record=identified.get(inv.id),canImport=record?.status==='confirmed'&&!record?.revoked_at&&record?.revision!==record?.imported_revision
    return <section style={box} key={inv.id}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-     <div><strong>{inv.supplier?.name||'Unknown supplier'}</strong><div style={{fontSize:12,color:'#cbd5e1'}}>RFQ status: {inv.status} · Portal: {record?.revoked_at?'Revoked':record?.status||'Not invited by link'}</div>
+     <div><strong>{inv.supplier?.name||'Unknown supplier'}</strong><div style={{fontSize:12,color:'#cbd5e1'}}>Registered OTP number: {inv.supplier?.whatsapp||inv.supplier?.phone||'Missing — update Suppliers'}</div><div style={{fontSize:12,color:'#cbd5e1'}}>RFQ status: {inv.status} · Portal: {record?.revoked_at?'Revoked':record?.status||'Not invited by link'}</div>
       {record&&<div style={{fontSize:12,color:'#cbd5e1'}}>Window closes {new Date(record.closes_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})} · Revision {record.revision}</div>}
      </div>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>

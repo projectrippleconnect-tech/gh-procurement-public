@@ -15,12 +15,22 @@ try{
   const page=await browser.newPage({viewport:{width,height:844}}),errors=[]
   page.on('pageerror',e=>errors.push(e.message))
   let data={rfq_no:'QA-001',supplier_name:'QA Supplier',items:[{id:'item1',description:'CONCRETE NAILS',size:'2 inch',uom:'PCS',requested_qty:10},{id:'item2',description:'HINGES',size:'3 inch',uom:'PCS',requested_qty:6}],closes_at:new Date(Date.now()+21600000).toISOString(),server_now:new Date().toISOString(),can_edit:true,status:'draft',revision:0,response:[]}
-  await page.route('**/rest/v1/rpc/**',async route=>{
-   const name=route.request().url().split('/').at(-1)
-   if(name==='proc_portal_submit_v1'){const p=route.request().postDataJSON();assert.equal(p.p_expected_revision,data.revision);data={...data,response:p.p_response,revision:data.revision+1,status:p.p_confirm?'confirmed':'draft'}}
-   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)})
+  let verified=false
+  await page.route(base+'/api/supplier/portal',async route=>{
+   const p=route.request().postDataJSON()
+   if(p.action==='request')return route.fulfill({json:{ok:true,challenge:'qa-challenge',masked_phone:'+94 ••• •• 4567'}})
+   if(p.action==='verify'){verified=true;return route.fulfill({json:{ok:true}})}
+   if(!verified)return route.fulfill({status:401,json:{verification_required:true,error:'Verify your registered phone number to continue.'}})
+   if(p.action==='submit'){assert.equal(p.revision,data.revision);data={...data,response:p.response,revision:data.revision+1,status:p.confirm?'confirmed':'draft'}}
+   await route.fulfill({status:200,json:{data}})
   })
   await page.goto(base+'/supplier/quote?token='+'a'.repeat(64))
+  await page.getByLabel('Registered mobile number',{exact:true}).fill('0771234567')
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'OTP form overflow at '+width)
+  assert.equal(await page.locator('.sq-row').count(),0,'Quotation hidden until OTP verification')
+  await page.getByRole('button',{name:'Send verification code',exact:true}).click()
+  await page.getByLabel('Verification code',{exact:true}).fill('123456')
+  await page.getByRole('button',{name:'Verify and open quotation',exact:true}).click()
   await page.getByText('CONCRETE NAILS 2 inch',{exact:true}).waitFor()
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Horizontal overflow at '+width)
   assert.equal(await page.locator('.sq-row').count(),2,'Compact bill rows visible at '+width)

@@ -60,3 +60,11 @@ test('supplier PO renderer creates a real PNG and safely escapes supplier and it
  const images=await supplierPoImages({po_no:'PO-QA',supplier:'A & <B>',lines:[{description:'TEST <script> & size',qty:5,uom:'PCS'}]})
  assert.equal(images.length,1);assert.equal(images[0].subarray(1,4).toString(),'PNG')
 })
+test('automatic PO uses the approved template for both the image and caption',async()=>{
+ const branded={...job,document:{...job.document,document_template:{name:'G-E-N',title:'SUPPLY ORDER',note:'Please confirm.',caption:'{company_name} / {po_number} / {supplier_name}'}}}
+ const f=fixture({reply:name=>name==='proc_portal_claim_dispatch_v1'?{data:branded}:null})
+ let imageJob
+ const r=await runPortalWorker({...f,env,render:async args=>{imageJob=args;return [Buffer.from('qa')]}})
+ assert.equal(r.dispatch.status,'accepted');assert.equal(imageJob.document_template.name,'G-E-N')
+ assert.equal(JSON.parse(f.requests[1].opts.body).caption,'G-E-N / PO-QA / Supplier')
+})

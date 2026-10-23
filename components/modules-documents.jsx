@@ -27,7 +27,11 @@ import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-fl
 export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const textPrompt=useTextPrompt()
  const[documentTemplate,setDocumentTemplate]=useState(()=>defaultSupplierTemplate('po'))
- useEffect(()=>{try{const v=JSON.parse(localStorage.getItem('gh-po-document:'+profile.id)||'null');if(v)setDocumentTemplate({...defaultSupplierTemplate('po'),...v})}catch{}},[profile.id])
+ useEffect(()=>{let live=true;const key='gh-po-document:'+profile.id;let local=null;try{local=JSON.parse(localStorage.getItem(key)||'null')}catch{}
+  if(local)setDocumentTemplate({...defaultSupplierTemplate('po'),...local})
+  else supabase.rpc('proc_supplier_document_settings_v1').then(({data,error})=>{if(live&&!error)setDocumentTemplate(current=>JSON.stringify(current)===JSON.stringify(defaultSupplierTemplate('po'))?{...defaultSupplierTemplate('po'),...data?.po}:current)})
+  return()=>{live=false}
+ },[profile.id])
  function changeDocumentTemplate(v){setDocumentTemplate(v);try{localStorage.setItem('gh-po-document:'+profile.id,JSON.stringify(v))}catch{}}
  const confirmAction=useActionConfirmation()
  const confirmDanger=useDangerConfirmation()

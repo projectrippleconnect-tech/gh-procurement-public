@@ -1,6 +1,5 @@
 'use client'
 import {useCallback,useEffect,useMemo,useState} from 'react'
-import {supplierClient as supabase} from '@/lib/supplier-client'
 
 const panel={background:'#132136',color:'#f5f7fb',border:'1px solid #33465f',borderRadius:16,padding:16,marginBottom:12}
 const field={boxSizing:'border-box',minWidth:0,width:'100%',background:'#0b1627',color:'#f5f7fb',border:'1px solid #4a5d75',borderRadius:9,padding:'12px',fontSize:16}
@@ -28,6 +27,12 @@ function Remaining({closesAt}){
 }
 export default function SupplierQuotePortal(){
  const [token,setToken]=useState('')
+ const [verification,setVerification]=useState(true)
+ const [phone,setPhone]=useState('')
+ const [code,setCode]=useState('')
+ const [challenge,setChallenge]=useState('')
+ const [maskedPhone,setMaskedPhone]=useState('')
+ const [resendAt,setResendAt]=useState(0)
  const [quote,setQuote]=useState(null)
  const [lines,setLines]=useState([])
  const [error,setError]=useState('')
@@ -44,10 +49,17 @@ export default function SupplierQuotePortal(){
  const [globalValidity,setGlobalValidity]=useState('')
  const [expanded,setExpanded]=useState({})
  const [revision,setRevision]=useState(0)
+ const portalCall=useCallback(async(action,value,args={})=>{
+  const response=await fetch('/api/supplier/portal',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',cache:'no-store',body:JSON.stringify({action,token:value,...args})})
+  const result=await response.json()
+  if(result.verification_required)setVerification(true)
+  if(!response.ok)throw new Error(result.error||'Unable to open supplier portal.')
+  return result
+ },[])
  const load=useCallback(async value=>{
   setError('')
-  const {data,error}=await supabase.rpc('proc_portal_read_v1',{p_token:value})
-  if(error)throw error
+  const {data}=await portalCall('read',value)
+  setVerification(false)
   setQuote(data)
   setOffset(Date.parse(data.server_now)-Date.now())
   setDirty(false)
@@ -58,7 +70,27 @@ export default function SupplierQuotePortal(){
   setGlobalValidity(previousTerms?.valid_until||'')
   setExpanded({})
   setLines((data.items||[]).map(x=>({...emptyItem(x.id),uom:x.uom,...previous.get(x.id)})))
- },[])
+ },[portalCall])
+ async function verifyPhone(action){
+  if(busy)return
+  setBusy(true);setError('');setNotice('')
+  try{
+   if(action==='request'){
+    const result=await portalCall('request',token,{phone})
+    setChallenge(result.challenge);setMaskedPhone(result.masked_phone);setCode('');setResendAt(Date.now()+60000)
+    setNotice('Verification code sent to your registered WhatsApp number.')
+   }else{
+    await portalCall('verify',token,{challenge,code})
+    if(quote&&dirty){
+     const {data}=await portalCall('read',token)
+     setVerification(false)
+     setQuote(q=>({...q,can_edit:data.can_edit}))
+     if(data.revision!==revision)setError('Another window changed this quotation. Your unsaved entries are preserved; review them before refreshing.')
+    }else await load(token)
+    setCode('');setChallenge('');setNotice('Phone verified. You can enter your quotation.')
+   }
+  }catch(e){setError(errMessage(e))}finally{setBusy(false)}
+ }
  useEffect(()=>{
   const value=new URLSearchParams(window.location.hash.slice(1)).get('token')||new URLSearchParams(window.location.search).get('token')||sessionStorage.getItem('gh-supplier-token')||''
   if(value)sessionStorage.setItem('gh-supplier-token',value)
@@ -113,10 +145,7 @@ export default function SupplierQuotePortal(){
     notes:String(notes||'').slice(0,500),image:image||null,
     variations:variations.map(v=>({...v,image:v.image||null}))
    }))
-   const {data,error}=await supabase.rpc('proc_portal_submit_v1',{
-    p_token:token,p_response:payload,p_expected_revision:revision,p_confirm:confirm
-   })
-   if(error)throw error
+   const {data}=await portalCall('submit',token,{response:payload,revision,confirm})
    setRevision(data.revision)
    setQuote(q=>({...q,status:data.status,revision:data.revision}))
    setDirty(false)
@@ -127,7 +156,7 @@ export default function SupplierQuotePortal(){
  }
  const visible=useMemo(()=>quote?.items?.filter(x=>(x.description+' '+x.size+' '+x.item_code).toLowerCase().includes(query.trim().toLowerCase()))||[],[quote,query])
  const answered=lines.filter(x=>x.status!=='skip').length
- const editable=Boolean(quote?.can_edit)&&clock+offset<Date.parse(quote?.closes_at)
+ const editable=!verification&&Boolean(quote?.can_edit)&&clock+offset<Date.parse(quote?.closes_at)
  const total=quote?.items?.reduce((sum,item)=>{
   const row=lines.find(x=>x.id===item.id)
   if(row?.status!=='in_stock'||!Number.isFinite(Number(row.price))||!Number.isFinite(Number(row.quantity))||Number(row.price)<=0||Number(row.quantity)<=0)return sum
@@ -140,6 +169,16 @@ export default function SupplierQuotePortal(){
    <header style={{marginBottom:12}}><small style={{letterSpacing:1.5,color:'#fbbf24'}}>GENERAL HARDWARE</small><h1 style={{fontSize:22,margin:'3px 0'}}>Supplier Quotation</h1><div className="sq-muted">{quote?.rfq_no||'Loading request…'} {quote?.supplier_name?' · '+quote.supplier_name:''}</div></header>
    {error&&<div role="alert" className="sq-box" style={{borderColor:'#f87171',color:'#fecaca'}}>{error}</div>}
    {notice&&<div role="status" className="sq-box">{notice}</div>}
+   {verification&&token&&<section className="sq-box" aria-label="Supplier phone verification">
+    <h2 style={{fontSize:18}}>Verify your registered mobile</h2>
+    <p className="sq-muted">Enter the WhatsApp mobile number registered with purchasing. The code goes only to the matching supplier record. A link alone cannot open the quotation.</p>
+    <form onSubmit={e=>{e.preventDefault();verifyPhone(challenge?'verify':'request')}}>
+     <label>Registered mobile number<input className="sq-control" aria-label="Registered mobile number" type="tel" autoComplete="tel" maxLength={32} value={phone} disabled={busy} placeholder="0771234567" onChange={e=>{setPhone(e.target.value);setChallenge('');setCode('')}}/></label>
+     {challenge&&<><p className="sq-muted">Code sent to {maskedPhone}. Valid for 5 minutes.</p><label>Verification code<input className="sq-control" aria-label="Verification code" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} disabled={busy} onChange={e=>setCode(e.target.value.replace(/\D/g,''))}/></label></>}
+     <button className="sq-primary" style={{marginTop:10}} disabled={busy||!phone||Boolean(challenge)&&code.length!==6} type="submit">{busy?'Please wait…':challenge?'Verify and open quotation':'Send verification code'}</button>
+     {challenge&&<button className="sq-secondary" style={{margin:'10px 0 0 8px'}} type="button" disabled={busy||clock<resendAt} onClick={()=>verifyPhone('request')}>Resend code{clock<resendAt?' · '+Math.ceil((resendAt-clock)/1000)+'s':''}</button>}
+    </form>
+   </section>}
    {quote&&<>
     <div className="sq-box">
      <div style={{display:'flex',justifyContent:'space-between',gap:8}}><strong style={{fontSize:14}}>{dirty?'Unsaved changes':quote.status==='confirmed'?'Quotation confirmed':quote.status==='imported'?'Quotation received by GH':'Quotation in progress'}</strong><strong style={{color:'#fbbf24',whiteSpace:'nowrap',fontSize:13}}><Remaining closesAt={new Date(Date.parse(quote.closes_at)-offset).toISOString()}/></strong></div>
