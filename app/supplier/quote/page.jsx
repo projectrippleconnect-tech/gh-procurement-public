@@ -160,7 +160,7 @@ export default function SupplierQuotePortal(){
      {visible.map(item=>{
       const row=lines.find(x=>x.id===item.id)||emptyItem(item.id)
       const isOut=row.status==='no_stock'
-      const extended=Boolean(expanded[item.id])||(row.variations||[]).length>0||Boolean(row.image)
+      const extended=Boolean(expanded[item.id])
       const available=Number(row.quantity),rate=Number(row.price)
       const hasAmount=row.status==='in_stock'&&available>0&&rate>0&&Number.isFinite(available)&&Number.isFinite(rate)
       return <section className="sq-grid sq-row" role="row" key={item.id}>
@@ -170,7 +170,7 @@ export default function SupplierQuotePortal(){
         <div className="sq-quote-item-actions">
          <button className="sq-link" disabled={!editable||busy} type="button" aria-label={(isOut?'Mark in stock for ':'No stock for ')+item.description} onClick={()=>setItem(item.id,{status:isOut?'in_stock':'no_stock'})}>{isOut?'In stock':'No stock'}</button>
          <button className="sq-link" disabled={!editable||busy||(row.variations||[]).length>=4} type="button" onClick={()=>addVariation(item.id,row)}>+ Variation</button>
-         <button className="sq-link" type="button" onClick={()=>setExpanded(prev=>({...prev,[item.id]:!extended}))}>Photo / details</button>
+         <button className="sq-link" type="button" onClick={()=>setExpanded(prev=>({...prev,[item.id]:!extended}))}>{(row.variations||[]).length||row.image?'Photo / details *':'Photo / details'}</button>
         </div>
        </div>
        <div role="cell" className="sq-req">{item.requested_qty}</div>
