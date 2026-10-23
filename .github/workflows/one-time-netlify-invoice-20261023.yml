@@ -37,11 +37,11 @@ jobs:
       - name: Check source revision and existing Netlify credentials
         shell: bash
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN || secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_API_TOKEN || secrets.NETLIFY_TOKEN }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA"
-          test -n "$NETLIFY_AUTH_TOKEN" || { echo "BLOCKED: GH_NETLIFY_AUTH_TOKEN is not configured. Nothing was deployed."; exit 1; }
+          test -n "$NETLIFY_AUTH_TOKEN" || { echo "BLOCKED: None of GH_NETLIFY_AUTH_TOKEN, NETLIFY_AUTH_TOKEN, NETLIFY_API_TOKEN, NETLIFY_TOKEN is configured. Nothing was deployed."; exit 1; }
           test -f netlify.toml
       - uses: actions/setup-node@v4
         with:
@@ -69,7 +69,7 @@ jobs:
         run: npm install --global netlify-cli@27.13.0
       - name: Validate exact existing site and disabled Git continuous deployment
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN || secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_API_TOKEN || secrets.NETLIFY_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -85,7 +85,7 @@ jobs:
           ' "$RUNNER_TEMP/gh-netlify-sites.json"
       - name: Publish manually to the exact GH Procurement Netlify site
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN || secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_API_TOKEN || secrets.NETLIFY_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
