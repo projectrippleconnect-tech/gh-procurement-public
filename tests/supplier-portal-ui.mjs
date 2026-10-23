@@ -50,7 +50,7 @@ try{
  await page.getByLabel('Variation description',{exact:true}).nth(1).fill('Cycle lock 3 ft')
  await page.getByLabel('Variation price',{exact:true}).nth(1).fill('40')
  await page.getByLabel('Variation quantity',{exact:true}).nth(1).fill('6')
- await page.getByLabel(/I confirm this exact 2 inch/).check()
+ 
  await page.getByLabel(/I confirm the exact items and units/).check()
  await page.getByRole('button',{name:'Final confirm',exact:true}).click()
  await page.getByRole('status').getByText(/Quotation confirmed/).waitFor()
