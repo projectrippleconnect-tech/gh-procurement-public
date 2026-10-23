@@ -70,6 +70,9 @@ jobs:
       - name: Verify database regressions against isolated fixtures (no production writes)
         run: npm run test:database
 
+      - name: Production build for browser release checks
+        run: npm run build
+
       - name: Verify manual PO PNG with caption, including unavailable gateway
         env:
           GH_UI_PO_MANUAL: '1'
@@ -81,7 +84,6 @@ jobs:
           GH_UI_BROWSER_EXECUTABLE: /usr/bin/google-chrome
           GH_UI_BROWSER_PATH: /usr/bin/google-chrome
         run: |
-          npm run build
           node tests/supplier-portal-ui.mjs
           node tests/supplier-portal-mobile.mjs
 
