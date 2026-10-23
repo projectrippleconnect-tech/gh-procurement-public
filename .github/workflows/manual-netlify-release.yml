@@ -1,0 +1,123 @@
+# Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
+# Release candidate is pinned to the source SHA that passed Quality Gate #456.
+name: GH Procurement - Manual Netlify release
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY to publish the tested PO sharing fix to the EXISTING Netlify site'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_RELEASE_SHA: 6d0ef41b8ff6c5800a0787c3ba5a59a87e1c5056
+      GH_PRODUCTION_URL: https://gh-procurement.netlify.app
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      NEXT_TELEMETRY_DISABLED: '1'
+      GH_PORTAL_PROCESSING_ENABLED: 'false'
+      GH_PORTAL_DISPATCH_ENABLED: 'false'
+      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+      WAHA_SENDING_ENABLED: 'false'
+    steps:
+      - name: Checkout the reviewed release, never an unreviewed branch head
+        uses: actions/checkout@v4
+        with:
+          ref: 6d0ef41b8ff6c5800a0787c3ba5a59a87e1c5056
+          persist-credentials: false
+
+      - name: Require manual confirmation, existing site credentials and exact revision
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = 'DEPLOY' || { echo 'Type DEPLOY to authorize this one manual release'; exit 1; }
+          test -n "$NETLIFY_AUTH_TOKEN" || { echo 'Missing GitHub Actions secret GH_NETLIFY_AUTH_TOKEN'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA" || { echo 'Source revision mismatch'; exit 1; }
+          test "$(git status --porcelain)" = '' || { echo 'Checkout must be clean'; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Block known high and critical vulnerable dependencies
+        run: npm audit --audit-level=high
+
+      - name: TypeScript and contract checks
+        run: |
+          npm run lint
+          npm test
+
+      - name: Verify database regressions against isolated fixtures (no production writes)
+        run: npm run test:database
+
+      - name: Verify manual PO PNG with caption, including unavailable gateway
+        env:
+          GH_UI_PO_MANUAL: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: npm run test:ui
+
+      - name: Install a pinned Netlify CLI on this temporary runner
+        run: npm install --global netlify-cli@27.13.0
+
+      - name: Check Netlify authorization and exact existing project
+        shell: bash
+        run: |
+          set -euo pipefail
+          netlify sites:list --json > "$RUNNER_TEMP/netlify-sites.json"
+          node -e '
+            const fs=require("fs");
+            const payload=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            const sites=Array.isArray(payload)?payload:(payload.sites||[]);
+            const site=sites.find(s=>s.id===process.env.NETLIFY_SITE_ID);
+            if(!site || site.name!=="gh-procurement") throw Error("Expected existing Netlify site is not accessible");
+            if(site.repo || site.repo_url || site.build_settings?.repo_url) throw Error("Git-linked continuous deployment must be disabled before this manual release");
+            console.log("Verified existing gh-procurement Netlify site with no detected Git linkage");
+          ' "$RUNNER_TEMP/netlify-sites.json"
+
+      - name: Publish the reviewed build MANUALLY to existing Netlify site
+        shell: bash
+        run: |
+          set -euo pipefail
+          netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
+            --message "Manual GH Procurement PO PNG sharing release $GH_RELEASE_SHA" \
+            --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
+            --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DELIVERY_VERIFIED=false' \
+            --secret-env 'WAHA_SENDING_ENABLED=false'
+
+      - name: Read-only production health, login, CSP, OCR and sending boundary
+        run: node scripts/check-production.mjs
+
+      - name: Verify the exact release revision is now live
+        run: |
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict';
+          const response = await fetch(process.env.GH_PRODUCTION_URL+'/api/health',{signal:AbortSignal.timeout(15000)});
+          assert.equal(response.status,200);
+          const data=await response.json();
+          assert.equal(data.version,process.env.GH_RELEASE_SHA,'Netlify did not report this release SHA');
+          assert.equal(data.database,'connected');
+          assert.equal(data.schema_ready,true);
+          console.log('PASS expected manual release is live at '+process.env.GH_PRODUCTION_URL);
+          NODE
