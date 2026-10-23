@@ -107,6 +107,11 @@ jobs:
         env:
           GH_UI_BULK_SEND: '1'
         run: npm run test:ui
+      - name: Verify manual PO PNG and caption with unavailable gateway
+        env:
+          GH_UI_PO_MANUAL: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: npm run test:ui
       - name: Verify additional sizes become separate order lines
         env:
           GH_UI_SIZE_ORDER: '1'

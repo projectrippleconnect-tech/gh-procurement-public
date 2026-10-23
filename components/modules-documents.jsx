@@ -48,7 +48,17 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
   }catch{if(opening.currentPoId===poId)setGateway({error:'Could not check WhatsApp status.'})}finally{if(opening.currentPoId===poId)setGatewayLoading(false)}
  }
  async function exportPo(type){if(!linesReady||shareBusy)return;setShareBusy(true)
-  try{if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer});else if(type==='share'){const result=await sharePurchaseOrderPng(shareArgs);flash(result.shared?'Image and caption handed to your share app. Confirm the supplier and tap Send.':'PNG downloaded. Open supplier chat, attach the image and paste the caption.')}else await downloadPurchaseOrderPng(shareArgs)}catch(e){if(e?.name!=='AbortError')fail(e)}finally{setShareBusy(false)}
+  try{
+   if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer})
+   else if(type==='share'){
+    const result=await sharePurchaseOrderPng(shareArgs)
+    flash(result.shared
+     ?'Share sheet opened. Choose WhatsApp and the correct supplier. Check the PNG and caption before sending; use Copy PO Caption if WhatsApp omits text.'
+     :result.captionCopied
+      ?'PO PNG downloaded and caption copied. Open the supplier chat, attach the saved PNG, paste the caption and send.'
+      :'PO PNG downloaded. Use Copy PO Caption, open the supplier chat, attach the saved PNG and paste the caption.')
+   }else await downloadPurchaseOrderPng(shareArgs)
+  }catch(e){if(e?.name!=='AbortError')fail(e)}finally{setShareBusy(false)}
  }
  async function sendPoImage(){
   if(!active||!canEdit||shareBusy||!linesReady)return
@@ -133,6 +143,12 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
   if(!active||!linesReady)return
   try{navigator.clipboard.writeText(buildPurchaseOrderText(shareArgs)).then(()=>flash('Purchase order copied with the selected fields.')).catch(fail)}catch(e){fail(e)}
  }
+ async function copyPoCaption(){
+  try{
+   await navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs))
+   flash('PO caption copied. Paste it with the PNG in the supplier chat.')
+  }catch(e){fail(e)}
+ }
  function whatsapp(){
   const url=whatsappUrl(active?.supplier?.whatsapp||active?.supplier?.phone,'')
   if(!url)return fail(new Error(t('validation.no_whatsapp','This supplier has no valid WhatsApp number.')))
@@ -196,7 +212,7 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print po-primary-action">
     {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>Approve PO</button>}
-    {canEdit&&active.status==='approved'&&<><button className="btn primary" disabled={Boolean(sendBlock)||busy||shareBusy} title={sendBlock||'Send to the supplier shown above'} onClick={sendPoImage}>Send PO image</button><button className="btn" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button></>}
+    {canEdit&&active.status==='approved'&&<><button className="btn primary" disabled={busy||shareBusy||!linesReady||!shareReady} title="Choose the supplier in WhatsApp and review the PNG plus caption before sending" onClick={()=>exportPo('share')}>{shareBusy?'Preparing PO PNG…':'Share PO PNG + Caption'}</button><button className="btn" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button></>}
     {can('receiving.view')&&active.status==='received'&&<button className="btn" onClick={()=>navigate('receiving','followup:'+active.po_no)}>Review follow-ups</button>}
     {canEdit&&canApprove&&active.status==='received'&&<button className="btn primary" disabled={busy||shareBusy||!linesReady} onClick={closeOrder}>Complete order →</button>}
     {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary" onClick={()=>navigate('receiving',active.id)}>Receive this order →</button>}
@@ -208,9 +224,29 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('share')}>Share PO Image + Caption</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={copy}>Copy</button>
     {(active.supplier?.whatsapp||active.supplier?.phone)&&<button className="btn" onClick={whatsapp}>Open Supplier WhatsApp</button>}
-    <button className="btn" onClick={()=>navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs)).then(()=>flash('PO caption copied.')).catch(fail)}>Copy PO Caption</button>
+    <button className="btn" onClick={copyPoCaption}>Copy PO Caption</button>
    </div></details>
-   <details className="section no-print"><summary>Send image &amp; caption · status &amp; fallback</summary><div className="notice"><b>Send purchase-order image + caption</b><p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||(gatewayLoading?'Checking connection…':'Not configured')} · Sending {gateway?.sendingEnabled?'enabled':'disabled'}. Gateway acceptance does not prove delivery. Confirm Sent only after checking WhatsApp.</p><div className="toolbar">{canEdit&&<><button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh PO WhatsApp Status</button><button className="btn primary" disabled={Boolean(sendBlock)} title={sendBlock||'Send to the saved supplier'} onClick={sendPoImage}>{shareBusy?'Preparing / sending…':'Send PO PNG + Caption'}</button></>}{gateway?.dispatches?.map(d=><span className="tiny" key={d.id}>Attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</span>)}</div>{sendBlock&&<p role="status" className="muted tiny">{sendBlock}</p>}<p className="muted tiny">Fallback: Share PO Image + Caption, choose WhatsApp and the supplier; or download PNG, open the supplier chat, attach the saved image and paste the copied caption.</p></div></details>
+   {canEdit&&active.status==='approved'&&<section className="section no-print" aria-label="Manual supplier WhatsApp PO sharing">
+    <div className="notice"><b>Manual WhatsApp sharing · works without a gateway</b>
+     <p className="muted tiny">Tap Share to open your phone's sharing options. Choose WhatsApp and the correct supplier. Check the PNG and caption before sending. If WhatsApp drops the caption, paste it manually. Only use Confirm Sent after the message is actually sent.</p>
+     <div className="toolbar section">
+      <button className="btn primary" disabled={busy||shareBusy||!linesReady||!shareReady} onClick={()=>exportPo('share')}>{shareBusy?'Preparing PNG…':'Share PO PNG + Caption'}</button>
+      <button className="btn small" disabled={shareBusy} onClick={copyPoCaption}>Copy PO Caption</button>
+      <button className="btn small" disabled={shareBusy} onClick={whatsapp}>Open Supplier Chat</button>
+      <button className="btn small" disabled={shareBusy||!linesReady||!shareReady} onClick={()=>exportPo('png')}>Download PNG</button>
+     </div>
+     <details className="section"><summary>Automatic WhatsApp gateway · optional</summary>
+      <p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||(gatewayLoading?'Checking connection…':'Not configured')} · Automatic sending {gateway?.sendingEnabled?'enabled':'disabled'}. The gateway requires secure private configuration; manual sharing above does not.</p>
+      <div className="toolbar">
+       <button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh Gateway Status</button>
+       <button className="btn small" disabled={Boolean(sendBlock)||busy||shareBusy} title={sendBlock||'Send through the verified private gateway'} onClick={sendPoImage}>{shareBusy?'Sending…':'Automatic gateway send'}</button>
+      </div>
+      {sendBlock&&<p role="status" className="muted tiny">{sendBlock}</p>}
+      {gateway?.dispatches?.map(d=><p className="tiny" key={d.id}>Gateway attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</p>)}
+      <p className="muted tiny">Gateway acceptance does not confirm delivery. Never retry an uncertain attempt without checking WhatsApp.</p>
+     </details>
+    </div>
+   </section>}
  </div>
  return <div className="card pad po-orders">
   <div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>Tap a PO row to expand its bill, details and supplier actions.</p></div></div>
