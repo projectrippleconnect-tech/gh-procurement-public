@@ -2214,7 +2214,8 @@ try{
      await page.getByRole('button',{name:'Reset to quantity-only fields',exact:true}).click()
      let dialogNumber=0;const sendDialog=async d=>{dialogNumber++;await d.accept(d.type()==='prompt'?'PO fixture caption':undefined)}
      page.on('dialog',sendDialog)
-     await page.getByRole('button',{name:'Send PO PNG + Caption',exact:true}).click()
+     await page.getByText('Automatic WhatsApp gateway · optional',{exact:true}).click()
+     await page.getByRole('button',{name:'Automatic gateway send',exact:true}).click()
      const captionDialog=page.getByRole('dialog',{name:'Caption for '+supplier.name,exact:true});await captionDialog.getByLabel('Message editor',{exact:true}).fill('PO fixture caption');await captionDialog.getByRole('button',{name:'Use message',exact:true}).click()
      await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
      await page.getByText('WhatsApp gateway accepted the PO image + caption.',{exact:false}).waitFor()
