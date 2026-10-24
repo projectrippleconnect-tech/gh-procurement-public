@@ -26,8 +26,6 @@ try{
   assert.equal(await page.locator('.sq-row').count(),2,'Compact bill rows visible at '+width)
   await page.getByLabel('Price for CONCRETE NAILS',{exact:true}).fill('42')
   await page.getByLabel('Quantity for CONCRETE NAILS',{exact:true}).fill('6')
-  await page.getByLabel('Delivery days (all items)',{exact:true}).fill('2')
-  await page.getByLabel('Valid through (all items)',{exact:true}).fill('2030-01-01')
   
   await page.getByRole('button',{name:'No stock for HINGES',exact:true}).click()
   await page.locator('.sq-row').last().getByRole('button',{name:'+ Variation',exact:true}).click()
@@ -38,7 +36,7 @@ try{
   await page.getByLabel('Variation photo',{exact:true}).setInputFiles({name:'qa.png',mimeType:'image/png',buffer:png})
   await page.getByRole('button',{name:'Save draft',exact:true}).click()
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Save draft'&&!b.disabled))
-  await page.getByLabel(/I confirm the exact items and units/).check()
+  await page.getByLabel(/I confirm the items, units, rates and available quantities/).check()
   await page.getByRole('button',{name:'Final confirm',exact:true}).click()
   await page.getByRole('status').getByText(/Quotation confirmed/).waitFor()
   assert.ok(data.response[1].variations[0].image.startsWith('data:image/jpeg;base64,'))

@@ -1,5 +1,6 @@
 'use client'
 import {useCallback,useEffect,useMemo,useState} from 'react'
+import {MessagePopup} from '@/components/popup-messages'
 import {supplierClient as supabase} from '@/lib/supplier-client'
 
 const panel={background:'#132136',color:'#f5f7fb',border:'1px solid #33465f',borderRadius:16,padding:16,marginBottom:12}
@@ -40,8 +41,6 @@ export default function SupplierQuotePortal(){
  const [busy,setBusy]=useState(false)
  const [agreed,setAgreed]=useState(false)
  const [query,setQuery]=useState('')
- const [globalDelivery,setGlobalDelivery]=useState('')
- const [globalValidity,setGlobalValidity]=useState('')
  const [expanded,setExpanded]=useState({})
  const [revision,setRevision]=useState(0)
  const load=useCallback(async value=>{
@@ -53,9 +52,6 @@ export default function SupplierQuotePortal(){
   setDirty(false)
   setRevision(data.revision)
   const previous=new Map((data.response||[]).map(x=>[x.id,x]))
-  const previousTerms=(data.response||[]).find(x=>x.status==='in_stock')||(data.response||[])[0]
-  setGlobalDelivery(String(previousTerms?.lead_days??''))
-  setGlobalValidity(previousTerms?.valid_until||'')
   setExpanded({})
   setLines((data.items||[]).map(x=>({...emptyItem(x.id),uom:x.uom,...previous.get(x.id)})))
  },[])
@@ -68,12 +64,6 @@ export default function SupplierQuotePortal(){
   load(value).catch(e=>setError(errMessage(e)))
  },[load])
  const setItem=(id,changes)=>{setAgreed(false);setNotice('');setDirty(true);setLines(rows=>rows.map(x=>x.id===id?{...x,...changes,...('terms_confirmed' in changes?{}:{terms_confirmed:false})}:x))}
- const setAllTerm=(key,value)=>{
-  setAgreed(false);setNotice('');setDirty(true)
-  if(key==='lead_days')setGlobalDelivery(value)
-  if(key==='valid_until')setGlobalValidity(value)
-  setLines(rows=>rows.map(row=>({...row,[key]:value,terms_confirmed:false})))
- }
  const showDetails=id=>setExpanded(prev=>({...prev,[id]:true}))
  const addVariation=(id,row)=>{
   if((row.variations||[]).length>=4)return
@@ -99,16 +89,15 @@ export default function SupplierQuotePortal(){
     const row=lines.find(x=>x.id===item.id)
     return !row||row.status==='skip'||row.status==='in_stock'&&(
      !Number.isFinite(Number(row.price))||Number(row.price)<=0||
-     !Number.isFinite(Number(row.quantity))||Number(row.quantity)<=0||
-     String(row.lead_days??'')===''||!row.valid_until
+     !Number.isFinite(Number(row.quantity))||Number(row.quantity)<=0
     )
    })
-   if(missing){setError('Complete available quantity, rate, delivery days and quotation validity, or mark no stock: '+missing.description);return}
+   if(missing){setError('Complete available quantity and rate, or mark no stock: '+missing.description);return}
   }
   setBusy(true);setError('')
   try{
    const payload=lines.map(({id,status,price,quantity,notes,image,variations,discount,tax,freight_unit,moq,multiple,lead_days,valid_until,terms_confirmed,uom})=>({
-    discount,tax,freight_unit,moq,multiple,lead_days,valid_until,terms_confirmed:confirm&&agreed&&status==='in_stock',uom,
+    discount,tax,freight_unit,moq,multiple,lead_days,valid_until,terms_confirmed:false,uom,
     id,status,price:status==='in_stock'?price:null,quantity:status==='in_stock'?quantity:null,
     notes:String(notes||'').slice(0,500),image:image||null,
     variations:variations.map(v=>({...v,image:v.image||null}))
@@ -138,21 +127,13 @@ export default function SupplierQuotePortal(){
   <style>{'.sq-compact{background:#0a1423;color:#f5f7fb;min-height:100vh;padding:14px 10px 100px;font-family:system-ui,sans-serif}.sq-compact *{box-sizing:border-box;min-width:0}.sq-sheet{max-width:920px;margin:auto}.sq-compact input,.sq-compact button{font:inherit}.sq-box{background:#132136;border:1px solid #33465f;border-radius:12px;padding:11px;margin-bottom:11px}.sq-muted{color:#cbd5e1;font-size:12px}.sq-compact .sq-control{width:100%;max-width:100%;border:1px solid #64748b;border-radius:7px;padding:8px 6px;background:#0b1627;color:#fff;font-size:16px}.sq-compact .sq-rate{padding:8px 4px;text-align:right}.sq-table{border:1px solid #40536d;border-radius:11px;overflow:hidden;margin:9px 0;background:#122137}.sq-grid{display:grid;grid-template-columns:minmax(0,1fr) 50px 67px 79px;gap:4px;align-items:center}.sq-head{padding:8px 7px;background:#27394f;font-size:11px;font-weight:750;color:#e5e7eb}.sq-row{padding:9px 7px;border-top:1px solid #33465f}.sq-name{font-size:13px;font-weight:700;overflow-wrap:anywhere;line-height:1.3}.sq-uom{display:block;color:#cbd5e1;font-size:11px;font-weight:400;margin-top:3px}.sq-req{font-size:13px;text-align:right;font-weight:650}.sq-quote-item-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.sq-compact .sq-link{display:inline;border:0;background:none;color:#93c5fd;text-decoration:underline;padding:2px 0;font-size:11px;cursor:pointer;text-align:left}.sq-compact .sq-link:disabled{opacity:.5}.sq-compact .sq-link:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}.sq-compact .sq-rate-note{display:block;font-size:10px;color:#a9bcd3;text-align:right;margin-top:3px}.sq-compact .sq-options{grid-column:1/-1;border-top:1px dashed #3e536f;margin-top:7px;padding-top:9px}.sq-compact .sq-options label{display:block;font-size:12px}.sq-compact .sq-additional{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.sq-compact .sq-variation{padding:8px;border:1px solid #33465f;border-radius:7px;margin:8px 0}.sq-compact .sq-variation input{margin-top:4px}.sq-compact input[type=file]{width:100%;max-width:100%;font-size:12px}.sq-compact .sq-primary{background:#fbbf24;color:#141414;font-size:15px;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer}.sq-compact .sq-secondary{background:#334155;color:#fff;font-size:15px;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer}.sq-compact button:disabled,.sq-compact input:disabled{opacity:.55;cursor:not-allowed}.sq-compact .sq-footer{position:sticky;bottom:4px;box-shadow:0 -8px 24px #0a1423}.sq-compact img{max-width:100%;object-fit:cover}.sq-compact summary{cursor:pointer;font-weight:650;font-size:12px;padding:5px 0}@media(max-width:350px){.sq-compact{padding:8px 6px 100px}.sq-grid{grid-template-columns:minmax(0,1fr) 43px 63px 73px;gap:3px}.sq-name{font-size:12px}.sq-row,.sq-head{padding-left:5px;padding-right:5px}.sq-compact .sq-rate{padding:7px 2px}}'}</style>
   <div className="sq-sheet">
    <header style={{marginBottom:12}}><small style={{letterSpacing:1.5,color:'#fbbf24'}}>GENERAL HARDWARE</small><h1 style={{fontSize:22,margin:'3px 0'}}>Supplier Quotation</h1><div className="sq-muted">{quote?.rfq_no||'Loading request…'} {quote?.supplier_name?' · '+quote.supplier_name:''}</div></header>
-   {error&&<div role="alert" className="sq-box" style={{borderColor:'#f87171',color:'#fecaca'}}>{error}</div>}
-   {notice&&<div role="status" className="sq-box">{notice}</div>}
+   <MessagePopup text={error}/>
+   <MessagePopup text={notice} kind="success"/>
    {quote&&<>
     <div className="sq-box">
      <div style={{display:'flex',justifyContent:'space-between',gap:8}}><strong style={{fontSize:14}}>{dirty?'Unsaved changes':quote.status==='confirmed'?'Quotation confirmed':quote.status==='imported'?'Quotation received by GH':'Quotation in progress'}</strong><strong style={{color:'#fbbf24',whiteSpace:'nowrap',fontSize:13}}><Remaining closesAt={new Date(Date.parse(quote.closes_at)-offset).toISOString()}/></strong></div>
      <div className="sq-muted" style={{marginTop:4}}>{answered}/{lines.length} item responses · Closes {new Date(quote.closes_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})}</div>
-     <div className="sq-muted" style={{marginTop:5}}>Enter your available quantity and rate per requested unit. Confirmed prices go into GH Prices; automatic PO allocation happens after the approved quotation round closes.</div>
-    </div>
-    <div className="sq-box">
-     <div style={{display:'flex',gap:8,justifyContent:'space-between',alignItems:'center',marginBottom:8}}><strong style={{fontSize:13}}>Common delivery terms</strong><button type="button" className="sq-link" disabled={busy} onClick={()=>{if(!dirty||window.confirm('Reload and discard unsaved changes?'))load(token).catch(e=>setError(errMessage(e)))}}>Refresh</button></div>
-     <div className="sq-additional" style={{marginTop:0}}>
-      <label>Delivery days (all items)<input className="sq-control" aria-label="Delivery days (all items)" disabled={!editable||busy} inputMode="numeric" type="number" min="0" max="365" step="1" placeholder="e.g. 2" value={globalDelivery} onChange={e=>setAllTerm('lead_days',e.target.value)}/></label>
-      <label>Valid through (all items)<input className="sq-control" aria-label="Valid through (all items)" disabled={!editable||busy} type="date" value={globalValidity} onChange={e=>setAllTerm('valid_until',e.target.value)}/></label>
-     </div>
-     <p className="sq-muted" style={{margin:'7px 0 0'}}>These apply to all items unless changed under an item's optional details. Rates are in LKR; enter discounts, taxes or freight only when applicable.</p>
+     <div className="sq-muted" style={{marginTop:5}}>Enter your available quantity and rate per requested unit. Confirmed prices go into GH Prices for review.</div>
     </div>
     <input className="sq-control" aria-label="Search requested items" style={{marginBottom:8}} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search item or size…"/>
     <div className="sq-table" role="table" aria-label="Supplier quotation bill">
@@ -187,14 +168,6 @@ export default function SupplierQuotePortal(){
          {v.image&&<img src={v.image} alt="Alternative variation" width={70} height={70} style={{marginTop:6,borderRadius:7}}/>}
          {editable&&<button className="sq-link" type="button" disabled={busy} onClick={()=>setItem(item.id,{variations:row.variations.filter((_,i)=>i!==index)})}>Remove variation</button>}
         </div>)}
-        <details>
-         <summary>Optional charges, notes and item-specific delivery</summary>
-         <div className="sq-additional">
-          {[['discount','Discount %'],['tax','Tax %'],['freight_unit','Freight per unit (Rs.)'],['moq','Minimum qty'],['multiple','Order multiple'],['lead_days','Delivery days']].map(([key,label])=><label key={key}>{label}<input className="sq-control" aria-label={label+' for '+item.description} disabled={!editable||busy} type="number" min="0" step={key==='lead_days'?'1':'any'} value={row[key]??''} onChange={e=>setItem(item.id,{[key]:e.target.value})}/></label>)}
-          <label style={{gridColumn:'1/-1'}}>Valid through<input className="sq-control" type="date" aria-label={'Valid through for '+item.description} disabled={!editable||busy} value={row.valid_until||''} onChange={e=>setItem(item.id,{valid_until:e.target.value})}/></label>
-         </div>
-         <label style={{marginTop:6}}>Notes (optional)<input className="sq-control" value={row.notes||''} maxLength={500} disabled={!editable||busy} placeholder="Colour, delivery conditions etc." onChange={e=>setItem(item.id,{notes:e.target.value})}/></label>
-        </details>
        </div>}
       </section>
      })}
@@ -203,9 +176,9 @@ export default function SupplierQuotePortal(){
      <strong style={{fontSize:13}}>Indicative quoted amount</strong>
      <strong style={{fontSize:17}}>Rs. {money(total)}</strong>
     </div>
-    <p className="sq-muted" style={{margin:'0 4px 11px'}}>Based on requested units that can be supplied, before any optional charges or discounts. GH calculates final eligible landed cost, selects approved suppliers and generates POs after the round closes. Alternative variations are reviewed separately.</p>
+    <p className="sq-muted" style={{margin:'0 4px 11px'}}>Based on requested units that can be supplied. Rates are in LKR. Alternative variations are reviewed separately.</p>
     {editable&&<div className="sq-box sq-footer">
-     <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:13,marginBottom:10}}><input type="checkbox" disabled={busy} checked={agreed} onChange={e=>setAgreed(e.target.checked)}/> I confirm the exact items and units, rates, stock quantities, delivery and validity terms. Any discounts, taxes or freight not entered are zero.</label>
+     <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:13,marginBottom:10}}><input type="checkbox" disabled={busy} checked={agreed} onChange={e=>setAgreed(e.target.checked)}/> I confirm the items, units, rates and available quantities.</label>
      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:8}}>
       <button type="button" className="sq-secondary" disabled={busy} onClick={()=>submit(false)}>Save draft</button>
       <button type="button" className="sq-primary" disabled={busy||!agreed||answered!==lines.length} onClick={()=>submit(true)}>{busy?'Saving…':'Final confirm'}</button>

@@ -382,6 +382,32 @@ try{
   assert.ok(policyViolations.some(x=>x.directive==='script-src-elem'&&x.blocked==='inline'),'Browser must enforce the inline-script refusal')
   assert.deepEqual(policyViolations.filter(x=>x.directive!=='script-src-elem'||x.blocked!=='inline'),[],'Only the controlled injection may violate CSP')
   policyViolations.length=0
+  if(process.env.GH_UI_NOTIFICATIONS==='1'){
+   await page.getByRole('button',{name:/Notifications, .* unread/}).waitFor()
+   await requireQuery(u=>u.pathname.endsWith('/proc_rfqs')&&u.searchParams.get('due_date')?.startsWith('lt.'),'Overdue reminder query is present')
+   await page.waitForTimeout(500)
+   while(await page.getByRole('button',{name:'Dismiss notification',exact:true}).count())await page.getByRole('button',{name:'Dismiss notification',exact:true}).first().click()
+   rfqStatus='sent';poFixtureStatus='approved'
+   invitations=invitations.map(x=>({...x,status:'quoted',replied_at:new Date().toISOString()}))
+   await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+   await page.getByRole('status').filter({hasText:'Supplier prices received'}).waitFor()
+   await page.getByRole('button',{name:/Notifications, .* unread/}).click()
+   const centre=page.getByRole('region',{name:'Notification centre'})
+   await centre.getByText('Supplier prices received — ready to review.',{exact:true}).waitFor()
+   assert.equal(await centre.locator('.notification-item').filter({hasText:'Supplier prices received'}).count(),1)
+   await page.waitForTimeout(500)
+   await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+   await page.waitForTimeout(500)
+   assert.equal(await centre.locator('.notification-item').filter({hasText:'Supplier prices received'}).count(),1,'Repeated polling does not duplicate notifications')
+   assert.ok(await centre.getByText(/Approved orders are ready to send/).count())
+   const bounds=await centre.boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1,'Notification centre fits viewport')
+   await page.screenshot({path:`test-results/notifications-${width}.png`})
+   await centre.getByRole('button',{name:'Mark read',exact:true}).click()
+   await page.getByRole('button',{name:'Notifications, 0 unread',exact:true}).waitFor()
+   assert.deepEqual(errors,[])
+   console.log('PASS notification events, deduplication, pending reminders, unread state and viewport at '+width+'px')
+   await context.close();continue
+  }
   async function navigate(label){
    let target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    if(await target.count()===0){
