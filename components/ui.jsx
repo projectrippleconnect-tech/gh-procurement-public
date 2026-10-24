@@ -1,5 +1,6 @@
 'use client'
 
+import {MessagePopup} from './popup-messages'
 import {ModernSelect} from './modern-select'
 import {uppercaseItemText} from '@/lib/item-text.mjs'
 import {visibleWorkflowStages} from '@/lib/workflow-visibility.mjs'
@@ -23,7 +24,7 @@ export const statusClass=s=>{
 }
 
 export const Badge=({children})=><span className={'badge '+statusClass(children)}>{typeof children==='string'?children.replaceAll('_',' '):children??'—'}</span>
-export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
+export const Err=({v})=><MessagePopup text={v}/>
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
 export function WorkflowNavigation({view,navigate,canNavigate}){

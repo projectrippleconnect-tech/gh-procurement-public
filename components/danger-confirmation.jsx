@@ -1,7 +1,6 @@
 'use client'
 
 import {createContext,useCallback,useContext,useEffect,useRef,useState} from 'react'
-import {Err} from './ui'
 
 const ConfirmationContext=createContext(null)
 export function useDangerConfirmation(){
@@ -70,6 +69,6 @@ export function DangerConfirmationProvider({children}){
   {request.confirmation&&<label className="field section">Type <b>{request.confirmation}</b> to confirm<input className="input" aria-label="Warning confirmation" autoComplete="off" disabled={busy} value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label>}
   {request.requireReason&&<label className="field section">Reason<input className="input" aria-label="Warning reason" disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/><small>At least five characters.</small></label>}
   {request.textInput&&<label className="field section">{request.textInput.label}<textarea aria-label="Message editor" className="input" rows={6} maxLength={request.textInput.maxLength} disabled={busy} value={textValue} onChange={e=>setTextValue(e.target.value)}/></label>}
-  <Err v={error}/><div className="danger-actions section"><button ref={cancelButton} className="btn" disabled={busy} onClick={()=>close(false)}>{request.cancelLabel||'Cancel'}</button><button className={request.tone==='action'?'btn primary':'btn bad'} disabled={busy||(request.confirmation&&confirmation!==request.confirmation)||(request.requireReason&&reason.trim().length<5)} onClick={execute}>{busy&&<span className="button-spinner" aria-hidden="true"/>}{busy?'Working…':request.confirmLabel||'Confirm'}</button></div>
+  {error&&<div className="error section" role="alert">{error}</div>}<div className="danger-actions section"><button ref={cancelButton} className="btn" disabled={busy} onClick={()=>close(false)}>{request.cancelLabel||'Cancel'}</button><button className={request.tone==='action'?'btn primary':'btn bad'} disabled={busy||(request.confirmation&&confirmation!==request.confirmation)||(request.requireReason&&reason.trim().length<5)} onClick={execute}>{busy&&<span className="button-spinner" aria-hidden="true"/>}{busy?'Working…':request.confirmLabel||'Confirm'}</button></div>
  </div></div>}</ConfirmationContext.Provider>
 }

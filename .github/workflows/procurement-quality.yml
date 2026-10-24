@@ -49,6 +49,7 @@ jobs:
         run: |
           node tests/supplier-portal-ui.mjs
           node tests/supplier-portal-mobile.mjs
+          GH_UI_NOTIFICATIONS=1 GH_UI_WIDTHS=320,390,1280 node tests/ui-smoke.mjs
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
       - name: Verify company/category auto sending settings and saved image templates

@@ -1,4 +1,5 @@
 'use client'
+import {MessagePopup} from '@/components/popup-messages'
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import SupplierRoundControls from '@/components/supplier-round-controls'
@@ -122,7 +123,7 @@ export default function SupplierLinks(){
   <h1>Supplier quotation links</h1>
   <p style={{color:'#cbd5e1'}}>Each supplier receives a private link. They can save drafts, mark no stock, attach photos, and confirm. Confirmed exact-item prices appear in GH Prices. Drafts and alternative variations remain separate.</p>
   <p><a style={{color:'#fbbf24'}} href="/">← Back to Procurement</a></p>
-  {error&&<p role="alert" style={{color:'#fecaca'}}>{error}</p>}
+  <MessagePopup text={error}/>
   {!portalReady&&<div role="status" style={{...box,borderColor:'#fbbf24'}}><strong>Supplier portal setup is pending</strong><p>The live database has not been configured for private supplier quote links yet. Links cannot be created or received until setup is completed. Your existing RFQs and manually entered prices remain available.</p></div>}
   {message&&<p role="status" style={{color:'#86efac'}}>{message}</p>}
   <div style={box}>

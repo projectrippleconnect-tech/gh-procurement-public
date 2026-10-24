@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { connection } from 'next/server'
 import './globals.css'
+import {PopupProvider} from '@/components/popup-messages'
 import './appearance.css'
 import {AppearanceBootstrap} from '@/components/appearance-controls'
 import {LegacyContactShareCleanup} from '@/components/legacy-contact-share-cleanup'
@@ -17,5 +18,5 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, inte
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Each HTML response needs the nonce generated for its incoming request.
   await connection()
-  return <html lang="en"><body><LegacyContactShareCleanup/><AppearanceBootstrap/>{children}</body></html>
+  return <html lang="en"><body><LegacyContactShareCleanup/><AppearanceBootstrap/><PopupProvider>{children}</PopupProvider></body></html>
 }

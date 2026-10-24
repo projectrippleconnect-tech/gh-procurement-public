@@ -1404,3 +1404,19 @@ input.item-uppercase{ text-transform:uppercase; }
  .general-stock-history-modal .stock-history-head{top:-12px}
 }
 @media print{.general-stock-history-backdrop{display:none!important}}
+
+/* Compact messages share one surface across staff and supplier screens. */
+.app-toast-stack{z-index:10000;top:calc(env(safe-area-inset-top) + 76px)}
+.app-toast{pointer-events:none;overflow-wrap:anywhere;line-height:1.45}
+.app-toast .popup-action{display:block;font-size:12px;font-weight:700;margin-top:6px;text-decoration:underline;min-height:32px}
+.app-toast>button{min-width:32px;min-height:32px}
+.work-notifications{position:relative}
+.notification-count{display:inline-block;margin-left:4px;border-radius:20px;background:#fbbf24;color:#111827;padding:1px 5px;font-size:11px}
+.notification-panel{position:fixed;right:12px;top:70px;width:min(390px,calc(100vw - 24px));max-height:70dvh;overflow:auto;z-index:500;background:var(--panel,#132136);color:var(--text,#f5f7fb);border:1px solid var(--border,#33465f);border-radius:16px;padding:14px;box-shadow:0 16px 48px #0006}
+.notification-item{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border,#33465f);padding:12px 4px;background:transparent;color:inherit;cursor:pointer;font-size:13px;line-height:1.5}
+.notification-item small{display:block;opacity:.7;font-size:11px;margin-top:4px}
+.notification-item.unread{font-weight:750}
+@media print{.app-toast-stack,.work-notifications{display:none!important}}
+
+.notification-trigger{display:inline-flex;align-items:center;justify-content:center}
+@media(max-width:400px){.app .top-actions>.language-switch{display:none}}
