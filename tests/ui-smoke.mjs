@@ -223,6 +223,7 @@ try{
    else if(name==='proc_company_list_items'&&process.env.GH_UI_DENSE_STOCK==='1')data=Array.from({length:12},(_,i)=>({id:'dense-row-'+i,item_id:'dense-item-'+i,target_stock:20,item:{...item,id:'dense-item-'+i,description:'ALKATHENE HOSE '+['1/2IN 200FT','3/4IN 100FT','3/4IN 200FT','1IN 100FT','1IN 200FT','1 1/2IN 100FT'][i%6],category:'ALKATHINE',subgroup:'',size:'',uom:'PCS'}}))
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',company_id:'company-fixture',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',company_id:'company-fixture',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
+   else if(name==='proc_admin_notifications')data=process.env.GH_UI_NOTIFICATIONS==='1'?[{id:'alert-fixture',title:'Stock submitted',body:'Fixture Handler submitted 001',target_view:'stock',created_at:new Date().toISOString(),read_at:null}]:[]
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
     const body=req.postDataJSON();deleteRequests.push(body)
@@ -443,6 +444,20 @@ try{
    assert.equal(receipts.length,0)
    assert.deepEqual(errors,[])
    console.log('PASS comparison, review, order and receiving panels scroll normally at '+width+'px')
+   await context.close();continue
+  }
+  if(process.env.GH_UI_NOTIFICATIONS==='1'){
+   await page.getByRole('button',{name:'Notifications (1)',exact:true}).click()
+   await page.getByRole('button',{name:'Enable phone notifications',exact:true}).waitFor()
+   await page.getByRole('region',{name:'Admin notifications'}).waitFor()
+   assert.equal(await page.locator('.notification-row.unread').count(),1)
+   await page.screenshot({path:'test-results/admin-notifications-'+width+'.png'})
+   await page.locator('.notification-row').click()
+   await requireQuery(u=>u.pathname.endsWith('/proc_admin_notifications')&&u.searchParams.get('id')==='eq.alert-fixture','Opening an alert marks only that alert as read')
+   await page.getByRole('heading',{name:'Stock Entry',exact:true}).waitFor()
+   assert.equal(await page.getByRole('region',{name:'Admin notifications'}).count(),0)
+   assert.deepEqual(errors,[])
+   console.log('PASS admin notification inbox, per-phone controls, read state and stock navigation at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_COMPANY_LOADING==='1'){

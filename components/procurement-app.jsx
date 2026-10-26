@@ -13,6 +13,7 @@ import {StockOnlyHome} from './stock-only-home'
 import {withStartupDeadline} from '@/lib/workspace-startup.mjs'
 import {AccessBoundary} from './access-boundary'
 import {CaptureSession} from './capture-settings'
+import {AdminNotifications} from './admin-notifications'
 import {AppearanceControls} from './appearance-controls'
 
 // Keep purchasing and PDF code out of the initial sign-in download.
@@ -391,6 +392,7 @@ function ProcurementApp(){
   </aside>
 
   <main className="main">
+   <AdminNotifications profile={profile} navigate={go} flash={flash}/>
    <header className="topbar"><div className="topbar-left">{p.canNavigate('dashboard')&&<button className="mobile-menu-btn mobile-home-btn" onClick={()=>go('dashboard')} aria-label="Go to Home">⌂</button>}<button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div id="stock-header-action" className="stock-header-action"/><div className="top-actions"><AppearanceControls/><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
    <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button>{view==='stock'&&stockListType==='general'&&<button type="button" className="btn small stock-history-nav-button" aria-label="Open General stock submission history" onClick={()=>setStockHistoryRequest(v=>v+1)}>↺ History</button>}</nav>
    <div className="content" ref={workContent}>

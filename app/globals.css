@@ -1428,3 +1428,5 @@ input.item-uppercase{ text-transform:uppercase; }
  /* Row labels stay aligned horizontally without pinning to the table's top. */
  .rfq-price-sheet tbody .rfq-sheet-item{top:auto}
 }
+
+.admin-notifications{position:relative;margin:6px 0}.notification-panel{background:var(--panel,#172236);border:1px solid var(--border,#475569);border-radius:12px;padding:12px;max-width:560px;max-height:65vh;overflow:auto}.notification-row{display:flex;flex-direction:column;gap:4px;text-align:left;width:100%;padding:10px;margin-top:6px;background:transparent;color:inherit;border:1px solid var(--border,#475569);border-radius:8px}.notification-row.unread{border-left:4px solid #38bdf8}.notification-row small{opacity:.7}
