@@ -454,7 +454,7 @@ try{
    await page.screenshot({path:'test-results/admin-notifications-'+width+'.png'})
    await page.locator('.notification-row').click()
    await requireQuery(u=>u.pathname.endsWith('/proc_admin_notifications')&&u.searchParams.get('id')==='eq.alert-fixture','Opening an alert marks only that alert as read')
-   await page.getByRole('heading',{name:'Stock Entry',exact:true}).waitFor()
+   await page.getByRole('heading',{name:'Stock Entry',exact:true}).first().waitFor()
    assert.equal(await page.getByRole('region',{name:'Admin notifications'}).count(),0)
    assert.deepEqual(errors,[])
    console.log('PASS admin notification inbox, per-phone controls, read state and stock navigation at '+width+'px')
