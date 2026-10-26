@@ -1,11 +1,11 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate: Company Items loading fix (PR #142, successful Quality Gate #40268468079).
+# Release candidate: scrolling workspace panels (PR #143; scrolling regression passed in Quality Gate #40277041734).
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type DEPLOY to publish the tested Company Items loading fix to the EXISTING Netlify site'
+        description: 'Type DEPLOY to publish the tested worksheet scrolling fix to the EXISTING Netlify site'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: a7b2cf88f6e407812055e67c18772aca923f68b0
+      GH_RELEASE_SHA: ef954aa66ebd77b0167e37262b73a8b2069cecf2
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: a7b2cf88f6e407812055e67c18772aca923f68b0
+          ref: ef954aa66ebd77b0167e37262b73a8b2069cecf2
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -72,6 +72,12 @@ jobs:
 
       - name: Production build for browser release checks
         run: npm run build
+
+      - name: Verify scrolling worksheet panels at phone, tablet and desktop sizes
+        env:
+          GH_UI_SCROLL_PANELS: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: npm run test:ui
 
       - name: Verify company loading and draft preservation
         env:
@@ -120,7 +126,7 @@ jobs:
         run: |
           set -euo pipefail
           netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
-            --message "Manual GH Procurement company loading release $GH_RELEASE_SHA" \
+            --message "Manual GH Procurement worksheet scrolling release $GH_RELEASE_SHA" \
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
