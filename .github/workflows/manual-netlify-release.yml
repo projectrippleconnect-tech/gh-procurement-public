@@ -1,11 +1,11 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate: scrolling workspace panels (PR #143; scrolling regression passed in Quality Gate #40277041734).
+# Release candidate: admin phone notifications, including current scrolling fixes.
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type DEPLOY to publish the tested worksheet scrolling fix to the EXISTING Netlify site'
+        description: 'Type DEPLOY to publish admin phone notifications to the EXISTING Netlify site'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: ef954aa66ebd77b0167e37262b73a8b2069cecf2
+      GH_RELEASE_SHA: 3ed8533479cee3da7ba2c561585c050eb70d1724
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: ef954aa66ebd77b0167e37262b73a8b2069cecf2
+          ref: 3ed8533479cee3da7ba2c561585c050eb70d1724
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -98,6 +98,12 @@ jobs:
         run: |
           node tests/supplier-portal-ui.mjs
           node tests/supplier-portal-mobile.mjs
+
+      - name: Verify admin notification inbox on mobile and desktop
+        env:
+          GH_UI_NOTIFICATIONS: '1'
+          GH_UI_WIDTHS: '390,1366'
+        run: npm run test:ui
 
       - name: Install a pinned Netlify CLI on this temporary runner
         run: npm install --global netlify-cli@27.13.0
