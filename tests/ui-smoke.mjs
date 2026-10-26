@@ -90,6 +90,8 @@ try{
    Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
   })
   const errors=[],queries=[],receipts=[],stockSubmissions=[],policyViolations=[],companyImports=[]
+  let holdCompanyRefresh=false,releaseCompanyRefresh
+  const companyRefreshGate=new Promise(resolve=>{releaseCompanyRefresh=resolve})
   await page.exposeFunction('ghRecordCspViolation',data=>policyViolations.push(data))
   await context.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.ghRecordCspViolation({directive:e.effectiveDirective,blocked:e.blockedURI})))
   async function requireQuery(predicate,message){
@@ -156,6 +158,7 @@ try{
   await context.route('https://*.supabase.co/**',async route=>{
    const req=route.request(),url=new URL(req.url()),name=url.pathname.split('/').pop()
    queries.push(url)
+   if(process.env.GH_UI_COMPANY_LOADING==='1'&&holdCompanyRefresh&&['proc_company_list_items','proc_company_sections'].includes(name))await companyRefreshGate
    let data=[]
    if(url.pathname.endsWith('/auth/v1/verify')&&req.method()==='POST'){
     const body=req.postDataJSON()
@@ -391,6 +394,29 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(process.env.GH_UI_COMPANY_LOADING==='1'){
+   await navigate('✓ Stock Entry')
+   await page.getByRole('tab',{name:'Company Items',exact:true}).click()
+   const input=page.getByLabel('Current stock: '+item.description,{exact:true})
+   await input.fill('8')
+   const directoryReads=queries.filter(q=>q.pathname.endsWith('/proc_companies')).length
+   assert.equal(directoryReads,1,'Selecting the initial company scope does not reload the directory')
+   holdCompanyRefresh=true
+   const before=queries.length
+   await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+   await requireQuery(q=>queries.indexOf(q)>=before&&q.pathname.endsWith('/proc_company_list_items'),'Focus refresh starts')
+   await page.getByRole('status').filter({hasText:'Refreshing company list…'}).waitFor()
+   assert.equal(await input.isVisible(),true,'Rows stay visible while the network is delayed')
+   assert.equal(await input.inputValue(),'8','Refresh preserves the in-progress stock draft')
+   assert.equal(await page.getByText('Loading company list…',{exact:true}).count(),0)
+   releaseCompanyRefresh()
+   await page.locator('.company-count-workspace[aria-busy="false"]').waitFor()
+   assert.equal(await input.inputValue(),'8')
+   assert.equal(stockSubmissions.length,0)
+   assert.deepEqual(errors,[])
+   console.log('PASS delayed company refresh keeps rows and drafts visible at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_STOCK_HISTORY==='1'){
    await navigate('✓ Stock Entry')

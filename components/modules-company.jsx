@@ -30,7 +30,7 @@ import {companyLotRows,companyLotGroups} from '@/lib/company-stock-lot.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
 import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes} from '@/lib/item-text.mjs'
-import {latestStockMarkers} from '@/lib/stock-item-history.mjs'
+import {loadCompanyStockCatalogue,loadCompanyStockMarkers} from '@/lib/company-stock-loading.mjs'
 import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
@@ -126,30 +126,41 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const resultRef=useRef(null)
  useEffect(()=>{if(submissionResult&&active)resultRef.current?.scrollIntoView({block:'start'})},[submissionResult,active])
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
+ const rowLoadController=useRef(null),loadedScope=useRef('')
+ const[rowsError,setRowsError]=useState('')
  const allCompanies=companyId==='all'
  const selectedCompanyIds=useMemo(()=>companies.map(c=>c.id),[companies])
  const companyNames=useMemo(()=>new Map(companies.map(c=>[c.id,c.name])),[companies])
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
- const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length){let saved='';try{saved=localStorage.getItem('gh-company-selection-v1:'+profile.id)||''}catch{};setCompanyId(saved==='all'||r.data.some(c=>c.id===saved)?saved:'all')}},[companyId,fail])
+ const loadCompanies=useCallback(async()=>{
+  const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name')
+  if(r.error)return fail(r.error)
+  const data=r.data||[]
+  // A refresh returning the same directory must not restart all catalogue/history requests.
+  setCompanies(previous=>JSON.stringify(previous)===JSON.stringify(data)?previous:data)
+  if(data.length){let saved='';try{saved=localStorage.getItem('gh-company-selection-v1:'+profile.id)||''}catch{}
+   setCompanyId(previous=>previous||(saved==='all'||data.some(c=>c.id===saved)?saved:'all'))
+  }
+ },[profile.id,fail])
  const syncCompanySupplierPanels=useCallback(async()=>{await loadCompanies();setDirectoryRevision(v=>v+1)},[loadCompanies])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
  const loadRows=useCallback(async()=>{
+  rowLoadController.current?.abort()
+  const controller=new AbortController()
+  rowLoadController.current=controller
+  const timeout=setTimeout(()=>controller.abort(),20000)
   const request=++loadSequence.current
-  if(!companyId){setRows([]);setSections([]);return}
-  setLoading(true)
+  if(!companyId){clearTimeout(timeout);setRows([]);setSections([]);setLoading(false);return}
+  if(loadedScope.current!==companyId){setRows([]);setSections([])}
+  setLoading(true);setRowsError('')
   try{
-   const scope=q=>allCompanies?q.in('company_id',selectedCompanyIds):q.eq('company_id',companyId)
-   const r=allCompanies&&!selectedCompanyIds.length?{data:[]}:await allRows(()=>scope(supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)')).eq('active',true).order('company_id').order('sort_order').order('id'))
-   if(r.error)throw r.error
-   if(request!==loadSequence.current)return
-   const list=r.data||[]
-   const sectionResult=allCompanies&&!selectedCompanyIds.length?{data:[]}:await allRows(()=>scope(supabase.from('proc_company_sections').select('id,company_id,parent_id,name,sort_order,color,active')).eq('active',true).order('sort_order').order('id'))
-   if(request!==loadSequence.current)return
-   if(sectionResult.error&&!['PGRST205','42P01'].includes(sectionResult.error.code))throw sectionResult.error
-   setSections(sectionResult.data||[])
-   setRows(list)
+   const catalogue=await loadCompanyStockCatalogue(supabase,allCompanies?selectedCompanyIds:[companyId],controller.signal)
+   if(request!==loadSequence.current||controller.signal.aborted)return
+   setSections(catalogue.sections)
+   setRows(catalogue.rows)
+   loadedScope.current=companyId
    setBalances({})
    if(draftReady.current!==companyId){
     const saved=localStorage.getItem(draftKey)
@@ -157,13 +168,14 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));setSufficient(p.sufficient||{});startedAt.current=p.startedAt||null}catch{}
    }
    draftReady.current=companyId
-  }catch(e){if(request===loadSequence.current)fail(e)}
-  finally{if(request===loadSequence.current)setLoading(false)}
+  }catch(e){if(request===loadSequence.current)setRowsError(controller.signal.aborted?'Company list took too long to load. Please retry.':(e.message||'Company list could not be loaded.'))}
+  finally{clearTimeout(timeout);if(request===loadSequence.current)setLoading(false)}
  },[companyId,draftKey,fail,allCompanies,selectedCompanyIds])
- useEffect(()=>{if(active)loadRows()},[active,loadRows])
+ useEffect(()=>{if(active)loadRows();return()=>{loadSequence.current++;rowLoadController.current?.abort()}},[active,loadRows])
  useEffect(()=>{
   if(!active)return
-  const refreshOnReturn=()=>{if(document.visibilityState==='visible')loadRows()}
+  let refreshedAt=0
+  const refreshOnReturn=()=>{if(document.visibilityState==='visible'&&Date.now()-refreshedAt>1500){refreshedAt=Date.now();void loadRows()}}
   window.addEventListener('focus',refreshOnReturn)
   document.addEventListener('visibilitychange',refreshOnReturn)
   return()=>{window.removeEventListener('focus',refreshOnReturn);document.removeEventListener('visibilitychange',refreshOnReturn)}
@@ -304,21 +316,13 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   const revision=++historyRequest.current
   setCompanyHistoryLoading(true);setCompanyHistoryReady(false);setCompanyHistoryError('')
   try{
-   const result=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:100})
+   const [result,latest]=await Promise.all([
+    supabase.rpc('proc_stock_submission_history_v1',{p_limit:100}),
+    loadCompanyStockMarkers(supabase,rows)
+   ])
    if(result.error)throw result.error
    const records=(result.data||[]).filter(h=>h.counted_by===profile.id&&String(h.category||'').startsWith('COMPANY: '))
    const owned=records.map(h=>({...h,company:companies.find(c=>c.name.trim().toLowerCase()===String(h.category).slice(9).trim().toLowerCase())})).filter(h=>h.company)
-   // All-time latest by item and company, not just the first 24 recent batches.
-   const grouped=new Map()
-   for(const r of rows){
-    if(!grouped.has(r.company_id))grouped.set(r.company_id,[])
-    grouped.get(r.company_id).push(r.item_id)
-   }
-   const latest={}
-   for(const [id,ids] of grouped){
-    const markers=await latestStockMarkers(supabase,ids,id)
-    for(const [itemId,marker] of Object.entries(markers))latest[id+'|'+itemId]=marker
-   }
    if(revision!==historyRequest.current)return
    setCompanyHistory(owned)
    setCompanyHistoryDetails({})
@@ -436,7 +440,9 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
   {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
   </div>}
-  {!setupOpen&&<div className="card pad section company-count-workspace">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{search.trim()?'No matching items. Try another spelling or size.':t('company_lists.empty','No items in this company list.')}</Empty>:<>
+  {!setupOpen&&rowsError&&<div className="card pad section" role="alert">{rowsError} <button type="button" className="btn small" onClick={()=>void loadRows()}>Retry company list</button></div>}
+  {!setupOpen&&loading&&rows.length>0&&<p className="muted tiny" role="status">Refreshing company list…</p>}
+  {!setupOpen&&<div className="card pad section company-count-workspace" aria-busy={loading}>{loading&&!rows.length?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{search.trim()?'No matching items. Try another spelling or size.':t('company_lists.empty','No items in this company list.')}</Empty>:<>
    <div className="muted tiny">{scoped.length} item(s) · {countTotal} in saved draft · review before final submission.{companyHasSuggestions?' Possible spelling matches included — confirm item and size.':''}</div>
    <div className="tablewrap section company-items-grid" style={companyRowStyle(rowLayout)}><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
