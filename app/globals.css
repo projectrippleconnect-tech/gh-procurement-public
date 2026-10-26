@@ -1404,3 +1404,27 @@ input.item-uppercase{ text-transform:uppercase; }
  .general-stock-history-modal .stock-history-head{top:-12px}
 }
 @media print{.general-stock-history-backdrop{display:none!important}}
+
+/* Worksheet panels belong to the scrolling content, not over the item rows.
+   Header portals and the app's navigation remain outside this scroll area. */
+@media screen{
+ .app .content .comparison-summary,
+ .app .content .sticky-work-search,
+ .app .content .procurement-bulk-actions,
+ .app .content .task-dock,
+ .app .content .po-primary-action:not(:empty),
+ .app .content .receive-post-dock,
+ .app .content .guide-controls,
+ .app .content .po-bill-head{
+  position:static;inset:auto;z-index:auto;
+ }
+ .app .content .task-dock,
+ .app .content .po-primary-action:not(:empty),
+ .app .content .receive-post-dock,
+ .app .content .guide-controls{
+  width:100%;max-width:none;max-height:none;overflow:visible;
+  margin-top:12px;box-shadow:none;
+ }
+ /* Row labels stay aligned horizontally without pinning to the table's top. */
+ .rfq-price-sheet tbody .rfq-sheet-item{top:auto}
+}

@@ -395,6 +395,56 @@ try{
    }
    await target.click()
   }
+  if(process.env.GH_UI_SCROLL_PANELS==='1'){
+   async function staticPanel(selector){
+    const panel=page.locator(selector).filter({visible:true}).first()
+    await panel.waitFor()
+    assert.equal(await panel.evaluate(el=>getComputedStyle(el).position),'static',selector+' must scroll with its content')
+   }
+   await navigate('≡ Review')
+   await staticPanel('.sticky-work-search')
+   await staticPanel('.procurement-bulk-actions')
+   rfqItemCount=15
+   await navigate('Q RFQs & Quotes')
+   await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.getByRole('button',{name:'Save & enter received quotes →',exact:true}).click()
+   await page.locator('[data-rfq-price-item]').filter({visible:true}).first().fill('123.45')
+   await page.getByRole('button',{name:/^Save & (Next Supplier|Compare Prices)/}).click()
+   await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).waitFor()
+   await staticPanel('.comparison-summary')
+   await staticPanel('.task-dock')
+   const motion=await page.evaluate(async()=>{
+    const scroller=innerWidth<=700?document.querySelector('.content'):document.scrollingElement
+    const summary=document.querySelector('.comparison-summary')
+    scroller.scrollTop=0
+    await new Promise(r=>requestAnimationFrame(r))
+    const before=summary.getBoundingClientRect().top
+    scroller.scrollTop=120
+    await new Promise(r=>requestAnimationFrame(r))
+    return {delta:summary.getBoundingClientRect().top-before,scroll:scroller.scrollTop}
+   })
+   assert.ok(motion.scroll>30,'Fixture must actually scroll')
+   assert.ok(Math.abs(motion.delta+motion.scroll)<3,'Summary moves by the page scroll distance')
+   assert.equal(await page.locator('.rfq-price-sheet tbody .rfq-sheet-item').first().evaluate(el=>getComputedStyle(el).top),'auto')
+   if(width<=700){
+    await page.evaluate(()=>{document.documentElement.dataset.ghKeyboardOpen='true'})
+    await staticPanel('.task-dock')
+    await page.evaluate(()=>{document.documentElement.dataset.ghKeyboardOpen='false'})
+   }
+   await page.screenshot({path:'test-results/scrolling-comparison-'+width+'.png'})
+   await navigate('PO Orders')
+   await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+   await staticPanel('.po-bill-head')
+   await staticPanel('.po-primary-action')
+   await navigate('⇩ Receive Goods')
+   await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
+   await staticPanel('.receiving-search')
+   assert.equal(stockSubmissions.length,0)
+   assert.equal(receipts.length,0)
+   assert.deepEqual(errors,[])
+   console.log('PASS comparison, review, order and receiving panels scroll normally at '+width+'px')
+   await context.close();continue
+  }
   if(process.env.GH_UI_COMPANY_LOADING==='1'){
    await navigate('✓ Stock Entry')
    await page.getByRole('tab',{name:'Company Items',exact:true}).click()
@@ -1407,7 +1457,7 @@ try{
    await page.screenshot({path:'test-results/focused-quotes-'+width+'.png'})
    const dock=page.locator('.task-dock').filter({visible:true}).first()
    assert.ok(await dock.isVisible())
-   const bounds=await dock.boundingBox();assert.ok(bounds.y<844,'Main action stays in viewport')
+   assert.equal(await dock.evaluate(el=>getComputedStyle(el).position),'static','Work actions scroll with the worksheet')
    await page.getByRole('button',{name:'Exit focus',exact:true}).click()
    await guide.getByText('Step 3 of 5 · Prices',{exact:true}).waitFor({state:'attached'})
    await page.reload();await page.locator('.app').waitFor()

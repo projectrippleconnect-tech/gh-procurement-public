@@ -51,6 +51,11 @@ jobs:
           node tests/supplier-portal-mobile.mjs
       - name: Verify the runner's installed Chrome
         run: google-chrome --version
+      - name: Verify scrolling workspace panels do not cover item rows
+        env:
+          GH_UI_SCROLL_PANELS: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: npm run test:ui
       - name: Verify delayed company refresh preserves visible rows and stock drafts
         env:
           GH_UI_COMPANY_LOADING: '1'

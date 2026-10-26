@@ -61,7 +61,7 @@ function ProcurementApp(){
    if(!wasOpen||!content?.contains(field)||window.innerWidth>700)return
    const bounds=content.getBoundingClientRect()
    const docks=[...content.querySelectorAll('.stock-submit-dock,.task-dock,.receive-post-dock,.po-primary-action')]
-    .filter(el=>!el.closest('[hidden]')&&el.getClientRects().length&&getComputedStyle(el).display!=='none')
+    .filter(el=>!el.closest('[hidden]')&&el.getClientRects().length&&getComputedStyle(el).display!=='none'&&['fixed','sticky'].includes(getComputedStyle(el).position))
     .map(el=>el.getBoundingClientRect()).filter(r=>r.height>0)
    const bottom=Math.min(bounds.bottom,...docks.map(r=>r.top))-10,top=bounds.top+8
    const row=field.closest('.stock-dense-row,.company-stock-item-row,.company-stock-row,.receive-entry-row')
