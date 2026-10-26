@@ -42,8 +42,8 @@ begin
   select coalesce(display_name,'Stock handler') into body_v from public.proc_profiles where id=new.counted_by;
   body_v:=coalesce(body_v,'Stock handler')||' submitted '||new.count_no||coalesce(' · '||nullif(new.category,''),'');
  else
-  if new.status not in ('pending_approval','sent') then return new;end if;
-  k:='po:'||new.id||':'||new.status;view_v:='po';
+  if new.status not in ('pending_approval','sent') and not (tg_op='INSERT' and new.status='approved') then return new;end if;
+  k:='po:'||new.id||':'||case when new.status='approved' then 'pending_approval' else new.status end;view_v:='po';
   title_v:=case when new.status='sent' then 'Supply order sent' else 'Supply order submitted' end;
   select coalesce(name,'Supplier') into body_v from public.proc_suppliers where id=new.supplier_id;
   body_v:=new.po_no||' · '||coalesce(body_v,'Supplier')||case when new.status='pending_approval' then ' · awaiting approval' else '' end;
