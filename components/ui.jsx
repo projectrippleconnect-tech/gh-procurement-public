@@ -26,14 +26,14 @@ export const Badge=({children})=><span className={'badge '+statusClass(children)
 export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
-export function WorkflowNavigation({view,navigate,canNavigate}){
+export function WorkflowNavigation({view,navigate,canNavigate,t=(k,f)=>f||k}){
  // Unauthorized stages must not appear as disabled buttons or in step counts.
  const stages=visibleWorkflowStages(view,canNavigate)
  if(!stages.length)return null
  const index=stages.findIndex(([,target])=>target===view)
- return <nav className="workflow-navigation workflow-step-nav" aria-label="Guided procurement navigation">
-  <div className="workflow-step-heading">Step {index+1} of {stages.length} · {stages[index][0]}</div>
-  <div className="workflow-step-tabs">{stages.map(([label,target,icon],i)=><button key={target} type="button" className={i===index?'active':''} aria-current={i===index?'step':undefined} aria-label={label} title={`Step ${i+1}: ${label}`} onClick={()=>navigate(target)}><span aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div>
+ return <nav className="workflow-navigation workflow-step-nav" aria-label="Purchasing sections">
+  <div className="workflow-purchasing-heading">{t('purchasing.title','Purchasing')}</div>
+  <div className="workflow-step-tabs">{stages.map(([label,target,icon],i)=><button key={target} type="button" className={i===index?'active':''} aria-current={i===index?'page':undefined} aria-label={label} title={label} onClick={()=>navigate(target)}><span aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div>
  </nav>
 }
 

@@ -1430,3 +1430,13 @@ input.item-uppercase{ text-transform:uppercase; }
 }
 
 .admin-notifications{position:relative;margin:6px 0}.notification-panel{background:var(--panel,#172236);border:1px solid var(--border,#475569);border-radius:12px;padding:12px;max-width:560px;max-height:65vh;overflow:auto}.notification-row{display:flex;flex-direction:column;gap:4px;text-align:left;width:100%;padding:10px;margin-top:6px;background:transparent;color:inherit;border:1px solid var(--border,#475569);border-radius:8px}.notification-row.unread{border-left:4px solid #38bdf8}.notification-row small{opacity:.7}
+
+/* One list selector and one purchasing navigation; attention belongs to its record. */
+.item-list-selector{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
+.item-list-selector label{font-size:13px;font-weight:650}
+.item-list-selector .select{width:auto;min-width:160px;max-width:100%;flex:0 1 240px}
+.record-attention{display:block;max-width:100%;margin:6px 0}
+.record-attention>summary{cursor:pointer;white-space:normal;display:inline-flex;min-height:30px;align-items:center}
+.record-attention>.notice{margin-top:6px;white-space:normal;overflow-wrap:anywhere}
+.workflow-purchasing-heading{font-weight:700;font-size:13px;margin-bottom:8px}
+@media(max-width:420px){.item-list-selector .select{flex:1 1 160px}.record-attention>summary{min-height:40px}}

@@ -8,6 +8,8 @@ import {receiptReview,pendingReceiptOrderIds} from '@/lib/receiving-guidance.mjs
 import {DeleteRecordButton} from './delete-record'
 
 import {ModernSelect} from './modern-select'
+import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
+import {poAttention} from '@/lib/purchasing-workspace.mjs'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
@@ -24,7 +26,7 @@ import {SupplierDocumentEditor} from './supplier-document-editor'
 import {defaultSupplierTemplate,documentCompany,documentLines} from '@/lib/supplier-template.mjs'
 import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
 
-export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOrderSelected=()=>{},activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const textPrompt=useTextPrompt()
  const[documentTemplate,setDocumentTemplate]=useState(()=>defaultSupplierTemplate('po'))
  useEffect(()=>{try{const v=JSON.parse(localStorage.getItem('gh-po-document:'+profile.id)||'null');if(v)setDocumentTemplate({...defaultSupplierTemplate('po'),...v})}catch{}},[profile.id])
@@ -79,8 +81,10 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
  }
  const batchIds=initialFilter.startsWith('batch:')?initialFilter.slice(6).split(',').filter(id=>/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)):[]
  const batchKey=batchIds.join(',')
- const [orderTab,setOrderTab]=useState(()=>batchIds.length?'selected':'general')
+ const [orderTab,setOrderTab]=useState(()=>batchIds.length?'selected':itemListType)
  function changeOrderTab(next){opening.current++;opening.currentPoId=null;setActive(null);setLines([]);setLinesReady(false);setPage(0);setOrderTab(next)}
+ const previousItemListType=useRef(itemListType)
+ useEffect(()=>{if(previousItemListType.current===itemListType)return;previousItemListType.current=itemListType;if(active&&Boolean(active.company_id||active.proc_po_is_company)===(itemListType==='company')){setOrderTab(itemListType);return}changeOrderTab(itemListType)},[itemListType])
  const pageSize=20
  const opening=useRef(0)
  const listRequest=useRef(0)
@@ -102,6 +106,7 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
  useEffect(()=>{if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter))return;let cancelled=false;(async()=>{const r=await supabase.from('proc_purchase_orders').select('*,proc_po_is_company,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',initialFilter).single();if(cancelled)return;if(r.error)return fail(r.error);void open(r.data)})();return()=>{cancelled=true}},[initialFilter,fail])
 
  async function open(po){
+  onItemListTypeChange?.(po.company_id||po.proc_po_is_company?'company':'general')
   const request=++opening.current
   opening.currentPoId=po.id;setLines([]);setLinesReady(false);setGateway(null);refreshPoGateway(po.id)
   if(orderTab!=='selected')setOrderTab(po.company_id||po.proc_po_is_company?'company':'general')
@@ -250,16 +255,13 @@ export function PurchaseOrders({onOrderSelected=()=>{},activeView='po',initialFi
  </div>
  return <div className="card pad po-orders">
   <div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>Tap a PO row to expand its bill, details and supplier actions.</p></div></div>
-  <div className="rfq-workspace-tabs section" role="tablist" aria-label="Purchase order type">
-   <button className={'btn '+(orderTab==='general'?'primary':'')} type="button" role="tab" aria-selected={orderTab==='general'} onClick={()=>changeOrderTab('general')}>General Items</button>
-   <button className={'btn '+(orderTab==='company'?'primary':'')} type="button" role="tab" aria-selected={orderTab==='company'} onClick={()=>changeOrderTab('company')}>Company Items</button>
-   {batchKey&&<button className={'btn '+(orderTab==='selected'?'primary':'')} type="button" role="tab" aria-selected={orderTab==='selected'} onClick={()=>changeOrderTab('selected')}>Selected orders</button>}
-  </div>
+  <ItemListSelector value={itemListType} onChange={onItemListTypeChange} disabled={busy||shareBusy} t={t}/>
   {canEdit&&orderTab==='selected'&&batchKey&&<PoBulkSend orderIds={batchIds} company={documentCompany(company,documentTemplate)} documentTemplate={documentTemplate} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
   {orderTab==='selected'&&batchKey&&<div className="notice section">Showing the {batchIds.length} PO(s) created for this order. <button className="btn small" onClick={()=>navigate('po','all')}>View all orders</button></div>}
   <div className="filters two section"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><ModernSelect className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></ModernSelect></div>
   <div className="po-order-list section">{filtered.map(po=><div className="po-order" key={po.id}>
    <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{po.quantity_only?(po.company_id?'Direct PO':'Quantity only'):money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
+   <AttentionBadge reason={poAttention(po,active?.id===po.id?gateway:null)}/>
    {active?.id===po.id&&renderOrder()}
   </div>)}</div>
   {!filtered.length&&<Empty>No purchase orders match this page.</Empty>}

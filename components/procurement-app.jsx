@@ -6,6 +6,7 @@ import {supabase} from '@/lib/supabase'
 import {interfaceVariables} from '@/lib/procurement-journey.mjs'
 import {stepForView,viewForStep} from '@/lib/workflow-guide.mjs'
 import {NAV,Err,WorkflowNavigation} from './ui'
+import {PURCHASING_VIEWS,purchasingDestination} from '@/lib/purchasing-workspace.mjs'
 import {LoginScreen,ChangePassword} from './auth-screen'
 import {createTranslator,navText} from '@/lib/i18n'
 import {HelpCenter} from './help-ui'
@@ -50,7 +51,7 @@ function ProcurementApp(){
  const[permissions,setPermissions]=useState(new Set()),[permissionsLoaded,setPermissionsLoaded]=useState(false),[language,setLanguage]=useState(()=>typeof window!=='undefined'?(localStorage.getItem('gh-procurement-language')||'en'):'en')
  const[mobileMenu,setMobileMenu]=useState(false),[securityOpen,setSecurityOpen]=useState(false),[helpOpen,setHelpOpen]=useState(false)
  const[screenHistory,setScreenHistory]=useState({entries:[{view:'dashboard',filter:''}],index:0})
- const[stockListType,setStockListType]=useState('general'),[stockHistoryRequest,setStockHistoryRequest]=useState(0)
+ const[itemListType,setItemListTypeState]=useState('general'),[stockHistoryRequest,setStockHistoryRequest]=useState(0)
  const workContent=useRef(null)
  useEffect(()=>{
   const viewport=window.visualViewport
@@ -294,19 +295,22 @@ function ProcurementApp(){
  },[modules,profile,permissionsLoaded,can,language])
 
  const roleKey=String(profile?.role_key||profile?.role||'')
+ const lastPurchasingView=useRef('requirements')
+ const setItemListType=useCallback(value=>{const next=value==='company'?'company':'general';setItemListTypeState(next);if(profile?.id)try{localStorage.setItem('gh-item-list-type:'+profile.id,next)}catch{}},[profile?.id])
+ useEffect(()=>{if(!profile?.id)return;try{setItemListTypeState(localStorage.getItem('gh-item-list-type:'+profile.id)==='company'?'company':'general')}catch{}},[profile?.id])
  const isolatedStockRole=['stock_handler','stock_checker'].includes(roleKey)
  const primaryKeys=useMemo(()=>{
   if(['stock_checker','stock_handler'].includes(roleKey))return ['dashboard','stock','urgent_actions']
   if(roleKey==='receiver')return ['dashboard','receiving']
   if(roleKey==='document_assistant')return ['dashboard','price_lists']
-  if(roleKey==='viewer')return ['dashboard']
-  if(['admin','procurement'].includes(roleKey))return ['dashboard','stock','requirements','rfq','po','receiving']
-  return ['dashboard','requirements','rfq','po']
+  if(roleKey==='viewer')return ['dashboard','purchasing']
+  if(['admin','procurement'].includes(roleKey))return ['dashboard','stock','purchasing','receiving']
+  return ['dashboard','purchasing']
  },[roleKey])
- const primaryNav=useMemo(()=>primaryKeys.map(k=>visibleNav.find(n=>n[0]===k)).filter(Boolean),[primaryKeys,visibleNav])
- const secondaryNav=useMemo(()=>visibleNav.filter(n=>!primaryKeys.includes(n[0])),[visibleNav,primaryKeys])
+ const primaryNav=useMemo(()=>primaryKeys.map(k=>k==='purchasing'?(visibleNav.some(n=>PURCHASING_VIEWS.includes(n[0]))?['purchasing','▤',t('purchasing.title','Purchasing')]:null):visibleNav.find(n=>n[0]===k)).filter(Boolean),[primaryKeys,visibleNav,t])
+ const secondaryNav=useMemo(()=>visibleNav.filter(n=>!primaryKeys.includes(n[0])&&!(primaryKeys.includes('purchasing')&&PURCHASING_VIEWS.includes(n[0]))),[visibleNav,primaryKeys])
  const mobileQuickNav=useMemo(()=>{
-  if(['admin','procurement'].includes(roleKey))return ['dashboard','stock','po','receiving'].map(k=>visibleNav.find(n=>n[0]===k)).filter(Boolean)
+  if(['admin','procurement'].includes(roleKey))return primaryNav
   return primaryNav.slice(0,4)
  },[primaryNav,roleKey,visibleNav])
 
@@ -315,7 +319,7 @@ function ProcurementApp(){
   if(visibleNav.some(n=>n[0]===view))return
   // Restricted roles may not have Dashboard access. Selecting the correct
   // view alone will not render lazy screens: the screen must be marked visited.
-  const next=primaryNav[0]?.[0]||visibleNav[0][0]
+  const preferred=primaryNav[0]?.[0];const next=preferred==='purchasing'?purchasingDestination(k=>visibleNav.some(n=>n[0]===k)):preferred||visibleNav[0][0]
   setVisited(current=>new Set([...current,next]))
   const initialHistory={entries:[{view:next,filter:''}],index:0}
   historyRef.current=initialHistory
@@ -335,7 +339,8 @@ function ProcurementApp(){
  if(!profile)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>{t('app.access_unavailable','Access unavailable')}</h1><p>{error||t('app.account_not_enabled','Your account is not enabled for GH Procurement.')}</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>
  if(!hasAuthorizedWorkspace)return <div className="login-shell"><div className="card login"><div className="logo">GH</div><h1>No permitted workspace</h1><p>Your account is active, but no procurement screens are currently enabled for your role. Ask an administrator to review your role permissions.</p><div className="row"><button className="btn primary" onClick={retryStartup}>Retry</button><button className="btn" onClick={()=>supabase.auth.signOut()}>Sign out</button></div></div></div>
 
- const title=({rfq:'Prices',requirements:'Review',po:'Orders',stock:'Stock',receiving:'Receive'})[view]||visibleNav.find(x=>x[0]===view)?.[2]||'GH Procurement'
+ const title=PURCHASING_VIEWS.includes(view)?t('purchasing.title','Purchasing'):({stock:'Stock',receiving:'Receive'})[view]||visibleNav.find(x=>x[0]===view)?.[2]||'GH Procurement'
+ const navActive=k=>k==='purchasing'?PURCHASING_VIEWS.includes(view):view===k
  const appName=isolatedStockRole?'GH Stock':'GH Procurement'
  const company=settings.company_profile||{name:'General Hardware',town:'Nawalapitiya',country:'Sri Lanka'}
  const footer=settings.pdf_footer||'Generated by GH Procurement'
@@ -349,6 +354,8 @@ function ProcurementApp(){
  }
  function saveHistory(next){historyRef.current=next;setScreenHistory(next)}
  function go(k,filter='',step=null){
+  if(k==='purchasing')k=purchasingDestination(target=>visibleNav.some(n=>n[0]===target),lastPurchasingView.current)
+  if(PURCHASING_VIEWS.includes(k))lastPurchasingView.current=k
   if(!visibleNav.some(n=>n[0]===k))return
   if(k===view&&!filter&&step===null){setMobileMenu(false);return}
   const current=historyRef.current
@@ -376,16 +383,16 @@ function ProcurementApp(){
  }
  function canStep(step){return visibleNav.some(n=>n[0]===guidedDestination(step))}
  function guideTo(step){if(canStep(step))go(guidedDestination(step),'',step)}
- const p={settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,onOrderSelected:setGuidePoId,onReceivingSelected:setGuideReceivingId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
+ const p={itemListType,onItemListTypeChange:setItemListType,settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,onOrderSelected:setGuidePoId,onReceivingSelected:setGuideReceivingId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
  return <div className={"app"+(['stock','requirements','rfq','po','receiving'].includes(view)?' workflow-active':'')} style={interfaceVariables(settings.interface_preferences)}>
   <aside className="sidebar">
    <div className="brand"><div className="brandmark">GH</div><div><h1>{appName}</h1><small>{isolatedStockRole?'Stock workspace':t('app.purchase_control','Purchase Control')}</small></div></div>
    <div className="nav">
     <div className="nav-section-label">WORK</div>
-    {primaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{n[2]}</button>)}
+    {primaryNav.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{n[2]}</button>)}
     {secondaryNav.length>0&&<details className="nav-more" open={secondaryNav.some(n=>n[0]===view)}>
      <summary><b>•••</b><span>More / Admin</span></summary>
-     <div className="nav-more-items">{secondaryNav.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{n[2]}</button>)}</div>
+     <div className="nav-more-items">{secondaryNav.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{n[2]}</button>)}</div>
     </details>}
    </div>
    <div className="sidefoot"><div className="userbox"><strong>{profile.display_name||session.user.email}</strong><small>{String(profile.role_key||profile.role).replaceAll('_',' ')}</small><div className="toolbar user-actions"><button className="btn ghost small" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button><button className="btn ghost small" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>
@@ -394,12 +401,12 @@ function ProcurementApp(){
   <main className="main">
    <AdminNotifications profile={profile} navigate={go} flash={flash}/>
    <header className="topbar"><div className="topbar-left">{p.canNavigate('dashboard')&&<button className="mobile-menu-btn mobile-home-btn" onClick={()=>go('dashboard')} aria-label="Go to Home">⌂</button>}<button className="mobile-menu-btn" onClick={()=>setMobileMenu(true)} aria-label="Open menu">☰</button><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div id="stock-header-action" className="stock-header-action"/><div className="top-actions"><AppearanceControls/><div className="language-switch" aria-label="Language"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div><button className="btn small info-top-btn" onClick={()=>setHelpOpen(true)} aria-label={t('common.help','Help')}>i</button><button className="btn keep-mobile" onClick={()=>location.reload()}>{t('common.refresh','Refresh')}</button><button className="btn hide-mobile" onClick={()=>setSecurityOpen(true)}>{t('common.security','Security')}</button></div></header>
-   <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button>{view==='stock'&&stockListType==='general'&&<button type="button" className="btn small stock-history-nav-button" aria-label="Open General stock submission history" onClick={()=>setStockHistoryRequest(v=>v+1)}>↺ History</button>}</nav>
+   <nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" disabled={historyTarget(-1)<0} onClick={()=>moveHistory(-1)}>← {t('common.back','Back')}</button><button className="btn small" aria-label="Go forward" disabled={historyTarget(1)<0} onClick={()=>moveHistory(1)}>{t('common.forward','Forward')} →</button>{view==='stock'&&itemListType==='general'&&<button type="button" className="btn small stock-history-nav-button" aria-label="Open General stock submission history" onClick={()=>setStockHistoryRequest(v=>v+1)}>↺ History</button>}</nav>
    <div className="content" ref={workContent}>
-    <WorkflowNavigation view={view} navigate={go} canNavigate={p.canNavigate}/>
+    <WorkflowNavigation view={view} navigate={go} canNavigate={p.canNavigate} t={t}/>
      {!visibleNav.some(n=>n[0]===view)&&<p role="status" className="muted">Opening your permitted workspace…</p>}
     <section hidden={view!=='dashboard'} key={'dashboard-'+(viewKeys['dashboard']||0)}>{visited.has('dashboard')&&visibleNav.some(n=>n[0]==='dashboard')&&(isolatedStockRole?<StockOnlyHome navigate={go} canNavigate={p.canNavigate}/>:<Dashboard {...p} initialFilter={viewFilters['dashboard']||''}/>)}</section>
-    <section hidden={view!=='stock'} key={'stock-'+(viewKeys['stock']||0)}>{visited.has('stock')&&visibleNav.some(n=>n[0]==='stock')&&<StockCheck {...p} initialFilter={viewFilters['stock']||''} historyRequest={stockHistoryRequest} onStockTabChange={setStockListType}/>}</section>
+    <section hidden={view!=='stock'} key={'stock-'+(viewKeys['stock']||0)}>{visited.has('stock')&&visibleNav.some(n=>n[0]==='stock')&&<StockCheck {...p} initialFilter={viewFilters['stock']||''} historyRequest={stockHistoryRequest} />}</section>
     <section hidden={view!=='urgent_actions'} key={'urgent_actions-'+(viewKeys['urgent_actions']||0)}>{visited.has('urgent_actions')&&visibleNav.some(n=>n[0]==='urgent_actions')&&<UrgentActions {...p} initialFilter={viewFilters['urgent_actions']||''}/>}</section>
     <section hidden={view!=='requirements'} key={'requirements-'+(viewKeys['requirements']||0)}>{visited.has('requirements')&&visibleNav.some(n=>n[0]==='requirements')&&<Requirements {...p} initialFilter={viewFilters['requirements']||''}/>}</section>
     <section hidden={view!=='company_lists'} key={'company_lists-'+(viewKeys['company_lists']||0)}>{visited.has('company_lists')&&visibleNav.some(n=>n[0]==='company_lists')&&<CompanyLists {...p} active={view==='company_lists'} initialFilter={viewFilters['company_lists']||''}/>}</section>
@@ -416,11 +423,11 @@ function ProcurementApp(){
   </main>
 
   <nav className="mobile-bottom-nav" aria-label="Main navigation" style={{gridTemplateColumns:mobileQuickNav[0]?.[0]==='dashboard'?`0.8fr repeat(${mobileQuickNav.length},minmax(0,1fr))`:`repeat(${mobileQuickNav.length+1},minmax(0,1fr))`}}>
-   {mobileQuickNav.map(n=><button key={n[0]} aria-current={view===n[0]?'page':undefined} className={(view===n[0]||(n[0]==='po'&&['requirements','rfq'].includes(view)))?'active':''} onClick={()=>go(n[0])}><span aria-hidden="true">{n[1]}</span>{n[2].split(' ')[0]}</button>)}
+   {mobileQuickNav.map(n=><button key={n[0]} aria-current={navActive(n[0])?'page':undefined} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><span aria-hidden="true">{n[1]}</span>{n[2].split(' ')[0]}</button>)}
    <button className={mobileMenu?'active':''} onClick={()=>setMobileMenu(true)}><span aria-hidden="true">☰</span>{t('app.more','More')}</button>
   </nav>
 
-  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">{appName}</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><AppearanceControls/>{[['Work',['dashboard','stock','requirements','rfq','po','receiving','urgent_actions']],['Directory',['company_lists','suppliers','items','price_lists']],['Business & settings',['invoices','reports','admin']]].map(([label,keys])=>{const links=keys.map(key=>visibleNav.find(n=>n[0]===key)).filter(Boolean);return links.length>0&&<div key={label}><div className="drawer-section-title">{label}</div><div className="mobile-drawer-grid">{links.map(n=><button key={n[0]} className={view===n[0]?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></div>})}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
+  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">{appName}</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><AppearanceControls/>{[['Work',['dashboard','stock','purchasing','receiving','urgent_actions']],['Directory',['company_lists','suppliers','items','price_lists']],['Business & settings',['invoices','reports','admin']]].map(([label,keys])=>{const links=keys.map(key=>key==='purchasing'?(purchasingDestination(target=>visibleNav.some(n=>n[0]===target))?['purchasing','▤',t('purchasing.title','Purchasing')]:null):visibleNav.find(n=>n[0]===key)).filter(Boolean);return links.length>0&&<div key={label}><div className="drawer-section-title">{label}</div><div className="mobile-drawer-grid">{links.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></div>})}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
 
   <div className="app-toast-stack" aria-live="polite">
    {notice&&<div className="app-toast success-toast"><b>✓</b><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice('')}>×</button></div>}

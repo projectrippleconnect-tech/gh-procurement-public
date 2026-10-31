@@ -1,6 +1,7 @@
 'use client'
 import {companySubmissionNext} from '@/lib/purchasing-next-step.mjs'
 import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
+import {AttentionBadge} from './purchasing-workspace'
 import {stockSubmissionOutcome} from '@/lib/stock-submission-outcome.mjs'
 export function CompanySubmissionResult({result,navigate,canNavigate=()=>true,onContinueCounting=()=>{}}){
  if(!result)return null
@@ -10,7 +11,8 @@ export function CompanySubmissionResult({result,navigate,canNavigate=()=>true,on
  const outcomes=result.stock_outcomes||[],orders=result.purchase_orders||[]
  return <section className="card pad section" aria-label="Company stock submission result">
   <h3>{outcome.title}</h3>
-  <p role="status"><strong>{purchaseVisible?companySubmissionMessage(result):outcome.message}</strong></p>
+  <AttentionBadge reason={outcome.attentionReason}/>
+  <p role="status"><strong>{outcome.key==='saved'?outcome.message:purchaseVisible?companySubmissionMessage(result):outcome.message}</strong></p>
   <div className="toolbar section">{next&&canNavigate(next.view)&&<button className="btn primary" onClick={()=>navigate(next.view,next.filter,next.step)}>{next.label} →</button>}<button className="btn" onClick={onContinueCounting}>Continue counting</button></div>
   {purchaseVisible&&(orders.length+(result.rfqs||[]).length)>0&&<details className="section"><summary>Created documents ({orders.length+(result.rfqs||[]).length})</summary><div className="toolbar section">
    {orders.map(p=><button key={p.id} className="btn small" disabled={!canNavigate('po')} onClick={()=>navigate('po',p.id)}>PO {p.po_no}</button>)}

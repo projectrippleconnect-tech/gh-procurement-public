@@ -269,8 +269,8 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
     <label className="company-workflow-check-cell" title={'Auto RFQ for '+row.company.name+' / '+row.path}>
      <input type="checkbox" aria-label={'Auto RFQ for '+row.company.name+' / '+row.path} checked={chosen.mode==='rfq'} disabled={busy||!can('procurement.rfq.manage')||inherited} onChange={e=>update(row,{mode:e.target.checked?'rfq':'manual',applyChildren:true})}/>
     </label>
-    <label className="company-workflow-check-cell" title={'Auto PO for '+row.company.name+' / '+row.path}>
-     <input type="checkbox" aria-label={'Auto PO for '+row.company.name+' / '+row.path} checked={chosen.mode==='direct'} disabled={busy||!can('procurement.orders.approve')||inherited} onChange={e=>update(row,{mode:e.target.checked?'direct':'manual',applyChildren:true})}/>
+    <label className="company-workflow-check-cell" title={'Direct PO for '+row.company.name+' / '+row.path}>
+     <input type="checkbox" aria-label={'Direct PO for '+row.company.name+' / '+row.path} checked={chosen.mode==='direct'} disabled={busy||!can('procurement.orders.approve')||inherited} onChange={e=>update(row,{mode:e.target.checked?'direct':'manual',applyChildren:true})}/>
     </label>
    </div>
    {(contactsOpen===row.key||dirty||inherited)&&<div className="company-workflow-detail">
@@ -338,7 +338,7 @@ export function CompanyWorkflowDirectory({companies=[],can=()=>false,active=true
   </details>}
   {!data&&!error&&<p className="muted" role="status">Loading saved company routes and suppliers…</p>}
   {data&&<div className="company-workflow-list" role="group" aria-label="Company and category automation checklist">
-   <div className="company-workflow-list-head"><span>Company / Category</span><span>Auto RFQ</span><span>Auto PO</span></div>
+   <div className="company-workflow-list-head"><span>Company / Category</span><span>Auto RFQ</span><span>Direct PO</span></div>
    <div className="company-workflow-list-scroll">
    {[...companies].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true})).map(company=>{
     const tree=treeByCompany.get(company.id)

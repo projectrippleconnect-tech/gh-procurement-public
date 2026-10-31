@@ -2,6 +2,8 @@
 
 import {ModernSelect} from './modern-select'
 import {DashboardActions} from './dashboard-actions'
+import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
+import {reviewWorkQuery,quoteWorkQuery,scopePurchasingQuery} from '@/lib/purchasing-workspace.mjs'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
@@ -28,9 +30,11 @@ const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyList
 
 const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 
-export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
+export function Dashboard({itemListType='general',onItemListTypeChange,can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
  const[queueCounts,setQueueCounts]=useState({})
+ const purchasingAccess=['requirements','rfq','po'].some(canNavigate)
+ const scopeWork=(query,field)=>purchasingAccess?scopePurchasingQuery(query,itemListType,field):query
  const[loadState,setLoadState]=useState({})
  const loadSerial=useRef(0)
  const[overdueOpen,setOverdueOpen]=useState(false)
@@ -48,15 +52,15 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
    supabase.from('proc_v_stock_check_due').select('item_id',{count:'exact',head:true}).eq('is_due',true),
    supabase.from('proc_v_receipt_reconciliation').select('po_line_id',{count:'exact',head:true}).gt('over_received_qty',0),
    supabase.from('proc_v_urgent_actions').select('action_id',{count:'exact',head:true}),
-   supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']),
-   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','pending_approval'),
-   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','approved'),
-   supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted','quoted']),
-   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['sent','partially_received'])
+   scopeWork(reviewWorkQuery(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true})),'proc_requirement_is_company'),
+   scopeWork(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','pending_approval'),'proc_po_is_company'),
+   scopeWork(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','approved'),'proc_po_is_company'),
+   scopeWork(quoteWorkQuery(supabase.from('proc_rfqs').select('id',{count:'exact',head:true})),'proc_rfq_is_company'),
+   scopeWork(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['sent','partially_received']),'proc_po_is_company')
   ]
   const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent','review','approval','send','prices','deliveries']
   await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(index>=3&&!Number.isInteger(result.count))throw new Error('Queue count unavailable');if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else if(index<8)setAlerts(v=>({...v,[key]:result.count||0}));else setQueueCounts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
- }catch(e){fail(e)}},[fail])
+ }catch(e){fail(e)}},[fail,itemListType,purchasingAccess])
  useEffect(()=>{if(activeView==='dashboard')load()},[load,activeView])
  const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
  const cards=[
@@ -72,6 +76,7 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
+  {purchasingAccess&&<ItemListSelector value={itemListType} onChange={onItemListTypeChange} t={t}/>}
   <DashboardActions can={can} counts={{...alerts,...queueCounts}} states={loadState} canNavigate={canNavigate} navigate={navigate} onRefresh={load} lastWork={lastWork} resumeWork={resumeWork}/>
   <details className="dashboard-totals section"><summary>Overview &amp; totals</summary>
   <div className="grid metrics">{cards.map(x=>{
@@ -104,10 +109,10 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
  </>
 }
 
-export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange}){
+export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange,itemListType,onItemListTypeChange}){
  const confirmAction=useActionConfirmation()
  const[stockTab,setStockTab]=useState(()=>{try{return can('company_lists.view')&&localStorage.getItem('gh-stock-list-tab:'+profile.id)==='company'?'company':'general'}catch{return 'general'}})
- function changeStockTab(value){setStockTab(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
+ function changeStockTab(value){setStockTab(value);onItemListTypeChange?.(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
 
  const[submission,setSubmission]=useState(null)
  const resultRef=useRef(null)
@@ -630,6 +635,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    console.warn('General stock history unavailable',e)
   }finally{setHistoryLoading(false)}
  }
+ useEffect(()=>{if(itemListType&&itemListType!==stockTab)setStockTab(itemListType==='company'&&can('company_lists.view')?'company':'general')},[itemListType,can])
  useEffect(()=>{onStockTabChange?.(stockTab)},[onStockTabChange,stockTab])
  useEffect(()=>{
   if(historyRequest>0&&stockTab==='general'&&isActiveView('stock')){
@@ -675,7 +681,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const canSeePurchaseHistory=canNavigate('requirements')||canNavigate('po')
  const submitCount=new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])]).size
  const submitLabel=busy?'Submitting…':'Review & submit · '+submitCount
- const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>changeStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>changeStockTab('company')}>Company Items</button>}</div>
+ const stockTabs=<ItemListSelector value={stockTab} onChange={changeStockTab} allowCompany={can('company_lists.view')} t={t}/>
  if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
@@ -698,7 +704,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     <p className="muted tiny">Draft edits save automatically. Submit saves this reviewed lot once. Shortages continue through the configured purchasing workflow.</p>
    </div>
   </div>}
-  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{submission.title}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.key!=='saved'&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>{t('stock.continue_review','To Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
+  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{submission.title}</h3><AttentionBadge reason={submission.attentionReason}/><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{(submission.key!=='saved'||submission.needsAttention)&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>{t('stock.continue_review','To Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
    <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
