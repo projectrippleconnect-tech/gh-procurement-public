@@ -8,7 +8,7 @@ test('WhatsApp group check authenticates an active admin and never sends or join
  assert.match(api,/auth\.getUser\(token\)/)
  assert.match(api,/profile\?\.role!=='admin'/)
  assert.match(api,/profile\.active/)
- assert.match(api,/\.railway\.internal/)
+ assert.match(api,/wahaGatewayConfig/)
  assert.match(api,/\/groups\?limit=50/)
  assert.match(api,/\/participants\/v2/)
  assert.doesNotMatch(api,/sendImage|sendText|\/groups\/join(?!-info)|\/participants\/add|export async function POST/)
