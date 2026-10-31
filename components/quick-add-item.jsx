@@ -16,7 +16,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
  const[companyChoice,setCompanyChoice]=useState(''),[companyDraft,setCompanyDraft]=useState({name:'',code:''})
  const[uoms,setUoms]=useState(DEFAULT_UOMS)
  const[groups,setGroups]=useState([]),[subgroups,setSubgroups]=useState([])
- const[categories,setCategories]=useState(['GENERAL','BATHROOM','ELECTRICAL']),[addingCategory,setAddingCategory]=useState(false),[newCategory,setNewCategory]=useState(''),[categoryError,setCategoryError]=useState(''),[loadingCategories,setLoadingCategories]=useState(false)
+ const[categories,setCategories]=useState(['GENERAL','BATHROOM','ELECTRICAL']),[loadingCategories,setLoadingCategories]=useState(false)
  useEffect(()=>{
   if(!open)return
   let active=true
@@ -53,19 +53,10 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
   if(companyChoice&&companies.some(c=>c.id===companyChoice))return
   setCompanyChoice(selectedCompanyId!=='all'&&companies.some(c=>c.id===selectedCompanyId)?selectedCompanyId:companies[0]?.id||'__new__')
  },[open,isCompany,selectedCompanyId,companies,companyChoice])
- function addCategory(){
-  const name=normalise(newCategory)
-  if(!name){setCategoryError('Enter a category name.');return}
-  const existing=categories.find(c=>normalise(c)===name)
-  const category=existing||name
-  setCategories(v=>existing?v:[...v,category].sort())
-  setForm(v=>updateItemGrouping(v,'category',category));setAddingCategory(false);setNewCategory('');setCategoryError('')
- }
  if(!can('items.edit')||(isCompany&&!can('company_lists.manage')))return null
  const reorder=quickAddReorderLevel(form.max_stock,form.movement,isCompany)
  async function save(){
   if(busy)return
-  if(addingCategory)return setCategoryError('Add or cancel the new category before saving the item.')
   if(!form.description.trim()||(!isCompany&&!form.category.trim())||!form.uom.trim())return fail(new Error(isCompany?'Item name and UOM are required.':'Item name, category and UOM are required.'))
   if(form.max_stock.trim()===''||reorder===null)return fail(new Error('Enter a valid maximum stock (zero or greater).'))
   if(isCompany&&companyChoice==='__new__'&&!companyDraft.name.trim())return fail(new Error('Enter a new company name.'))
@@ -106,7 +97,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
    </div>}
    <div className="formgrid">
     <label className="field">Item name<input className="input" disabled={busy} value={form.description} onChange={e=>setForm(v=>({...v,description:uppercaseItemText(e.target.value)}))}/></label>
-    {!isCompany&&<><label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} allowCustom customOptionLabel="category" onChange={e=>setForm(v=>updateItemGrouping(v,'category',e.target.value))}>
+    {!isCompany&&<><label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} allowCustom customMaxLength={100} customOptionLabel="category" onCustomAdd={value=>setCategories(v=>itemOptionValues(v,value))} onChange={e=>setForm(v=>updateItemGrouping(v,'category',e.target.value))}>
      {!form.category&&<option value="">Select category…</option>}
      {[...new Set([...categories,form.category])].filter(Boolean).map(c=><option key={c} value={c}>{c}</option>)}
     </ModernSelect></label>
@@ -129,12 +120,6 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     </ModernSelect></label>
    </div>
    {loadingCategories&&<p className="muted tiny" role="status">Loading categories…</p>}
-   {!isCompany&&(addingCategory?<div className="section">
-    <label className="field">New category name<input autoFocus className="input" maxLength={100} disabled={busy} value={newCategory} onChange={e=>{setNewCategory(uppercaseItemText(e.target.value));setCategoryError('')}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCategory()}}}/></label>
-    {categoryError&&<p role="alert">{categoryError}</p>}
-    <div className="toolbar section"><button type="button" className="btn small primary" disabled={busy} onClick={addCategory}>Use category</button><button type="button" className="btn small" disabled={busy} onClick={()=>{setAddingCategory(false);setNewCategory('');setCategoryError('')}}>Cancel</button></div>
-    <p className="muted tiny">This category is saved when the item is saved.</p>
-   </div>:<button type="button" className="btn small section" disabled={busy||loadingCategories} onClick={()=>setAddingCategory(true)}>+ New category</button>)}
    <p className="muted tiny">{isCompany?'The selected company is used as the item category. Reorder level is calculated automatically at 50%.':'Select existing categories, groups and units or create custom values. Brand is not required. Reorder level is calculated automatically.'}</p>
    <div className="toolbar section"><button type="button" className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':isCompany?'Save to Company List':'Save Item'}</button><button type="button" className="btn" disabled={busy} onClick={()=>setOpen(false)}>Cancel</button></div>
   </div>}
