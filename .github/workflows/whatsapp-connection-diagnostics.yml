@@ -1,0 +1,43 @@
+# Read-only and manually triggered. Never prints credentials or sends messages.
+name: GH Procurement - WhatsApp connection diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9a5c5528f2a48b55447258b8ed25d9589d1485ad
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --global netlify-cli@27.13.0
+      - name: Report connection readiness without secrets or messages
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import {spawnSync} from 'node:child_process';
+          const result=spawnSync('netlify',['env:list','--json','--context','production','--scope','functions','--site',process.env.NETLIFY_SITE_ID],{encoding:'utf8',maxBuffer:2000000});
+          if(result.status!==0){console.log(JSON.stringify({environment_read:'failed',exit_code:result.status}));process.exit(1)}
+          let raw;try{raw=JSON.parse(result.stdout)}catch{console.log(JSON.stringify({environment_read:'invalid_json'}));process.exit(1)}
+          const vars={};
+          const value=v=>typeof v==='string'?v:typeof v?.value==='string'?v.value:'';
+          if(Array.isArray(raw)){for(const item of raw)if(item.key)vars[item.key]=value(item)}
+          else for(const [key,item] of Object.entries(raw))vars[key]=value(item);
+          const names=['WAHA_BASE_URL','WAHA_API_KEY','WAHA_SESSION','GH_PORTAL_WORKER_SECRET','SUPABASE_SERVICE_ROLE_KEY','GH_WA_AUDIT_RFQ_GROUP_ID','GH_WA_AUDIT_PO_GROUP_ID'];
+          const report={environment_read:'ok',present:Object.fromEntries(names.map(k=>[k,!!vars[k]])),flags:Object.fromEntries(['WAHA_SENDING_ENABLED','GH_PORTAL_PROCESSING_ENABLED','GH_PORTAL_DISPATCH_ENABLED','GH_PORTAL_DELIVERY_VERIFIED','GH_WA_AUDIT_ENABLED','GH_WA_AUDIT_OWNER_ONLY'].map(k=>[k,vars[k]==='true']))};
+          let gateway;
+          try{const u=new URL(vars.WAHA_BASE_URL);report.gateway_transport=u.protocol==='https:'?'https':u.hostname.endsWith('.railway.internal')?'private_network':'other';if(u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error();gateway=u.origin}catch{report.gateway_transport='not_configured'}
+          if(gateway&&vars.WAHA_API_KEY&&report.gateway_transport==='https'){
+            try{const session=vars.WAHA_SESSION||'default';const r=await fetch(gateway+'/api/sessions/'+encodeURIComponent(session),{headers:{'X-Api-Key':vars.WAHA_API_KEY},redirect:'error',signal:AbortSignal.timeout(10000)});report.gateway_http=r.status;if(r.ok){const s=await r.json();report.session_working=s.status==='WORKING'}}catch{report.gateway_reachable=false}
+          }
+          console.log(JSON.stringify(report));
+          NODE
