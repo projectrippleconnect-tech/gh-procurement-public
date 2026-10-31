@@ -1,5 +1,5 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate: simplified stock and purchasing flows, including current scrolling fixes.
+# Release candidate: Stage 3 Work, Stock and Receive; preserves current production gateway fixes.
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: 9a5c5528f2a48b55447258b8ed25d9589d1485ad
+      GH_RELEASE_SHA: 997dc54f5736e5e086a1e1f5ac4761fec7c08e6a
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: 9a5c5528f2a48b55447258b8ed25d9589d1485ad
+          ref: 997dc54f5736e5e086a1e1f5ac4761fec7c08e6a
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -117,6 +117,13 @@ jobs:
           GH_UI_WIDTHS: '390,1366'
         run: npm run test:ui
 
+      - name: Verify Work queues and receiving review at all supported sizes
+        env:
+          GH_UI_WIDTHS: '320,390,768,1366'
+        run: |
+          GH_UI_WORK_CASES=1 npm run test:ui
+          GH_UI_RECEIVING=1 npm run test:ui
+
       - name: Install a pinned Netlify CLI on this temporary runner
         run: npm install --global netlify-cli@27.13.0
 
@@ -144,7 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
-            --message "Manual GH Procurement simplified stock flow release $GH_RELEASE_SHA" \
+            --message "Manual GH Procurement Stage 3 release $GH_RELEASE_SHA" \
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
