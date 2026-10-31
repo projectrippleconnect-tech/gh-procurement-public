@@ -3,6 +3,7 @@
 import {Children,Fragment,isValidElement,useEffect,useId,useRef,useState} from 'react'
 import {createPortal} from 'react-dom'
 import {useModalSurface} from './use-modal-surface'
+import {uniqueSelectOptions} from '@/lib/select-options.mjs'
 
 function optionText(value){
  if(value==null||typeof value==='boolean')return ''
@@ -27,15 +28,15 @@ function display(text){
  return {title:text,detail:''}
 }
 
-export function ModernSelect({children,value,defaultValue='',onChange,disabled,className='',id,style,allowCustom=false,customOptionLabel='option',onCustomAdd,...props}){
+export function ModernSelect({children,value,defaultValue='',onChange,disabled,className='',id,style,allowCustom=false,customMaxLength=32,customOptionLabel='option',onCustomAdd,...props}){
  const [local,setLocal]=useState(String(defaultValue)),[open,setOpen]=useState(false),[search,setSearch]=useState(''),[title,setTitle]=useState('Choose an option')
  const uid=useId(),trigger=useRef(null),surface=useModalSurface(open,()=>setOpen(false))
- const options=optionsFrom(children),current=String(value??local),selected=options.find(o=>o.value===current)
+ const current=String(value??local),options=uniqueSelectOptions(optionsFrom(children),current),selected=options.find(o=>o.value===current)
  const label=props['aria-label']||'Choose an option'
  const shown=options.filter(o=>o.text.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
  const customValue=search.trim().replace(/\s+/g,' ').toUpperCase()
- const matchingCustomOption=options.find(o=>o.value.toLocaleUpperCase()===customValue)
- const canAddCustom=allowCustom&&customValue.length>0&&customValue.length<=32&&!matchingCustomOption
+ const matchingCustomOption=options.find(o=>[o.value,o.text].some(v=>v.trim().replace(/\s+/g,' ').toLocaleUpperCase()===customValue))
+ const canAddCustom=allowCustom&&customValue.length>0&&customValue.length<=customMaxLength&&!matchingCustomOption
  useEffect(()=>{if(disabled)setOpen(false)},[disabled])
  function choose(option){
   setLocal(option.value);setOpen(false)
@@ -56,7 +57,7 @@ export function ModernSelect({children,value,defaultValue='',onChange,disabled,c
   {open&&createPortal(<div className="modal-backdrop picker-backdrop" onClick={e=>{if(e.target===e.currentTarget)setOpen(false)}}>
    <section ref={surface} id={uid} role="dialog" aria-modal="true" aria-labelledby={uid+'-title'} className="card picker-panel">
     <header className="picker-header"><div><small>SELECT</small><h3 id={uid+'-title'}>{title}</h3></div><button type="button" className="picker-close" aria-label="Close selection" onClick={()=>setOpen(false)}>×</button></header>
-    <div className="picker-search"><input className="input" aria-label={'Search '+label} placeholder={allowCustom?`Search or enter custom ${customOptionLabel}…`:"Search…"} maxLength={allowCustom?32:undefined} value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(allowCustom&&e.key==="Enter"&&canAddCustom){e.preventDefault();addCustom()}}} /></div>
+    <div className="picker-search"><input className="input" aria-label={'Search '+label} placeholder={allowCustom?`Search or enter custom ${customOptionLabel}…`:"Search…"} maxLength={allowCustom?customMaxLength:undefined} value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(allowCustom&&e.key==="Enter"&&canAddCustom){e.preventDefault();addCustom()}}} /></div>
     <div className="picker-options" role="group" aria-label={label}>
      {shown.map((option,index)=>{const row=display(option.text);return <button type="button" key={option.value+'-'+index} data-option-value={option.value} disabled={option.disabled} aria-pressed={current===option.value} className={'picker-option '+(current===option.value?'selected':'')} onClick={()=>choose(option)}><span><strong>{row.title}</strong>{row.detail&&<small>{row.detail}</small>}</span><span className="picker-check" aria-hidden="true">{current===option.value?'✓':''}</span></button>})}
      {!shown.length&&<p className="picker-empty">No matching options.</p>}
