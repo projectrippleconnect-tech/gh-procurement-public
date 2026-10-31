@@ -1,11 +1,11 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate: admin phone notifications, including current scrolling fixes.
+# Release candidate: classification and selector overlap cleanup; existing notification and scrolling fixes retained.
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type DEPLOY to publish admin phone notifications to the EXISTING Netlify site'
+        description: 'Type DEPLOY to publish overlap cleanup to the EXISTING Netlify site'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: 0911e2c13489acffd2c18b8ee8ec3eeb0e2dabd8
+      GH_RELEASE_SHA: 651019621626de30ed21f7cae40c2c0a5eb5171e
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: 0911e2c13489acffd2c18b8ee8ec3eeb0e2dabd8
+          ref: 651019621626de30ed21f7cae40c2c0a5eb5171e
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -105,6 +105,18 @@ jobs:
           GH_UI_WIDTHS: '390,1366'
         run: npm run test:ui
 
+      - name: Verify classification cleanup and catalog saving on mobile and desktop
+        env:
+          GH_UI_CATALOG: '1'
+          GH_UI_WIDTHS: '390,1366'
+        run: npm run test:ui
+
+      - name: Verify required table counts and useful print filters
+        env:
+          GH_UI_PRINT_TEMPLATES: '1'
+          GH_UI_WIDTHS: '390,1366'
+        run: npm run test:ui
+
       - name: Install a pinned Netlify CLI on this temporary runner
         run: npm install --global netlify-cli@27.13.0
 
@@ -132,7 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
-            --message "Manual GH Procurement worksheet scrolling release $GH_RELEASE_SHA" \
+            --message "Manual GH Procurement overlap cleanup release $GH_RELEASE_SHA" \
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
