@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: 78d7761ce2afe7b3493d6c07c4fad4e715136ee8
+      GH_RELEASE_SHA: 9a5c5528f2a48b55447258b8ed25d9589d1485ad
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: 78d7761ce2afe7b3493d6c07c4fad4e715136ee8
+          ref: 9a5c5528f2a48b55447258b8ed25d9589d1485ad
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
