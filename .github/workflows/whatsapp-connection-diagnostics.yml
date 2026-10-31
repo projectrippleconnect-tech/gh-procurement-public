@@ -31,9 +31,9 @@ jobs:
           const vars={};
           const value=v=>typeof v==='string'?v:typeof v?.value==='string'?v.value:'';
           if(Array.isArray(raw)){for(const item of raw)if(item.key)vars[item.key]=value(item)}
-          else for(const [key,item] of Object.entries(raw))vars[key]=value(item);
+          else for(const [key,item] of Object.entries(raw.env||raw))vars[key]=value(item);
           const names=['WAHA_BASE_URL','WAHA_API_KEY','WAHA_SESSION','GH_PORTAL_WORKER_SECRET','SUPABASE_SERVICE_ROLE_KEY','GH_WA_AUDIT_RFQ_GROUP_ID','GH_WA_AUDIT_PO_GROUP_ID'];
-          const report={environment_read:'ok',present:Object.fromEntries(names.map(k=>[k,!!vars[k]])),flags:Object.fromEntries(['WAHA_SENDING_ENABLED','GH_PORTAL_PROCESSING_ENABLED','GH_PORTAL_DISPATCH_ENABLED','GH_PORTAL_DELIVERY_VERIFIED','GH_WA_AUDIT_ENABLED','GH_WA_AUDIT_OWNER_ONLY'].map(k=>[k,vars[k]==='true']))};
+          const report={environment_read:'ok',resolved_keys:Object.keys(vars).length,public_database_config_present:!!vars.NEXT_PUBLIC_SUPABASE_URL,present:Object.fromEntries(names.map(k=>[k,!!vars[k]])),flags:Object.fromEntries(['WAHA_SENDING_ENABLED','GH_PORTAL_PROCESSING_ENABLED','GH_PORTAL_DISPATCH_ENABLED','GH_PORTAL_DELIVERY_VERIFIED','GH_WA_AUDIT_ENABLED','GH_WA_AUDIT_OWNER_ONLY'].map(k=>[k,vars[k]==='true']))};
           let gateway;
           try{const u=new URL(vars.WAHA_BASE_URL);report.gateway_transport=u.protocol==='https:'?'https':u.hostname.endsWith('.railway.internal')?'private_network':'other';if(u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error();gateway=u.origin}catch{report.gateway_transport='not_configured'}
           if(gateway&&vars.WAHA_API_KEY&&report.gateway_transport==='https'){
