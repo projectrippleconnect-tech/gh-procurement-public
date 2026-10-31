@@ -1,11 +1,11 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate: classification and selector overlap cleanup; existing notification and scrolling fixes retained.
+# Release candidate: HTTPS WhatsApp gateway compatibility, including current scrolling fixes.
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type DEPLOY to publish overlap cleanup to the EXISTING Netlify site'
+        description: 'Type DEPLOY to publish simplified stock and purchasing flows to the EXISTING Netlify site'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: 651019621626de30ed21f7cae40c2c0a5eb5171e
+      GH_RELEASE_SHA: 4dff0444f6280d815ec5179bc9b286d2a88df92f
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: 651019621626de30ed21f7cae40c2c0a5eb5171e
+          ref: 4dff0444f6280d815ec5179bc9b286d2a88df92f
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -105,15 +105,15 @@ jobs:
           GH_UI_WIDTHS: '390,1366'
         run: npm run test:ui
 
-      - name: Verify classification cleanup and catalog saving on mobile and desktop
+      - name: Verify three work lists and one reviewed stock submission
         env:
-          GH_UI_CATALOG: '1'
-          GH_UI_WIDTHS: '390,1366'
+          GH_UI_SIMPLIFIED_STOCK: '1'
+          GH_UI_WIDTHS: '320,390,768,1366'
         run: npm run test:ui
 
-      - name: Verify required table counts and useful print filters
+      - name: Verify company stock review, recount and existing-order handling
         env:
-          GH_UI_PRINT_TEMPLATES: '1'
+          GH_UI_COMPANY_ITEMS: '1'
           GH_UI_WIDTHS: '390,1366'
         run: npm run test:ui
 
@@ -144,7 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
-            --message "Manual GH Procurement overlap cleanup release $GH_RELEASE_SHA" \
+            --message "Manual GH Procurement simplified stock flow release $GH_RELEASE_SHA" \
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
@@ -176,3 +176,11 @@ jobs:
           assert.equal(data.schema_ready,true);
           console.log('PASS expected manual release is live at '+process.env.GH_PRODUCTION_URL);
           NODE
+
+      - name: Save isolated browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplified-stock-browser-evidence
+          path: test-results/
+          retention-days: 7
