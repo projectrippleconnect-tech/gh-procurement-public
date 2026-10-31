@@ -86,7 +86,7 @@ try{
   let interfacePreference=null
   const context=await browser.newContext({viewport:{width,height:844}})
   const page=await context.newPage()
-  if(process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1'||process.env.GH_UI_STOCK_KEYBOARD==='1'||process.env.GH_UI_DENSE_STOCK==='1')await context.addInitScript(()=>{
+  if(process.env.GH_UI_WORK_CASES==='1'||process.env.GH_UI_CERTIFY==='1'||process.env.GH_UI_BOTTOM_STEPS==='1'||process.env.GH_UI_STOCK_KEYBOARD==='1'||process.env.GH_UI_DENSE_STOCK==='1')await context.addInitScript(()=>{
    const viewport=new EventTarget();viewport.height=innerHeight;viewport.width=innerWidth;viewport.offsetTop=0
    Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
   })
@@ -439,7 +439,18 @@ try{
    assert.ok(queries.some(u=>u.pathname.endsWith('/proc_v_requirements')&&u.searchParams.get('id')==='eq.00000000-0000-4000-8000-000000000044'&&!u.searchParams.has('status')),'History deep link is not excluded by active-only filters')
    await navigate('⌂ Work')
    await work.getByRole('button',{name:'Needs me · 2',exact:true}).click()
-   await navigate('✓ Stock Entry');await selectList('company');await navigate('⌂ Work')
+   await navigate('✓ Stock Entry');await selectList('company')
+   if(width<=700){
+    const nav=page.getByRole('navigation',{name:'Main navigation',exact:true});assert.equal(await nav.isVisible(),true,'Stock retains the main tabs')
+    const entry=page.getByLabel('Current stock: '+item.description,{exact:true});await entry.fill('0');await entry.focus()
+    await page.evaluate(()=>{window.visualViewport.height=500;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.dataset.ghKeyboardOpen==='true')
+    const submit=page.getByRole('button',{name:'Review company stock lot with 1 items',exact:true})
+    const box=await submit.boundingBox();assert.ok(box.y>=0&&box.y+box.height<=500,'Submit remains reachable above the keyboard')
+    await page.evaluate(()=>{document.activeElement.blur();window.visualViewport.height=innerHeight;window.visualViewport.dispatchEvent(new Event('resize'))})
+    await page.waitForFunction(()=>document.documentElement.dataset.ghKeyboardOpen==='false')
+   }
+   await navigate('⌂ Work')
    assert.equal(await listSelector().inputValue(),'company','Stock does not reset Work scope')
    await selectList('all');await work.locator('.work-case').first().waitFor()
    workFailure=true;await page.getByRole('button',{name:'Refresh work',exact:true}).click()
@@ -454,6 +465,7 @@ try{
     await page.keyboard.press('Escape');await menu.waitFor({state:'hidden'})
    }
    await page.screenshot({path:'test-results/stage-two-work-'+width+'.png',fullPage:true})
+   await page.screenshot({path:'test-results/stage-two-work-viewport-'+width+'.png'})
    currentProfile={...profile,role:'viewer',role_key:'viewer'};grantedPermissions=['dashboard.view','procurement.requirements.view','procurement.rfq.view','procurement.orders.view']
    await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await work.getByRole('button',{name:'In progress · 28',exact:true}).click();await work.locator('.work-case').first().waitFor()
@@ -772,6 +784,7 @@ try{
    await row.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('6')
    await row.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('2')
    await row.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Broken')
+   await page.screenshot({path:'test-results/stage-two-receipt-entry-'+width+'.png',fullPage:true})
    const reviewButton=page.getByRole('button',{name:'Review receipt (1) →',exact:true})
    await reviewButton.click()
    let review=page.getByRole('dialog',{name:'2. Review receipt',exact:true})
@@ -2560,6 +2573,11 @@ try{
   console.log('PASS guided navigation and no horizontal overflow at '+width+'px')
   await context.close()
  }
+}catch(error){
+ if(browser)for(const context of browser.contexts())for(const page of context.pages()){
+  try{const width=page.viewportSize()?.width||0;await page.screenshot({path:'test-results/failure-'+width+'.png',fullPage:true});const body=await page.locator('body').innerText();await writeFile('test-results/failure-'+width+'.txt',body);console.log('BROWSER FAILURE STATE '+width+'px\n'+body.slice(0,16000))}catch{}
+ }
+ throw error
 }finally{
  if(browser)await browser.close()
  server.kill('SIGTERM')
