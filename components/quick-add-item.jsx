@@ -35,7 +35,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
   return ()=>{active=false}
  },[open])
  useEffect(()=>{
-  if(!open||!form.category){setSubgroups([]);return}
+  if(!open||isCompany||!form.category){setSubgroups([]);return}
   let active=true
   ;(async()=>{
    try{
@@ -47,7 +47,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
    }catch{if(active)setSubgroups([])}
   })()
   return()=>{active=false}
- },[open,form.category,form.main_group])
+ },[open,isCompany,form.category,form.main_group])
  useEffect(()=>{
   if(!open||!isCompany||companyChoice==='__new__')return
   if(companyChoice&&companies.some(c=>c.id===companyChoice))return
@@ -66,22 +66,24 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
  async function save(){
   if(busy)return
   if(addingCategory)return setCategoryError('Add or cancel the new category before saving the item.')
-  if(!form.description.trim()||!form.category.trim()||!form.uom.trim())return fail(new Error('Item name, category and UOM are required.'))
+  if(!form.description.trim()||(!isCompany&&!form.category.trim())||!form.uom.trim())return fail(new Error(isCompany?'Item name and UOM are required.':'Item name, category and UOM are required.'))
   if(form.max_stock.trim()===''||reorder===null)return fail(new Error('Enter a valid maximum stock (zero or greater).'))
   if(isCompany&&companyChoice==='__new__'&&!companyDraft.name.trim())return fail(new Error('Enter a new company name.'))
   if(isCompany&&companyChoice!=='__new__'&&!companies.some(c=>c.id===companyChoice))return fail(new Error('Choose an existing company or create a new one.'))
   setBusy(true)
   try{
    let chosenCompanyId=companyChoice
+   let companyCategory=isCompany?normalise(companies.find(c=>c.id===companyChoice)?.name):''
    if(isCompany&&chosenCompanyId==='__new__'){
     if(!onCreateCompany)throw new Error('Company creation is unavailable.')
     const created=await onCreateCompany({name:companyDraft.name.trim(),code:companyDraft.code.trim()})
     if(!created?.id)throw new Error('Could not create the company.')
     chosenCompanyId=created.id
+    companyCategory=normalise(created.name||companyDraft.name)
     setCompanyChoice(created.id);setCompanyDraft({name:'',code:''})
    }
    // The database applies the movement-based reorder trigger for General items.
-   const r=await supabase.rpc('proc_quick_add_item_v1',{p_item:{...uppercaseItemAttributes(form),uom:normalise(form.uom),movement:isCompany?'NORMAL':form.movement,max_stock:Number(form.max_stock)}})
+   const r=await supabase.rpc('proc_quick_add_item_v1',{p_item:{...uppercaseItemAttributes(form),...(isCompany?{category:companyCategory,main_group:'',subgroup:''}:{}),uom:normalise(form.uom),movement:isCompany?'NORMAL':form.movement,max_stock:Number(form.max_stock)}})
    if(r.error)throw r.error
    if(!r.data?.item?.id)throw new Error('Item could not be confirmed in the database.')
    // For Company items, the linking step also saves the maximum and its 50% reorder rule.
@@ -104,7 +106,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
    </div>}
    <div className="formgrid">
     <label className="field">Item name<input className="input" disabled={busy} value={form.description} onChange={e=>setForm(v=>({...v,description:uppercaseItemText(e.target.value)}))}/></label>
-    <label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} allowCustom customOptionLabel="category" onChange={e=>setForm(v=>updateItemGrouping(v,'category',e.target.value))}>
+    {!isCompany&&<><label className="field">Category<ModernSelect aria-label="Category" disabled={busy} value={form.category} allowCustom customOptionLabel="category" onChange={e=>setForm(v=>updateItemGrouping(v,'category',e.target.value))}>
      {!form.category&&<option value="">Select category…</option>}
      {[...new Set([...categories,form.category])].filter(Boolean).map(c=><option key={c} value={c}>{c}</option>)}
     </ModernSelect></label>
@@ -113,7 +115,7 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     </ModernSelect></label>
     <label className="field">Subcategory<ModernSelect aria-label="Subcategory" disabled={busy} allowCustom customOptionLabel="subcategory" value={form.subgroup} onChange={e=>setForm(v=>({...v,subgroup:e.target.value}))}>
      <option value="">None</option>{itemOptionValues(subgroups,form.subgroup).map(g=><option key={g} value={g}>{g}</option>)}
-    </ModernSelect></label>
+    </ModernSelect></label></>}
     {!isCompany&&<label className="field">Movement<ModernSelect aria-label="Movement" disabled={busy} value={form.movement} onChange={e=>setForm(v=>({...v,movement:e.target.value}))}>
      <option value="FAST">FAST</option><option value="NORMAL">NORMAL</option><option value="SLOW">SLOW</option>
     </ModernSelect></label>}
@@ -127,13 +129,13 @@ export function QuickAddItem({can,fail,flash,onCreated=()=>{},mode='general',com
     </ModernSelect></label>
    </div>
    {loadingCategories&&<p className="muted tiny" role="status">Loading categories…</p>}
-   {addingCategory?<div className="section">
+   {!isCompany&&(addingCategory?<div className="section">
     <label className="field">New category name<input autoFocus className="input" maxLength={100} disabled={busy} value={newCategory} onChange={e=>{setNewCategory(uppercaseItemText(e.target.value));setCategoryError('')}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCategory()}}}/></label>
     {categoryError&&<p role="alert">{categoryError}</p>}
     <div className="toolbar section"><button type="button" className="btn small primary" disabled={busy} onClick={addCategory}>Use category</button><button type="button" className="btn small" disabled={busy} onClick={()=>{setAddingCategory(false);setNewCategory('');setCategoryError('')}}>Cancel</button></div>
     <p className="muted tiny">This category is saved when the item is saved.</p>
-   </div>:<button type="button" className="btn small section" disabled={busy||loadingCategories} onClick={()=>setAddingCategory(true)}>+ New category</button>}
-   <p className="muted tiny">Select existing categories, groups and units or create custom values. Brand is not required. Reorder level is calculated automatically.</p>
+   </div>:<button type="button" className="btn small section" disabled={busy||loadingCategories} onClick={()=>setAddingCategory(true)}>+ New category</button>)}
+   <p className="muted tiny">{isCompany?'The selected company is used as the item category. Reorder level is calculated automatically at 50%.':'Select existing categories, groups and units or create custom values. Brand is not required. Reorder level is calculated automatically.'}</p>
    <div className="toolbar section"><button type="button" className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':isCompany?'Save to Company List':'Save Item'}</button><button type="button" className="btn" disabled={busy} onClick={()=>setOpen(false)}>Cancel</button></div>
   </div>}
  </div>
