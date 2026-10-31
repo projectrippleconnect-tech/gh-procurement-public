@@ -56,5 +56,12 @@ test('Stage 2: real posted receipts, partial buying, company scope and custom-ro
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user])
   await db.exec('set role authenticated')
   await assert.rejects(call(),/Requirement access required/)
+  await db.exec('reset role')
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[admin])
+  await db.query("insert into public.proc_requirements(item_id,location_id,required_qty,adjusted_qty,status,approval_status,source_type) select $1,$2,1,1,'open','pending_review','manual' from generate_series(1,1005)",[item.id,loc])
+  await db.exec('set role authenticated')
+  const beyondCap=await one("select public.proc_work_page_v1('general','Needs me',40,array['requirements','rfq','po','receiving']) as data")
+  assert.equal(beyondCap.data.counts['Needs me'],1006,'Count remains exact past the REST row cap')
+  assert.equal(beyondCap.data.rows.length,6,'Server pagination reaches records beyond the first thousand')
  }finally{await db.close()}
 })
