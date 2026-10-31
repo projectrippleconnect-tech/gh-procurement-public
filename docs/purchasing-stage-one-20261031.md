@@ -1,5 +1,7 @@
 # Purchasing simplification — stage 1
 
+Current release status: [Stage 3 is completed and deployed](purchasing-stage-three-20261101.md). The stage-specific preparation statements below describe the state at that checkpoint.
+
 Prepared source only. This update does not deploy the app or apply production migrations.
 
 ## Revised implementation

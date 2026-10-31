@@ -1,5 +1,7 @@
 # Purchasing simplification — Stage 2 acceptance record
 
+Current release status: [Stage 3 is completed and deployed](purchasing-stage-three-20261101.md). The stage-specific preparation statements below describe the state at that checkpoint.
+
 Verification scope: the prepared Work / Stock / Receive / More update. This is not a production deployment record. No production migration, message dispatch, hosting purchase or account-setting change is included.
 
 The [PR checks](https://github.com/projectrippleconnect-tech/gh-procurement-public/pull/147/checks) identify the exact source revision for every run. Acceptance requires success in all eight jobs: the build/contracts/database job, native concurrency job, Work and receiving browser jobs, and all four browser regression groups. Each browser job checks its explicit PR head.
