@@ -105,7 +105,9 @@ try{
   const receivingMode=process.env.GH_UI_RECEIVING==='1'
   let receivingAccepted=0,receivingCase=null,caseWrites=[],closureWrites=[],followupFailure=false,receivingReplayKey=null
   let dashboardReviewFailure=false,workFailure=false
-  const connectedRows=Array.from({length:28},(_,i)=>({...requirement,id:i===0?requirement.id:'connected-'+i,description:'Connected item '+i,requirement_no:'REQ-'+i,proc_requirement_is_company:i>=26,proc_work_documents:{rfqs:[],orders:[]}}))
+  const connectedRows=Array.from({length:28},(_,i)=>({...requirement,id:i===0?requirement.id:'00000000-0000-4000-8000-'+String(100+i).padStart(12,'0'),description:'Connected item '+i,requirement_no:'REQ-'+i,proc_requirement_is_company:i>=26,proc_work_documents:{rfqs:[],orders:[]}}))
+  connectedRows[1].approval_status='approved'
+  connectedRows[2]={...connectedRows[2],approval_status:'approved',proc_work_documents:{rfqs:[{id:'waiting-rfq',status:'sent',due_date:'2099-01-01'}],orders:[]}}
   connectedRows[0]={...connectedRows[0],description:'PARTIAL PURCHASE',status:'partially_received',approval_status:'approved',remaining_to_order:8,proc_work_documents:{still_receive:4,rfqs:[{id:rfq.id,number:'OLDER VALID RFQ',status:'quoted'},{id:'new-rfq',number:'NEWER RFQ',status:'sent'}],orders:[{id:po.id,number:po.po_no,status:'partially_received',remaining:4}]}}
   connectedRows.push({...requirement,id:'00000000-0000-4000-8000-000000000044',description:'COMPLETED PURCHASE',status:'closed',proc_requirement_is_company:true,proc_work_documents:{rfqs:[],orders:[]}})
   let exceptionFixtures=false
@@ -417,6 +419,11 @@ try{
    assert.equal(await listSelector().count(),1,'There is one visible item filter')
    assert.equal(await work.locator('.work-case').count(),25)
    assert.equal(queries.some(u=>u.pathname.endsWith('/proc_v_requirements')&&u.searchParams.get('select')?.includes('proc_work_documents')),false,'Details are not prefetched')
+   await work.getByRole('button',{name:'In progress · 1',exact:true}).click()
+   await work.getByRole('heading',{name:/^Connected item 2 ·/}).waitFor()
+   await work.getByText('Awaiting supplier response',{exact:true}).waitFor()
+   await work.getByRole('button',{name:'Needs me · 27',exact:true}).click()
+   await work.locator('.work-case').first().waitFor()
    const partial=work.locator('.work-case').filter({hasText:'PARTIAL PURCHASE'})
    await partial.getByText('Buy 8 PCS',{exact:true}).waitFor();await partial.getByText('Receive 4 PCS',{exact:true}).waitFor()
    assert.equal(await partial.locator('.btn.primary').count(),1)
@@ -425,10 +432,15 @@ try{
    await partial.getByText('OLDER VALID RFQ',{exact:false}).waitFor();await partial.getByText('NEWER RFQ',{exact:false}).waitFor();await partial.getByText(/GRN-PARTIAL/).waitFor()
    assert.equal(queries.filter(u=>u.pathname.endsWith('/proc_v_requirements')&&u.searchParams.get('select')?.includes('proc_work_documents')).length,1)
    await partial.getByRole('button',{name:'Compare prices',exact:true}).click()
-   await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
+   await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).waitFor()
+   await navigate('⌂ Work')
+   const supplierCase=work.locator('.work-case').filter({has:page.getByRole('heading',{name:/^Connected item 1 ·/})})
+   await supplierCase.getByRole('button',{name:'Assign supplier',exact:true}).click()
+   await page.locator('.rfq-builder').waitFor()
+   await page.getByRole('heading',{name:'Prepare request · Choose suppliers',exact:true}).waitFor()
    await navigate('⌂ Work')
    await work.getByRole('button',{name:'Next',exact:true}).click()
-   await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===3);await work.getByText('Page 2 of 2',{exact:true}).waitFor();assert.equal(await work.locator('.work-case').count(),3)
+   await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===2);await work.getByText('Page 2 of 2',{exact:true}).waitFor();assert.equal(await work.locator('.work-case').count(),2)
    await selectList('company');await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===2);await work.getByRole('button',{name:'History · 1',exact:true}).waitFor()
    assert.equal(await work.locator('.work-case').count(),2,'Scope filtering resets pagination')
    await work.getByRole('button',{name:'History · 1',exact:true}).click();await work.getByRole('heading',{name:/^COMPLETED PURCHASE/}).waitFor()
@@ -990,7 +1002,7 @@ try{
    }
    await dock.getByRole('button',{name:'Submit 1 item →',exact:true}).click()
    await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
-   await view.getByText(/Existing purchase orders cover 1 shortage item/).waitFor()
+   await view.getByText(/Existing purchasing records reserve 1 shortage item/).waitFor()
    assert.equal(companyCountAttempt,1)
    assert.ok(await dock.getByRole('button',{name:'Submit 0 items →',exact:true}).isDisabled())
    await view.getByRole('button',{name:'Company setup',exact:true}).click()
@@ -1333,7 +1345,7 @@ try{
    await page.getByRole('button',{name:'Review company stock lot with 1 items',exact:true}).click()
    await page.getByRole('dialog',{name:'Review company stock lot',exact:true}).getByRole('button',{name:'Submit · 1',exact:true}).click()
    const result=view.getByRole('region',{name:'Company stock submission result',exact:true})
-   await result.getByText(/Existing purchase orders cover 1 shortage item/).waitFor()
+   await result.getByText(/Existing purchasing records reserve 1 shortage item/).waitFor()
    await view.getByRole('button',{name:'Recount',exact:true}).first().waitFor()
    assert.equal(await current.count(),0,'A finalized count requires an intentional recount')
    await view.getByRole('button',{name:'Recount',exact:true}).first().click()

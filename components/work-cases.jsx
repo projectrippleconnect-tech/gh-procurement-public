@@ -24,7 +24,7 @@ function CaseDetails({purchase,canNavigate,navigate}){
   {open&&<>
    <p className="muted tiny">{purchase.row.requirement_no} · {data?.source_count_no||purchase.row.source_count_no||'Manual requirement'}</p>
    {purchase.reserved>0&&<p>Reserved in unsent orders: {qty(purchase.reserved)} {purchase.row.uom}. Check approval and sending status.</p>}
-   <div className="toolbar">{purchase.actions.filter(a=>a!==purchase.primaryAction&&a!==purchase.secondaryAction).map(a=><button className="btn small" key={a.view+a.filter+a.label} onClick={()=>navigate(a.view,a.filter)}>{a.label}</button>)}</div>
+   <div className="toolbar">{purchase.actions.filter(a=>a!==purchase.primaryAction&&a!==purchase.secondaryAction).map(a=><button className="btn small" key={a.view+a.filter+a.label} onClick={()=>navigate(a.view,a.filter,a.step)}>{a.label}</button>)}</div>
    {state==='loading'&&<p role="status">Loading documents…</p>}
    {state==='error'&&<p role="alert">Documents could not load. <button className="btn small" onClick={()=>setRetry(n=>n+1)}>Retry</button></p>}
    {canNavigate('requirements')&&<button className="btn small" onClick={()=>navigate('requirements','requirement:'+id)}>Stock count &amp; requirement</button>}
@@ -64,7 +64,7 @@ export function WorkCases({activeView,can,canNavigate,navigate,revision=0}){
     <p className="work-case-status">{c.statusLabel}</p>
     {!c.history&&(c.stillBuy>0||c.stillReceive>0)&&<p className="work-case-balances">{c.stillBuy>0&&<strong>Buy {qty(c.stillBuy)} {c.row.uom}</strong>}{c.stillReceive>0&&<strong>Receive {qty(c.stillReceive)} {c.row.uom}</strong>}</p>}
     <AttentionBadge reason={c.attention}/>
-    <div className="toolbar">{c.primaryAction&&<button className="btn primary" onClick={()=>navigate(c.primaryAction.view,c.primaryAction.filter)}>{c.primaryAction.label}</button>}{c.secondaryAction&&<button className="btn small" onClick={()=>navigate(c.secondaryAction.view,c.secondaryAction.filter)}>{c.secondaryAction.label}</button>}</div>
+    <div className="toolbar">{c.primaryAction&&<button className="btn primary" onClick={()=>navigate(c.primaryAction.view,c.primaryAction.filter,c.primaryAction.step)}>{c.primaryAction.label}</button>}{c.secondaryAction&&<button className="btn small" onClick={()=>navigate(c.secondaryAction.view,c.secondaryAction.filter,c.secondaryAction.step)}>{c.secondaryAction.label}</button>}</div>
     <CaseDetails key={c.id+':'+revision} purchase={c} canNavigate={canNavigate} navigate={navigate}/>
    </article>)}
    {total>25&&<div className="toolbar"><button className="btn" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button><span>Page {page+1} of {Math.ceil(total/25)}</span><button className="btn" disabled={(page+1)*25>=total} onClick={()=>setPage(p=>p+1)}>Next</button></div>}

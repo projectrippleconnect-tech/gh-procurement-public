@@ -99,7 +99,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   }
   const results=await Promise.all(tasks)
   if(request!==requirementLoadRevision.current)return
-  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0);if(targetRequirement&&a.data?.[0])onItemListTypeChange?.(a.data[0].proc_requirement_is_company?'company':'general');if(targetRequirement)setSelected(new Set((a.data||[]).map(r=>r.id)))
+  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0);if(targetRequirement&&a.data?.[0])onItemListTypeChange?.(a.data[0].proc_requirement_is_company?'company':'general');if(targetRequirement)setSelected(new Set((a.data||[]).filter(editableRequirement).map(r=>r.id)))
   if(canReview){
    const b=results[1];if(b.error)throw b.error;setSuppliers(b.data||[])
    for(const x of results.slice(2))if(x.error)throw x.error

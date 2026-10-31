@@ -53,3 +53,23 @@ test('unsent orders display a status distinct from their action and stay out of 
  assert.equal(c.statusLabel,'Approved · not sent');assert.equal(c.primaryAction.label,'Send order')
  assert.equal(c.stillReceive,0);assert.equal(c.secondaryAction,null)
 })
+
+test('Work next actions open comparison and supplier tasks rather than the default screen stage',()=>{
+ const base={id:'need',status:'open',approval_status:'approved',remaining_to_order:8,proc_work_documents:{rfqs:[],orders:[]}}
+ const supplier=purchasingCase(base,access).primaryAction
+ assert.equal(supplier.label,'Assign supplier');assert.equal(supplier.step,3)
+ const prices=purchasingCase({...base,proc_work_documents:{rfqs:[{id:'quote',status:'quoted'}],orders:[]}},access).primaryAction
+ assert.equal(prices.label,'Compare prices');assert.equal(prices.step,5)
+ const request=purchasingCase({...base,proc_work_documents:{rfqs:[{id:'request',status:'prepared'}],orders:[]}},access).primaryAction
+ assert.equal(request.label,'Prepare supplier request');assert.equal(request.step,3)
+})
+
+test('routine waiting lives in In progress while overdue follow-ups move to Needs me',()=>{
+ const row={id:'need',status:'ordered',approval_status:'approved',remaining_to_order:0,proc_work_documents:{orders:[{id:'po',status:'sent',remaining:4,expected_date:'2099-01-01'}]}}
+ const waiting=purchasingCase(row,access)
+ assert.equal(waiting.tab,'In progress');assert.equal(waiting.primaryAction.label,'Record delivery')
+ assert.equal(purchasingCase({...row,proc_work_documents:{orders:[{...row.proc_work_documents.orders[0],expected_date:'2000-01-01'}]}},access).tab,'Needs me')
+ const quotes={...row,status:'quoting',remaining_to_order:8,proc_work_documents:{rfqs:[{id:'q',status:'sent',due_date:'2099-01-01'}],orders:[]}}
+ assert.equal(purchasingCase(quotes,access).tab,'In progress')
+ assert.equal(purchasingCase({...quotes,proc_work_documents:{rfqs:[{...quotes.proc_work_documents.rfqs[0],due_date:'2000-01-01'}]}},access).tab,'Needs me')
+})

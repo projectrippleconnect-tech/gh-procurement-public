@@ -22,11 +22,11 @@ begin
  select coalesce(array_agg(permission_key),array[]::text[]) into permissions from public.proc_my_permissions_v1();
  if ('requirements'=any(p_views) and 'procurement.requirements.manage'=any(permissions)
   and (p_row.approval_status in ('pending_review','held') or (p_row.remaining_to_order>0 and jsonb_array_length(brief->'rfqs')=0)))
- or ('rfq'=any(p_views) and 'procurement.rfq.manage'=any(permissions) and p_row.approval_status='approved' and p_row.remaining_to_order>0 and jsonb_array_length(brief->'rfqs')>0)
+ or ('rfq'=any(p_views) and 'procurement.rfq.manage'=any(permissions) and p_row.approval_status='approved' and p_row.remaining_to_order>0 and exists(select 1 from jsonb_array_elements(brief->'rfqs') q where q->>'status' in ('draft','prepared','partially_quoted','quoted') or (q->>'status'='sent' and (q->>'due_date')::date<(now() at time zone 'Asia/Colombo')::date)))
  or exists(select 1 from jsonb_array_elements(live_orders) o where
   (p_row.approval_status='approved' and 'po'=any(p_views) and
    ((o->>'status'='pending_approval' and 'procurement.orders.approve'=any(permissions)) or (o->>'status' in ('draft','approved') and 'procurement.orders.edit'=any(permissions))))
-  or (o->>'status' in ('sent','partially_received') and 'receiving'=any(p_views) and 'receiving.manage'=any(permissions)))
+  or (o->>'status' in ('sent','partially_received') and 'receiving'=any(p_views) and 'receiving.manage'=any(permissions) and (o->>'expected_date')::date<(now() at time zone 'Asia/Colombo')::date))
  then return 'Needs me';end if;
  return 'In progress';
 end $$;
