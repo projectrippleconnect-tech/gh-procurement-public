@@ -8,7 +8,7 @@ declare
  scoped_sid uuid:=gen_random_uuid();
  inactive_sid uuid:=gen_random_uuid();
  empty_rid uuid:=gen_random_uuid();
- item_id uuid;
+ item_id uuid; requirement_v uuid;
  result jsonb;
  first_id text;
  quote_before jsonb;
@@ -16,7 +16,17 @@ declare
 begin
  select id into admin_id from public.proc_profiles where active and role_key='admin' limit 1;
  select id into rid from public.proc_rfqs where status='prepared' order by created_at desc limit 1;
- if admin_id is null or rid is null then raise exception 'Tests need an active admin and prepared RFQ'; end if;
+ if admin_id is null then raise exception 'Tests need an isolated active admin';end if;
+ perform set_config('request.jwt.claim.sub',admin_id::text,true);
+ if rid is null then
+  item_id:=gen_random_uuid();rid:=gen_random_uuid();requirement_v:=gen_random_uuid();
+  insert into public.proc_items(id,item_code,category,description,uom,max_stock,reorder_level,movement)
+   values(item_id,'QA-RFQ-'||item_id,'GENERAL','Isolated RFQ coverage fixture','PCS',10,5,'FAST');
+  insert into public.proc_requirements(id,requirement_no,item_id,location_id,required_qty,adjusted_qty,approval_status,created_by,source_type)
+   values(requirement_v,'QA-REQ-'||requirement_v,item_id,private.proc_default_location_id(),10,10,'approved',admin_id,'manual');
+  insert into public.proc_rfqs(id,rfq_no,status,created_by) values(rid,'QA-RFQ-'||rid,'prepared',admin_id);
+  insert into public.proc_rfq_items(rfq_id,requirement_id,requested_qty) values(rid,requirement_v,10);
+ end if;
  select rr.item_id into item_id from public.proc_rfq_items ri join public.proc_requirements rr on rr.id=ri.requirement_id where ri.rfq_id=rid limit 1;
  select jsonb_agg(to_jsonb(q) order by id) into quote_before from public.proc_quotes q;
  select jsonb_agg(to_jsonb(q) order by id) into lines_before from public.proc_quote_lines q;

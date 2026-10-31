@@ -7,9 +7,9 @@ test('delivery balances count posted accepted stock and cancelled quantities onl
  assert.equal(remainingDelivery({qty:100,cancelled_qty:20,grn:[{accepted_qty:55,receipt:{status:'posted'}},{accepted_qty:10,receipt:{status:'draft'}}]}),25)
  assert.equal(remainingDelivery({qty:10,cancelled_qty:10}),0)
 })
-test('receiving enters quantity once, adjusts rejection and retains deliberate acceptance edits',()=>{
+test('received quantity requires inspection, adjusts explicit rejection and retains deliberate acceptance edits',()=>{
  let value=receivingValue({received:'',accepted:'',rejected:'0'},'received','60')
- assert.equal(value.accepted,'60')
+ assert.equal(value.accepted,'')
  value=receivingValue(value,'rejected','5');assert.equal(value.accepted,'55')
  value=receivingValue(value,'received','70');assert.equal(value.accepted,'55')
 })

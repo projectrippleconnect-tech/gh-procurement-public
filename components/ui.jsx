@@ -1,9 +1,11 @@
 'use client'
 
 import {ModernSelect} from './modern-select'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
+import {visibleWorkflowStages} from '@/lib/workflow-visibility.mjs'
+import {useEffect,useState} from 'react'
+import {createPortal} from 'react-dom'
 
-import {PROCUREMENT_STEPS} from '@/lib/workflow-guide.mjs'
-import {STAGES,stageForTask} from '@/lib/procurement-journey.mjs'
 
 export const NAV=[
  ['dashboard','⌂','Home'],['stock','✓','Stock Entry'],['urgent_actions','!','Exceptions'],['requirements','≡','Review'],
@@ -24,21 +26,33 @@ export const Badge=({children})=><span className={'badge '+statusClass(children)
 export const Err=({v})=>v?<div className="error section" role="alert">{v}</div>:null
 export const Empty=({children='Nothing to show.'})=><div className="empty">{children}</div>
 
-export function WorkflowNavigation({view,step=1,onStep,canStep,navigate,canNavigate,t=(k,f)=>f||k}){
- if(!['requirements','rfq','po','receiving'].includes(view))return null
- const receiving=view==='receiving',stage=stageForTask(step,view)
- const current=PROCUREMENT_STEPS.find(s=>s.id===step)||PROCUREMENT_STEPS[0]
- const available=PROCUREMENT_STEPS.filter(s=>canStep(s.id))
- const previous=[...available].reverse().find(s=>s.id<step)
- return <nav className="workflow-navigation focused-navigation" aria-label="Guided procurement navigation">
-  <div className="guide-title"><div><small>{receiving?'DELIVERY · AFTER ORDERING':'STAGE '+stage+' OF 3'}</small><strong>{receiving?'Receive delivery':STAGES[stage-1]}</strong></div>{previous&&!receiving&&<button className="btn small" aria-label="Previous procurement step" onClick={()=>onStep(previous.id)}>← Back</button>}</div>
-  {!receiving&&<div className="journey-stages">{STAGES.map((title,index)=><span key={title} aria-current={stage===index+1?'step':undefined} className={stage===index+1?'current':stage>index+1?'prior':''}>{index+1}. {title}</span>)}</div>}
-  <p>{receiving?'Choose the PO and enter quantities received. Delivery progress is separate.':view==='po'?'Review the supplier orders, approve when required, then send and confirm.':current.hint}</p>
-  <details className="journey-shortcuts"><summary>Other tasks</summary><ModernSelect className="select" aria-label="Go to procurement section" value={step} onChange={e=>onStep(Number(e.target.value))}>{available.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</ModernSelect>{canNavigate('po')&&<button className="btn small" onClick={()=>navigate('po')}>Open purchase orders →</button>}{canNavigate('receiving')&&<button className="btn small" onClick={()=>navigate('receiving')}>Receive delivery →</button>}</details>
+export function WorkflowNavigation({view,navigate,canNavigate,t=(k,f)=>f||k}){
+ // Unauthorized stages must not appear as disabled buttons or in step counts.
+ const stages=visibleWorkflowStages(view,canNavigate)
+ if(!stages.length)return null
+ const index=stages.findIndex(([,target])=>target===view)
+ return <nav className="workflow-navigation workflow-step-nav" aria-label="Purchasing sections">
+  <div className="workflow-purchasing-heading">{t('purchasing.title','Purchasing')}</div>
+  <div className="workflow-step-tabs">{stages.map(([label,target,icon],i)=><button key={target} type="button" className={i===index?'active':''} aria-current={i===index?'page':undefined} aria-label={label} title={label} onClick={()=>navigate(target)}><span aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div>
  </nav>
 }
 
-export function ItemLabel({item={}}){return <>{item.description||item.item_code||'Item'}{item.size&&<span className="work-item-size"> · {item.size}</span>}</>}
+// The mobile action occupies a real header slot, never the stock rows.
+export function StockSubmitAction({active=true,children}){
+ const [target,setTarget]=useState(null)
+ const [mobile,setMobile]=useState(false)
+ useEffect(()=>{
+  const media=window.matchMedia('(max-width:700px)')
+  const update=()=>setMobile(media.matches)
+  setTarget(document.getElementById('stock-header-action'));update()
+  media.addEventListener('change',update)
+  return()=>media.removeEventListener('change',update)
+ },[])
+ if(!active)return null
+ return mobile&&target?createPortal(children,target):children
+}
+
+export function ItemLabel({item={}}){return <>{uppercaseItemText(item.description||item.item_code||'Item')}{item.size&&<span className="work-item-size"> · {uppercaseItemText(item.size)}</span>}</>}
 
 export function fieldEnabled(fields,module,key){
  const x=fields?.find(f=>f.module_key===module&&f.field_key===key)

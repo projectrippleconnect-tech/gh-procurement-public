@@ -47,12 +47,12 @@ begin
       if failure is distinct from 'Permission denied: procurement.orders.create' then raise exception 'Award boundary failed for %: %',r.role_key,failure; end if;
       failure:=null;
       begin perform public.proc_create_rfq_v4('{}'::uuid[],'{}'::uuid[]); exception when others then failure:=sqlerrm; end;
-      if failure is distinct from 'Not authorized' then raise exception 'RFQ boundary failed for %: %',r.role_key,failure; end if;
+      if failure is null or failure not in ('Not authorized','GH Procurement access restricted: disabled') then raise exception 'RFQ boundary failed for %: %',r.role_key,failure; end if;
     end if;
     if r.role_key not in ('admin','procurement','receiver') then
       failure:=null;
       begin perform public.proc_receive_po_v3(gen_random_uuid(),gen_random_uuid(),'[]'::jsonb); exception when others then failure:=sqlerrm; end;
-      if failure is distinct from 'Not authorized' then raise exception 'Receiving boundary failed for %: %',r.role_key,failure; end if;
+      if failure is null or failure not in ('Not authorized','GH Procurement access restricted: disabled') then raise exception 'Receiving boundary failed for %: %',r.role_key,failure; end if;
     end if;
     insert into role_results values(r.role_key,true);
     execute 'reset role';
@@ -64,7 +64,7 @@ begin
   if private.proc_has_permission('admin.users.manage') then raise exception 'Inactive principal retained administration'; end if;
   failure:=null;
   begin perform public.proc_create_rfq_v4('{}'::uuid[],'{}'::uuid[]); exception when others then failure:=sqlerrm; end;
-  if failure is distinct from 'Not authorized' then raise exception 'Inactive principal retained RFQ access'; end if;
+  if failure is null or failure not in ('Not authorized','GH Procurement access restricted: disabled') then raise exception 'Inactive principal retained RFQ access'; end if;
   insert into role_results values('inactive_admin',true);
   execute 'reset role';
 end $test$;

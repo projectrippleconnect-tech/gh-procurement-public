@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-22",
+  "source_commit": "dd37c6741720dba8eecc6965e13a958407c1208d",
+  "site_id": "b36357ec-4dda-4373-a3d7-95f9c8f3ad9e",
+  "deploy_id": "6ad9de3fb4d412d483fff6cd",
+  "state": "ready",
+  "published_at": "2026-10-22T10:06:24.776Z",
+  "url": "https://gh-procurement.netlify.app",
+  "visibility": "private; Netlify SSO required",
+  "anonymous_hosted_smoke": {
+    "status": "blocked",
+    "http_status": 401,
+    "application_reached": false
+  },
+  "browser_observation": "This site is private; sign in with an invited Netlify account",
+  "public_access_change": "rejected by automatic approval review; explicit user approval required",
+  "production_database_modified": false,
+  "purchasing_enabled": false,
+  "dispatch_enabled": false,
+  "supplier_messages_sent": 0,
+  "server_integrations_connected": false,
+  "fresh_mobile_regression": "not passed; row visibility timeout; separate DOM/layout probe visible; graphics compatibility attempt failed",
+  "function_artifact": {
+    "bytes": 28583529,
+    "sha256": "b5c01ceeb2995c688a072363862ef427f683b2a6e62311cc6f7b777bbe01e0fc",
+    "entries": 1349,
+    "crc": "passed"
+  }
+}

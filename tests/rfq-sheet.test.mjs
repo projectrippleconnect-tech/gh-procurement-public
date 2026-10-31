@@ -15,7 +15,7 @@ test('supplier requests use coverage or a saved explicit selection; other suppli
  const selection=supplierRequestItems(items,{...inv,requested_item_ids:['row-1','row-99']},scopes)
  assert.deepEqual(selection.map(x=>x.id),['row-1','row-99'])
  const text=buildSupplierQuoteReplyText({items:selection})
- assert.match(text,/Bathroom tap/);assert.doesNotMatch(text,/Hardware bolt/)
+ assert.match(text,/BATHROOM TAP/);assert.doesNotMatch(text,/Hardware bolt/)
  assert.equal(supplierRequestItems(items,{supplier_id:'s2'},scopes).length,100)
  assert.equal(supplierRequestItems(items,{...inv,requested_item_ids:[]},scopes).length,0)
 })

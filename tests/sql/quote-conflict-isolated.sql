@@ -21,6 +21,7 @@ begin
 end $$;
 create function public.proc_save_quote_with_sizes_v1(uuid,uuid,text,jsonb,jsonb,date,text,text,numeric,numeric) returns jsonb language sql as $$ select public.proc_save_quote_v3($1,$2,$3,$4,$6,$7,$8,$9,$10)||'{"additional_size_count":1}'::jsonb $$;
 \ir ../../supabase/migrations/20261012110046_procurement_quote_conflict_guard.sql
+\ir ../../supabase/migrations/20261022020929_procurement_rpc_revision_http_conflicts.sql
 -- Grant minimal fixture access so SECURITY INVOKER is tested as the client role.
 grant usage on schema auth,private,public to authenticated;
 grant select,insert,update,delete on all tables in schema public to authenticated;
@@ -39,19 +40,19 @@ begin
  begin
   perform public.proc_save_quote_guarded_v1(r,s,first_v,'STALE',lines);
   raise exception 'TEST: stale overwrite accepted';
- exception when serialization_failure then null; end;
+ exception when sqlstate 'PT409' then null; end;
  assert (select quote_ref from public.proc_quotes)='REF','Stale write must not change commercial terms';
  update public.proc_quote_lines set unit_price=55;
  begin
   perform public.proc_save_quote_guarded_v1(r,s,current_v,'STALE',lines);
   raise exception 'TEST: changed line accepted';
- exception when serialization_failure then null; end;
+ exception when sqlstate 'PT409' then null; end;
  current_v:=public.proc_quote_snapshot_v1(r,s)->>'revision';
  update public.proc_quotes set freight_total=100;
  begin
   perform public.proc_save_quote_guarded_v1(r,s,current_v,'STALE',lines,'[{"size":"2 ft"}]');
   raise exception 'TEST: changed terms accepted';
- exception when serialization_failure then null; end;
+ exception when sqlstate 'PT409' then null; end;
  assert (select unit_price from public.proc_quote_lines)=55,'Rejected size save preserves prices';
  perform set_config('test.allowed','no',true);
  begin

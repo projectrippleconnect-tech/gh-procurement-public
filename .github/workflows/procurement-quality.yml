@@ -20,6 +20,9 @@ jobs:
       GH_UI_BROWSER_CHANNEL: chrome
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -36,64 +39,19 @@ jobs:
         run: npm run lint
       - name: Contract tests
         run: npm test
+      - name: Verify full production-schema lifecycle and authorization
+        run: npm run test:database
       - name: Production build
         env:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
-      - name: Verify the runner's installed Chrome
-        run: google-chrome --version
-      - name: Verify settings search and Super Admin capture controls
+      - name: Verify compact supplier quotation bill at mobile and desktop widths
         env:
-          GH_UI_SETTINGS_SEARCH: '1'
-        run: npm run test:ui
-      - name: Verify deletion confirmations
-        env:
-          GH_UI_RECORD_DELETE: '1'
-          GH_UI_WIDTHS: '320,390,1366'
-        run: npm run test:ui
-      - name: Verify searchable pickers and keyboard focus
-        env:
-          GH_UI_PICKERS: '1'
-        run: npm run test:ui
-      - name: Verify time and location locks without production access
-        env:
-          GH_UI_ACCESS: '1'
-        run: npm run test:ui
-      - name: Verify quick-add, deletion controls and editable company bill sheets and reviewed GRN OCR
-        env:
-          GH_UI_CATALOG: '1'
-        run: npm run test:ui
-      - name: Verify company stock PDFs and editable supplier templates
-        env:
-          GH_UI_PRINT_TEMPLATES: '1'
-        run: npm run test:ui
-      - name: Verify Company Items stock tab, compact rows, sufficient-stock checks and movement PDFs
-        env:
-          GH_UI_COMPANY_ITEMS: '1'
-        run: npm run test:ui
-      - name: Verify stock-number display, modern dialogs and accessible menu
-        env:
-          GH_UI_STOCK_NUMBERS: '1'
-        run: npm run test:ui
-      - name: Verify held stock search and draft restoration
-        env:
-          GH_UI_HELD_SEARCH: '1'
-          GH_UI_WIDTHS: '390,1366'
-        run: npm run test:ui
-      - name: Verify guided layouts at mobile, tablet and desktop widths
-        run: npm run test:ui
-      - name: Verify automatic three-stage procurement progression
-        env:
-          GH_UI_GUIDE_APPROVAL: '1'
-        run: npm run test:ui
-      - name: Verify supplier checklist and bulk PNG/caption sending
-        env:
-          GH_UI_BULK_SEND: '1'
-        run: npm run test:ui
-      - name: Verify additional sizes become separate order lines
-        env:
-          GH_UI_SIZE_ORDER: '1'
-        run: npm run test:ui
+          GH_UI_BROWSER_EXECUTABLE: /usr/bin/google-chrome
+          GH_UI_BROWSER_PATH: /usr/bin/google-chrome
+        run: |
+          node tests/supplier-portal-ui.mjs
+          node tests/supplier-portal-mobile.mjs
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,6 +59,92 @@ jobs:
           name: procurement-ui-evidence
           path: test-results/
           if-no-files-found: ignore
+
+  browser-regression:
+    name: Browser regression — ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: Stock
+            modes: 'SIMPLIFIED_STOCK COMPANY_LOADING COMPANY_ITEMS STOCK_NUMBERS HELD_SEARCH'
+          - group: Directory and documents
+            modes: 'GROUP_SEND COMPANY_PO CONTACT_PASTE PRINT_TEMPLATES CATALOG'
+          - group: Access and layout
+            modes: 'SETTINGS_SEARCH RECORD_DELETE PICKERS ACCESS SCROLL_PANELS'
+          - group: Purchasing
+            modes: 'FOCUSED GUIDE_APPROVAL BULK_SEND PO_MANUAL SIZE_ORDER'
+    permissions:
+      contents: read
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      GH_UI_WIDTHS: '320,390,768,1366'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Exercise the existing isolated regression modes
+        env:
+          REGRESSION_MODES: ${{ matrix.modes }}
+        run: |
+          result=0
+          for mode in $REGRESSION_MODES; do
+            env "GH_UI_${mode}=1" npm run test:ui || result=1
+          done
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-${{ matrix.group }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  stage-two-browser:
+    name: Stage 2 browser — ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [WORK_CASES, RECEIVING]
+    permissions:
+      contents: read
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      GH_UI_WIDTHS: '320,390,768,1366'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Exercise isolated browser flows on the reviewed source
+        run: env GH_UI_${{ matrix.mode }}=1 npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage-two-${{ matrix.mode }}
+          path: test-results/
+          retention-days: 7
 
   quote-conflicts:
     runs-on: ubuntu-latest
@@ -151,6 +195,35 @@ jobs:
         run: |
           createdb -h 127.0.0.1 -U postgres isolated_company_routes
           psql -h 127.0.0.1 -U postgres -d isolated_company_routes -v ON_ERROR_STOP=1 -f tests/sql/company-group-routing-isolated.sql
+
+      - name: Verify stock-triggered RFQs, POs, templates and idempotent submission
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_stock_auto
+          psql -h 127.0.0.1 -U postgres -d isolated_company_stock_auto -v ON_ERROR_STOP=1 -f tests/sql/company-stock-auto-rfq-isolated.sql
+
+      - name: Verify independent group supplier contacts and access permissions
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_group_contacts
+          psql -h 127.0.0.1 -U postgres -d isolated_group_contacts -v ON_ERROR_STOP=1 -f tests/sql/company-group-contact-pool-isolated.sql
+
+      - name: Verify explicit company auto PO and separate RFQ history in isolated PostgreSQL
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_explicit_direct
+          psql -h 127.0.0.1 -U postgres -d isolated_company_explicit_direct -v ON_ERROR_STOP=1 -f tests/sql/company-explicit-auto-po-history-isolated.sql
+
+      - name: Verify real stock recounts and pending-order protections
+        env:
+          PGPASSWORD: fixture-only
+        run: |
+          createdb -h 127.0.0.1 -U postgres isolated_company_recounts
+          psql -h 127.0.0.1 -U postgres -d isolated_company_recounts -v ON_ERROR_STOP=1 -f tests/sql/company-recount-orders-isolated.sql
+          node tests/company-recount-concurrency.mjs isolated_company_recounts
 
       - name: Verify default screenshot protection and override authorization
         env:

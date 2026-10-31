@@ -1,8 +1,16 @@
 'use client'
+import {ReceiptLine} from './receipt-line'
+
+import {poNextStep} from '@/lib/purchasing-next-step.mjs'
+import {DeliveryProgress} from './delivery-progress'
+import {RejectionFollowup} from './rejection-followup'
+import {receiptReview,pendingReceiptOrderIds} from '@/lib/receiving-guidance.mjs'
 
 import {DeleteRecordButton} from './delete-record'
 
 import {ModernSelect} from './modern-select'
+import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
+import {poAttention} from '@/lib/purchasing-workspace.mjs'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
@@ -11,15 +19,15 @@ import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
 import {exportPurchaseOrderPdf} from '@/lib/pdf'
 import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
 import {allRows} from '@/lib/query-pages'
-import {ItemLabel,Badge,ListPages,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
+import {StockSubmitAction,ItemLabel,Badge,ListPages,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {PoBulkSend} from './po-bulk-send'
 import {ReceiptOcr} from './receipt-ocr'
 import {SupplierDocumentEditor} from './supplier-document-editor'
 import {defaultSupplierTemplate,documentCompany,documentLines} from '@/lib/supplier-template.mjs'
-import {remainingDelivery,receivingValue,poSendBlock} from '@/lib/procurement-flow'
+import {remainingDelivery,poSendBlock} from '@/lib/procurement-flow'
 
-export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOrderSelected=()=>{},activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const textPrompt=useTextPrompt()
  const[documentTemplate,setDocumentTemplate]=useState(()=>defaultSupplierTemplate('po'))
  useEffect(()=>{try{const v=JSON.parse(localStorage.getItem('gh-po-document:'+profile.id)||'null');if(v)setDocumentTemplate({...defaultSupplierTemplate('po'),...v})}catch{}},[profile.id])
@@ -43,7 +51,17 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   }catch{if(opening.currentPoId===poId)setGateway({error:'Could not check WhatsApp status.'})}finally{if(opening.currentPoId===poId)setGatewayLoading(false)}
  }
  async function exportPo(type){if(!linesReady||shareBusy)return;setShareBusy(true)
-  try{if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer});else if(type==='share'){const result=await sharePurchaseOrderPng(shareArgs);flash(result.shared?'Image and caption handed to your share app. Confirm the supplier and tap Send.':'PNG downloaded. Open supplier chat, attach the image and paste the caption.')}else await downloadPurchaseOrderPng(shareArgs)}catch(e){if(e?.name!=='AbortError')fail(e)}finally{setShareBusy(false)}
+  try{
+   if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer})
+   else if(type==='share'){
+    const result=await sharePurchaseOrderPng(shareArgs)
+    flash(result.shared
+     ?'Share sheet opened. Choose WhatsApp and the correct supplier. Check the PNG and caption before sending; use Copy PO Caption if WhatsApp omits text.'
+     :result.captionCopied
+      ?'PO PNG downloaded and caption copied. Open the supplier chat, attach the saved PNG, paste the caption and send.'
+      :'PO PNG downloaded. Use Copy PO Caption, open the supplier chat, attach the saved PNG and paste the caption.')
+   }else await downloadPurchaseOrderPng(shareArgs)
+  }catch(e){if(e?.name!=='AbortError')fail(e)}finally{setShareBusy(false)}
  }
  async function sendPoImage(){
   if(!active||!canEdit||shareBusy||!linesReady)return
@@ -64,26 +82,36 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  }
  const batchIds=initialFilter.startsWith('batch:')?initialFilter.slice(6).split(',').filter(id=>/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)):[]
  const batchKey=batchIds.join(',')
+ const [orderTab,setOrderTab]=useState(()=>batchIds.length?'selected':itemListType)
+ function changeOrderTab(next){opening.current++;opening.currentPoId=null;setActive(null);setLines([]);setLinesReady(false);setPage(0);setOrderTab(next)}
+ const previousItemListType=useRef(itemListType)
+ useEffect(()=>{if(previousItemListType.current===itemListType)return;previousItemListType.current=itemListType;if(active&&Boolean(active.company_id||active.proc_po_is_company)===(itemListType==='company')){setOrderTab(itemListType);return}changeOrderTab(itemListType)},[itemListType])
  const pageSize=20
  const opening=useRef(0)
+ const listRequest=useRef(0)
  const load=useCallback(async()=>{
-  let q=supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
-  if(batchKey)q=q.in('id',batchKey.split(','))
+  const request=++listRequest.current
+  let q=supabase.from('proc_purchase_orders').select('*,proc_po_is_company,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)',{count:'exact'}).order('created_at',{ascending:false}).range(page*pageSize,page*pageSize+pageSize-1)
+  if(orderTab==='selected'&&batchKey)q=q.in('id',batchKey.split(','))
+  else q=q.eq('proc_po_is_company',orderTab==='company')
   if(filter==='open')q=q.in('status',['pending_approval','approved','sent','partially_received'])
   else if(filter==='non_cancelled')q=q.neq('status','cancelled')
   else if(filter==='overdue')q=q.lt('expected_date',businessDate()).in('status',['sent','partially_received'])
   else if(filter!=='all')q=q.eq('status',filter)
   const r=await q
+  if(request!==listRequest.current)return
   if(r.error)fail(r.error);else{setRows(r.data||[]);setTotal(r.count||0)}
- },[filter,page,fail,batchKey])
+ },[filter,page,fail,batchKey,orderTab])
  useEffect(()=>{if(activeView==='po')load()},[load,activeView])
  useEffect(()=>{setPage(0)},[filter])
- useEffect(()=>{if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter))return;let cancelled=false;(async()=>{const r=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',initialFilter).single();if(cancelled)return;if(r.error)return fail(r.error);void open(r.data)})();return()=>{cancelled=true}},[initialFilter,fail])
+ useEffect(()=>{if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter))return;let cancelled=false;(async()=>{const r=await supabase.from('proc_purchase_orders').select('*,proc_po_is_company,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',initialFilter).single();if(cancelled)return;if(r.error)return fail(r.error);void open(r.data)})();return()=>{cancelled=true}},[initialFilter,fail])
 
  async function open(po){
+  onItemListTypeChange?.(po.company_id||po.proc_po_is_company?'company':'general')
   const request=++opening.current
   opening.currentPoId=po.id;setLines([]);setLinesReady(false);setGateway(null);refreshPoGateway(po.id)
-  setActive(po);setPoMeta({expected_date:po.expected_date||'',terms:po.terms||'',notes:po.notes||''})
+  if(orderTab!=='selected')setOrderTab(po.company_id||po.proc_po_is_company?'company':'general')
+  onOrderSelected(po.id);setActive(po);setPoMeta({expected_date:po.expected_date||'',terms:po.terms||'',notes:po.notes||''})
   const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom,colour,variation,brand),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status)),balance_actions:proc_po_balance_actions(action,reason,released_qty,created_at)').eq('po_id',po.id).order('id'))
   if(request!==opening.current)return
   if(r.error)fail(r.error);else {setLines(r.data||[]);setLinesReady(true)}
@@ -93,7 +121,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
   setBusy(true)
   const patch={expected_date:poMeta.expected_date||null,notes:poMeta.notes||null}
   if(active.status==='pending_approval')patch.terms=poMeta.terms||null
-  const r=await supabase.from('proc_purchase_orders').update(patch).eq('id',active.id).select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').single()
+  const r=await supabase.from('proc_purchase_orders').update(patch).eq('id',active.id).select('*,proc_po_is_company,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').single()
   setBusy(false)
   if(r.error)return fail(r.error)
   setActive(r.data);flash('Purchase order details updated.');load()
@@ -106,20 +134,26 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  }
  async function action(type){
   if(!active)return
-  const message=type==='approve'?'Approve this purchase order?':'Confirm that this purchase order was actually sent to the supplier?'
+  const message=type==='approve'?(active.quantity_only?'Approve the quantities in this order? Prices are unconfirmed. This does not approve final spending.':'Approve this supplier, quantity, price, total and delivery terms?'):'Confirm that this purchase order was actually sent to the supplier?'
   if(!await confirmAction(message))return
   setBusy(true)
   const r=type==='approve'?await supabase.rpc('proc_approve_po_v2',{p_po_id:active.id}):await supabase.rpc('proc_mark_po_sent_v2',{p_po_id:active.id})
   setBusy(false)
   if(r.error)return fail(r.error)
   flash(type==='approve'?'Purchase order approved.':'Purchase order marked as sent.')
-  const u=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',active.id).single()
+  const u=await supabase.from('proc_purchase_orders').select('*,proc_po_is_company,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',active.id).single()
   if(!u.error)setActive(u.data)
   load()
  }
  function copy(){
   if(!active||!linesReady)return
   try{navigator.clipboard.writeText(buildPurchaseOrderText(shareArgs)).then(()=>flash('Purchase order copied with the selected fields.')).catch(fail)}catch(e){fail(e)}
+ }
+ async function copyPoCaption(){
+  try{
+   await navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs))
+   flash('PO caption copied. Paste it with the PNG in the supplier chat.')
+  }catch(e){fail(e)}
  }
  function whatsapp(){
   const url=whatsappUrl(active?.supplier?.whatsapp||active?.supplier?.phone,'')
@@ -129,25 +163,35 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
  const sendBlock=poSendBlock({po:active,canEdit,ready:linesReady&&shareReady,loading:gatewayLoading,gateway,busy:shareBusy})
  const filtered=useMemo(()=>rows.filter(r=>(r.po_no+' '+(r.supplier?.name||'')).toLowerCase().includes(search.toLowerCase())),[rows,search])
  async function releaseBalance(line,action){
-  const reason=window.prompt(action==='buy_elsewhere'?'Reason for releasing the supplier balance to buy elsewhere:':'Reason for cancelling this need:');if(!reason?.trim())return
-  if(!await confirmAction('Release '+qty(remainingDelivery(line))+' '+line.item?.uom+' from '+active.supplier?.name+'? Notify the supplier separately. '+(action==='buy_elsewhere'?'This quantity will return to Still to order.':'This quantity will be removed from the approved need.')))return
-  setBusy(true);try{const r=await supabase.rpc('proc_release_po_balance_v1',{p_po_line_id:line.id,p_action:action,p_reason:reason});if(r.error)throw r.error;flash(qty(r.data.released_qty)+' released. Supplier notification is still required.');await load();const fresh=await supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',active.id).single();if(fresh.error)throw fresh.error;await open(fresh.data)}catch(e){fail(e)}finally{setBusy(false)}
+  let reason=''
+  if(!await confirmAction('Release '+qty(remainingDelivery(line))+' '+(line.item?.uom||'units')+' from '+active.supplier?.name+'? Notify the supplier separately. '+(action==='buy_elsewhere'?'This quantity will return to Still to order.':'This quantity will be removed from the approved need.'),{title:action==='buy_elsewhere'?'Buy the balance elsewhere':'Cancel the outstanding balance',requireReason:true,onConfirm:values=>{reason=values.reason}}))return
+  setBusy(true);try{const r=await supabase.rpc('proc_release_po_balance_v1',{p_po_line_id:line.id,p_action:action,p_reason:reason});if(r.error)throw r.error;flash(qty(r.data.released_qty)+' released. Supplier notification is still required.');await load();const fresh=await supabase.from('proc_purchase_orders').select('*,proc_po_is_company,supplier:proc_suppliers(name,whatsapp,email,phone,address,payment_terms)').eq('id',active.id).single();if(fresh.error)throw fresh.error;await open(fresh.data)}catch(e){fail(e)}finally{setBusy(false)}
  }
+ async function closeOrder(){
+  if(busy||!active||!await confirmAction('Close '+active.po_no+'? All delivery balances must be settled and rejected-goods cases resolved.',{title:'Complete this order',confirmLabel:'Close order'}))return
+  setBusy(true)
+  try{const r=await supabase.rpc('proc_close_po_v1',{p_po_id:active.id});if(r.error)throw r.error;setActive(x=>({...x,status:'closed'}));flash('Order closed. Delivery and rejection checks passed.');await load()}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ const directPo=Boolean(active?.company_id&&active?.quantity_only)
  const poCols=configuredColumns(fields,'po',[
   {key:'item_code',label:'Code',render:l=><span className="mono tiny">{l.item?.item_code}</span>},
   {key:'description',label:'Item',render:l=><strong>{[itemTitle(l.item||{}),l.item?.colour,l.item?.variation].filter(Boolean).join(' · ')}</strong>},
   {key:'size',label:'Size',render:l=>l.item?.size||'—'},
   {key:'uom',label:'UOM',render:l=>l.item?.uom||'—'},
   {key:'qty',label:'Qty',render:l=><>{qty(l.qty)}{Number(l.cancelled_qty)>0&&<div className="muted tiny">Cancelled {qty(l.cancelled_qty)}</div>}</>},
-  {key:'unit_price',label:'Unit Price',render:l=>money(l.unit_price)},
+  {key:'unit_price',label:directPo?'Unit Rate':'Unit Price',render:l=>directPo?'Direct PO':money(l.unit_price)},
   {key:'discount_percent',label:'Discount %',render:l=>Number(l.discount_percent||0).toFixed(2)+'%'},
   {key:'tax_percent',label:'Tax %',render:l=>Number(l.tax_percent||0).toFixed(2)+'%'},
   {key:'effective_unit_cost',label:'Effective Unit Cost',render:l=>money(Number(l.unit_price||0)*(1-Number(l.discount_percent||0)/100)*(1+Number(l.tax_percent||0)/100))},
   {key:'landed_unit_cost',label:'Landed Unit Cost',render:l=>l.landed_unit_cost==null?'—':money(l.landed_unit_cost)},
   {key:'line_total',label:'Line Total',render:l=>money(l.line_total)}
- ]).filter(c=>!active?.quantity_only||!['unit_price','discount_percent','tax_percent','effective_unit_cost','landed_unit_cost','line_total'].includes(c.key))
+ ]).filter(c=>!active?.quantity_only||(directPo&&c.key==='unit_price')||!['unit_price','discount_percent','tax_percent','effective_unit_cost','landed_unit_cost','line_total'].includes(c.key))
+ if(directPo&&!poCols.some(c=>c.key==='unit_price'))poCols.push({key:'unit_price',label:'Unit Rate',render:()=> 'Direct PO'})
  const renderOrder=()=> <div className="po-expanded" id={'po-details-'+active.id}>
-   <div className="order-progress" role="status"><strong>{['sent','partially_received','received','closed'].includes(active.status)?'PO completion · 100% · preparation and sending complete':active.status==='cancelled'?'Order cancelled':active.status==='approved'?'PO completion · 67% · approved, sending remains':'PO completion · 33% · created, approval remains'}</strong><small>Delivery is tracked separately.</small></div>
+   <div className="order-progress" role="status"><strong>{['sent','partially_received'].includes(active.status)?'PO sent · track delivery below':['received','closed'].includes(active.status)?'Order '+active.status:active.status==='cancelled'?'Order cancelled':active.status==='approved'?'Approved · ready to send':'Created · awaiting approval'}</strong><small>Delivery is tracked below.</small></div>
+   <DeliveryProgress lines={lines} loaded={linesReady}/>
+   {directPo&&<p className="notice section"><strong>Direct PO — RFQ bypassed</strong></p>}
+   <div className="workflow-next-card section"><small>Next step</small><strong>{poNextStep(active.status)}</strong><span>Supplier: {active.supplier?.name||'Unavailable'} · {active.supplier?.whatsapp||active.supplier?.phone||'Add a contact number'}</span></div>
    <div className="sectionhead"><div><h3>{active.po_no}</h3><p>{active.supplier?.name} · {active.po_date}</p></div><Badge>{active.status}</Badge></div>
    <details className="section po-order-meta"><summary>Order details · dates, terms & remarks</summary><div className="document-meta">
     {fieldEnabled(fields,'po','supplier')&&<div><span>{fieldLabel(fields,'po','supplier','Supplier')}</span><b>{active.supplier?.name||'—'}</b></div>}
@@ -162,7 +206,7 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
    {!linesReady?<p role="status">Loading PO items…</p>:<div className="po-bill section work-items-window" style={{'--po-numeric-columns':poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).length}} role="region" aria-label="Purchase order bill">
     <div className="po-bill-head"><span>Item / size</span>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.label}</span>)}</div>
     {lines.map(l=><details className="po-bill-line" key={l.id}>
-     <summary><strong title={itemTitle(l.item||{})}><ItemLabel item={l.item||{}}/></strong>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.key==='qty'?qty(l.qty):Number(l[c.key]||0).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>)}</summary>
+     <summary><strong title={itemTitle(l.item||{})}><ItemLabel item={l.item||{}}/></strong>{poCols.filter(c=>['qty','unit_price','line_total'].includes(c.key)).map(c=><span key={c.key}>{c.key==='qty'?qty(l.qty):directPo&&c.key==='unit_price'?'Direct PO':Number(l[c.key]||0).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>)}</summary>
      <div className="po-line-details"><strong>{itemTitle(l.item||{})}</strong><dl>{poCols.map(c=><div key={c.key}><dt>{c.label}</dt><dd>{c.render(l)}</dd></div>)}{l.notes&&<div><dt>Remarks</dt><dd>{l.notes}</dd></div>}</dl></div>
     </details>)}
    </div>}
@@ -173,28 +217,53 @@ export function PurchaseOrders({activeView='po',initialFilter='',profile,fields,
    <SupplierDocumentEditor kind="po" value={documentTemplate} onChange={changeDocumentTemplate} company={company} lines={lines} po={active} disabled={busy||shareBusy}/>
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print po-primary-action">
-    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>Approve PO</button>}
-    {canEdit&&active.status==='approved'&&<button className="btn primary" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button>}
+    {active.quantity_only&&<p className="notice">Quantity approval only. Prices are unconfirmed; this approval does not authorize final spending.</p>}
+    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>{active.quantity_only?'Approve quantity only':'Approve order'}</button>}
+    {canEdit&&active.status==='approved'&&<><button className="btn primary" disabled={busy||shareBusy||!linesReady||!shareReady} title="Choose the supplier in WhatsApp and review the PNG plus caption before sending" onClick={()=>exportPo('share')}>{shareBusy?'Preparing PO PNG…':'Share PO PNG + Caption'}</button><button className="btn" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button></>}
+    {can('receiving.view')&&active.status==='received'&&<button className="btn" onClick={()=>navigate('receiving','followup:'+active.po_no)}>Review follow-ups</button>}
+    {canEdit&&canApprove&&active.status==='received'&&<button className="btn primary" disabled={busy||shareBusy||!linesReady} onClick={closeOrder}>Complete order →</button>}
+    {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary" onClick={()=>navigate('receiving',active.id)}>Receive this order →</button>}
    </div>
    {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<DeleteRecordButton profile={profile} table="proc_purchase_orders" record={active} label="purchase order" fail={fail} disabled={busy||shareBusy} onDeleted={async()=>{opening.current++;setActive(null);setLines([]);flash('Purchase order and reviewed linked records deleted.');await load()}}/>}
-   {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary section" onClick={()=>navigate('receiving',active.id)}>Receive this order</button>}
    <details className="section no-print"><summary>Document & Sharing Options</summary><div className="toolbar section">
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('png')}>Download PO PNG</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('share')}>Share PO Image + Caption</button>
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={copy}>Copy</button>
     {(active.supplier?.whatsapp||active.supplier?.phone)&&<button className="btn" onClick={whatsapp}>Open Supplier WhatsApp</button>}
-    <button className="btn" onClick={()=>navigator.clipboard.writeText(buildPurchaseOrderCaption(shareArgs)).then(()=>flash('PO caption copied.')).catch(fail)}>Copy PO Caption</button>
+    <button className="btn" onClick={copyPoCaption}>Copy PO Caption</button>
    </div></details>
-   <details className="section no-print"><summary>Send image &amp; caption · status &amp; fallback</summary><div className="notice"><b>Send purchase-order image + caption</b><p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||(gatewayLoading?'Checking connection…':'Not configured')} · Sending {gateway?.sendingEnabled?'enabled':'disabled'}. Gateway acceptance does not prove delivery. Confirm Sent only after checking WhatsApp.</p><div className="toolbar">{canEdit&&<><button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh PO WhatsApp Status</button><button className="btn primary" disabled={Boolean(sendBlock)} title={sendBlock||'Send to the saved supplier'} onClick={sendPoImage}>{shareBusy?'Preparing / sending…':'Send PO PNG + Caption'}</button></>}{gateway?.dispatches?.map(d=><span className="tiny" key={d.id}>Attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</span>)}</div>{sendBlock&&<p role="status" className="muted tiny">{sendBlock}</p>}<p className="muted tiny">Fallback: Share PO Image + Caption, choose WhatsApp and the supplier; or download PNG, open the supplier chat, attach the saved image and paste the copied caption.</p></div></details>
+   {canEdit&&active.status==='approved'&&<section className="section no-print" aria-label="Manual supplier WhatsApp PO sharing">
+    <div className="notice"><b>Manual WhatsApp sharing · works without a gateway</b>
+     <p className="muted tiny">Tap Share to open your phone's sharing options. Choose WhatsApp and the correct supplier. Check the PNG and caption before sending. If WhatsApp drops the caption, paste it manually. Only use Confirm Sent after the message is actually sent.</p>
+     <div className="toolbar section">
+      <button className="btn primary" disabled={busy||shareBusy||!linesReady||!shareReady} onClick={()=>exportPo('share')}>{shareBusy?'Preparing PNG…':'Share PO PNG + Caption'}</button>
+      <button className="btn small" disabled={shareBusy} onClick={copyPoCaption}>Copy PO Caption</button>
+      <button className="btn small" disabled={shareBusy} onClick={whatsapp}>Open Supplier Chat</button>
+      <button className="btn small" disabled={shareBusy||!linesReady||!shareReady} onClick={()=>exportPo('png')}>Download PNG</button>
+     </div>
+     <details className="section"><summary>Automatic WhatsApp gateway · optional</summary>
+      <p className="muted tiny">Gateway: {gateway?.connected?'Connected':gateway?.configured?'Not linked / offline':gateway?.error||(gatewayLoading?'Checking connection…':'Not configured')} · Automatic sending {gateway?.sendingEnabled?'enabled':'disabled'}. The gateway requires secure private configuration; manual sharing above does not.</p>
+      <div className="toolbar">
+       <button className="btn small" disabled={shareBusy} onClick={()=>refreshPoGateway()}>Refresh Gateway Status</button>
+       <button className="btn small" disabled={Boolean(sendBlock)||busy||shareBusy} title={sendBlock||'Send through the verified private gateway'} onClick={sendPoImage}>{shareBusy?'Sending…':'Automatic gateway send'}</button>
+      </div>
+      {sendBlock&&<p role="status" className="muted tiny">{sendBlock}</p>}
+      {gateway?.dispatches?.map(d=><p className="tiny" key={d.id}>Gateway attempt: {d.status}{d.status==='unknown'?' — check WhatsApp before resending':''}</p>)}
+      <p className="muted tiny">Gateway acceptance does not confirm delivery. Never retry an uncertain attempt without checking WhatsApp.</p>
+     </details>
+    </div>
+   </section>}
  </div>
  return <div className="card pad po-orders">
   <div className="sectionhead"><div><h3>{t('documents.po_title','Purchase Orders')} <InfoButton topic="po_approval" language={language}/></h3><p>Tap a PO row to expand its bill, details and supplier actions.</p></div></div>
-  {canEdit&&batchKey&&<PoBulkSend orderIds={batchIds} company={documentCompany(company,documentTemplate)} documentTemplate={documentTemplate} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
-  {batchKey&&<div className="notice section">Showing the {batchIds.length} PO(s) created for this order. <button className="btn small" onClick={()=>navigate('po','all')}>View all orders</button></div>}
+  <ItemListSelector value={itemListType} onChange={onItemListTypeChange} disabled={busy||shareBusy} t={t}/>
+  {canEdit&&orderTab==='selected'&&batchKey&&<PoBulkSend orderIds={batchIds} company={documentCompany(company,documentTemplate)} documentTemplate={documentTemplate} selection={shareFields} ready={shareReady} refreshKey={rows.map(po=>po.id+po.status).join(',')} otherBusy={busy||shareBusy} onBusy={setShareBusy} onRefresh={async()=>{await load();if(active)await refreshPoGateway(active.id)}}/>}
+  {orderTab==='selected'&&batchKey&&<div className="notice section">Showing the {batchIds.length} PO(s) created for this order. <button className="btn small" onClick={()=>navigate('po','all')}>View all orders</button></div>}
   <div className="filters two section"><input className="input" placeholder="Filter this page by PO or supplier" value={search} onChange={e=>setSearch(e.target.value)}/><ModernSelect className="select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All statuses</option><option value="open">Open POs</option><option value="non_cancelled">Non-cancelled POs</option><option value="overdue">Overdue deliveries</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="partially_received">Partially received</option><option value="received">Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></ModernSelect></div>
   <div className="po-order-list section">{filtered.map(po=><div className="po-order" key={po.id}>
-   <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{po.quantity_only?'Quantity only':money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
+   <button type="button" className={'po-order-row '+(active?.id===po.id?'active-record':'')} disabled={busy||shareBusy} aria-expanded={active?.id===po.id} aria-controls={active?.id===po.id?'po-details-'+po.id:undefined} onClick={()=>{if(active?.id===po.id){opening.current++;opening.currentPoId=null;setActive(null)}else void open(po)}}><strong>{po.po_no}</strong><span title={po.supplier?.name}>{po.supplier?.name}</span><b>{po.quantity_only?(po.company_id?'Direct PO':'Quantity only'):money(po.total)}</b><span aria-hidden="true">{active?.id===po.id?'▾':'▸'}</span></button>
+   <AttentionBadge reason={poAttention(po,active?.id===po.id?gateway:null)}/>
    {active?.id===po.id&&renderOrder()}
   </div>)}</div>
   {!filtered.length&&<Empty>No purchase orders match this page.</Empty>}
@@ -324,26 +393,34 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
  </div>
 }
 
-export function Receiving({activeView='receiving',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function Receiving({navigate=()=>{},onReceivingSelected=()=>{},activeView='receiving',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const confirmAction=useActionConfirmation()
  const canReceive=can('receiving.manage')
  const[pos,setPos]=useState([]),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[cases,setCases]=useState([])
- const[casePage,setCasePage]=useState(0)
+ const[casePage,setCasePage]=useState(0),[caseSearch,setCaseSearch]=useState('')
+ const filteredCases=cases.filter(c=>[c.po_no,c.supplier_name,c.description,c.size,c.grn_no].join(' ').toLowerCase().includes(caseSearch.trim().toLowerCase()))
  const rejectionEnabled=features.find(x=>x.feature_key==='receiving.rejection_followup')?.enabled!==false
- const receiptKeys=useRef(new Map()),draftOwner=useRef(null)
+ const receiptKeys=useRef(new Map()),draftOwner=useRef(null),postLock=useRef(false),handledFilter=useRef(null),resultPanel=useRef(null)
+ const[workspace,setWorkspace]=useState('delivery'),[followup,setFollowup]=useState(null),[result,setResult]=useState(null),[loadState,setLoadState]=useState('loading')
  const[search,setSearch]=useState(''),[showCompleted,setShowCompleted]=useState(false),[draftReady,setDraftReady]=useState(false),[draftStatus,setDraftStatus]=useState(''),[attempt,setAttempt]=useState(null)
  const draftKey=poId?'gh_receiving_draft_v1:'+profile.id+':'+poId:null
  const visibleLines=lines.filter(l=>(showCompleted||remainingDelivery(l)>0)&&[l.item?.description,l.item?.size,l.item?.item_code].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
- useEffect(()=>{if(initialFilter&&pos.some(p=>p.id===initialFilter))setPoId(initialFilter)},[initialFilter,pos])
+ useEffect(()=>{if(initialFilter.startsWith('followup:')&&handledFilter.current!==initialFilter){handledFilter.current=initialFilter;setCaseSearch(initialFilter.slice(9));setWorkspace('followup');return}if(initialFilter&&handledFilter.current!==initialFilter&&pos.some(p=>p.id===initialFilter)){handledFilter.current=initialFilter;setPoId(initialFilter);setWorkspace('delivery')}},[initialFilter,pos])
+ useEffect(()=>{if(result)resultPanel.current?.scrollIntoView({block:'start'})},[result])
  useEffect(()=>{if(!draftReady||!draftKey||draftOwner.current!==draftKey)return;try{localStorage.setItem(draftKey,JSON.stringify({vals,notes,receiptKey:receiptKeys.current.get(poId)||null,attempt}));setDraftStatus('Saved on this device')}catch{setDraftStatus('Could not save draft on this device. Keep this screen open.')}},[vals,notes,attempt,draftReady,draftKey,poId])
 
- const loadPos=useCallback(async()=>{try{
+ const loadPos=useCallback(async()=>{setLoadState('loading');try{
+  const pendingIds=pendingReceiptOrderIds(globalThis.localStorage,profile.id)
   const promises=[allRows(()=>supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['sent','partially_received']).order('created_at',{ascending:false}).order('id'))]
-  if(rejectionEnabled&&can('receiving.view'))promises.push(allRows(()=>supabase.from('proc_v_rejection_cases').select('*').neq('status','resolved').order('created_at',{ascending:false}).order('id')))
+  let caseIndex=-1,recoveryIndex=-1
+  if(rejectionEnabled&&can('receiving.view')){caseIndex=promises.length;promises.push(allRows(()=>supabase.from('proc_v_rejection_cases').select('*').neq('status','resolved').order('created_at',{ascending:false}).order('id')))}
+  if(pendingIds.length){recoveryIndex=promises.length;promises.push(allRows(()=>supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('id',pendingIds).order('id')))}
   const data=await Promise.all(promises)
-  if(data[0].error)throw data[0].error;setPos(data[0].data||[])
-  if(data[1]){if(data[1].error)throw data[1].error;setCases(data[1].data||[]);setCasePage(0)}
- }catch(e){fail(e)}},[fail,rejectionEnabled,can])
+  for(const r of data)if(r.error)throw r.error
+  setPos([...new Map([...(data[0].data||[]),...(data[recoveryIndex]?.data||[])].map(p=>[p.id,p])).values()])
+  if(caseIndex>=0){setCases(data[caseIndex].data||[]);setCasePage(0)}
+  setLoadState('ready')
+ }catch(e){setLoadState('error');fail(e)}},[fail,rejectionEnabled,can,profile.id])
  useEffect(()=>{if(activeView==='receiving')loadPos()},[loadPos,activeView])
  useEffect(()=>{let cancelled=false;setLines([]);setVals({});setDraftReady(false);setAttempt(null);setNotes('');if(!poId)return;(async()=>{const r=await allRows(()=>supabase.from('proc_po_lines').select('*,item:proc_items(item_code,description,size,uom,colour,variation,brand),grn:proc_grn_lines(accepted_qty,receipt:proc_grns(status))').eq('po_id',poId).order('id'));if(cancelled)return;if(r.error)return fail(r.error);const data=r.data||[];setLines(data);let saved=null;try{saved=JSON.parse(localStorage.getItem('gh_receiving_draft_v1:'+profile.id+':'+poId)||'null')}catch{};setVals(Object.fromEntries(data.map(x=>[x.id,saved?.vals?.[x.id]||{received:'',accepted:'',rejected:'0',reason:''}])));setNotes(saved?.notes||'');if(saved?.receiptKey)receiptKeys.current.set(poId,saved.receiptKey);setAttempt(saved?.attempt||null);draftOwner.current='gh_receiving_draft_v1:'+profile.id+':'+poId;setDraftReady(true)})();return()=>{cancelled=true}},[poId,profile.id,fail])
 
@@ -351,19 +428,23 @@ export function Receiving({activeView='receiving',initialFilter='',profile,field
  const remaining=remainingDelivery
  const isFull=l=>{const v=vals[l.id]||{},rem=remaining(l);return rem>0&&Number(v.received||0)===rem&&Number(v.accepted||0)===rem&&Number(v.rejected||0)===0}
  function setFull(l,on){const rem=remaining(l);setVals(x=>({...x,[l.id]:on?{...x[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}:{...x[l.id],received:'',accepted:'',rejected:'0',reason:''}}))}
- function setAllFull(){setVals(x=>{const next={...x};for(const l of visibleLines){const rem=remaining(l);if(rem>0)next[l.id]={...next[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}}return next})}
+ async function setAllFull(){if(!await confirmAction('Confirm that every remaining unit in the visible delivery rows was received and accepted. This replaces their draft quantities.',{title:'Accept full remaining delivery',confirmLabel:'Confirm inspected delivery'}))return;setVals(x=>{const next={...x};for(const l of visibleLines){const rem=remaining(l);if(rem>0)next[l.id]={...next[l.id],received:String(rem),accepted:String(rem),rejected:'0',reason:''}}return next})}
 
- async function post(){
+ async function post(){if(postLock.current)return;postLock.current=true;try{await postReceipt()}finally{postLock.current=false}}
+ async function postReceipt(){
   if(!canReceive||busy)return
   const po=pos.find(x=>x.id===poId);if(!po)return fail(new Error(t('validation.select_po','Select a purchase order.')))
   if(lines.some(l=>['received','accepted','rejected'].some(k=>{const v=vals[l.id]?.[k];return v!==undefined&&v!==''&&(!Number.isFinite(Number(v))||Number(v)<0)})))return fail(new Error('Receiving quantities must be finite, non-negative numbers.'))
   const payload=attempt?.lines||lines.filter(l=>Number(vals[l.id]?.received||0)>0||Number(vals[l.id]?.accepted||0)>0||Number(vals[l.id]?.rejected||0)>0).map(l=>({po_line_id:l.id,received_qty:Number(vals[l.id]?.received||0),accepted_qty:Number(vals[l.id]?.accepted||0),rejected_qty:Number(vals[l.id]?.rejected||0),rejection_reason:vals[l.id]?.reason||null}))
   if(!payload.length)return fail(new Error(t('validation.receive_one','Enter at least one received quantity.')))
-  for(const x of payload){
+  for(const x of attempt?[]:payload){
    if(x.received_qty<0||x.accepted_qty<0||x.rejected_qty<0||x.accepted_qty+x.rejected_qty>x.received_qty)return fail(new Error(t('validation.receive_math','Accepted + rejected must not exceed received quantity, and quantities cannot be negative.')))
+   if(Math.abs(x.accepted_qty+x.rejected_qty-x.received_qty)>0.000001)return fail(new Error('Inspect every received item: accepted + rejected must equal received.'))
+   if(x.accepted_qty>remaining(lines.find(l=>l.id===x.po_line_id)))return fail(new Error('Accepted quantity exceeds the outstanding delivery balance. Refresh this order.'))
    if(x.rejected_qty>0&&!String(x.rejection_reason||'').trim())return fail(new Error('Enter a rejection reason for every rejected quantity.'))
   }
-  if(!await confirmAction(t('confirm.post_receipt','Post this goods receipt? Accepted quantities will immediately update stock.')))return
+  const review=receiptReview(lines,payload)
+  if(!await confirmAction(attempt?'Retry the exact saved receipt for '+po.po_no+'. An already posted receipt will not add stock again.':'Check quantities for '+po.po_no+'. Only accepted goods will enter stock.',{title:'2. Review receipt',details:<div className="receipt-review-list">{review.map(x=><div className="receipt-review-row" key={x.po_line_id}><strong>{itemTitle(x.item||{})}</strong><div>{qty(x.received_qty)} received · {qty(x.accepted_qty)} accepted · {qty(x.rejected_qty)} rejected</div><small>{qty(x.remaining)} {x.item?.uom||'units'} still due{x.rejected_qty>0?' · Rejected goods need follow-up':''}</small>{x.rejection_reason&&<div>Reason: {x.rejection_reason}</div>}</div>)}</div>,confirmLabel:'Post receipt'}))return
   setBusy(true)
   if(!receiptKeys.current.has(po.id))receiptKeys.current.set(po.id,globalThis.crypto.randomUUID())
   const pending=attempt||{lines:payload,notes:notes||null};setAttempt(pending)
@@ -375,41 +456,32 @@ export function Receiving({activeView='receiving',initialFilter='',profile,field
   flash(r.data.grn_no+(r.data.replayed?' already posted — duplicate retry ignored.':' posted. Stock and reconciliation updated.'))
   try{localStorage.removeItem(draftKey)}catch{}
   setDraftReady(false);setAttempt(null);receiptKeys.current.delete(po.id)
-  setPoId('');setLines([]);setVals({});setNotes('');loadPos()
+  setResult({poId:po.id,poNo:po.po_no,grnNo:r.data.grn_no,replayed:r.data.replayed,rejected:payload.some(x=>x.rejected_qty>0)});setPoId('');onReceivingSelected('');setLines([]);setVals({});setNotes('');loadPos()
  }
 
- async function resolveCase(c,action){
-  let reference=null,due=null,note=null
-  if(['replacement_requested','credit_note_requested'].includes(action))due=prompt(t('prompt.followup_due','Follow-up due date (YYYY-MM-DD, optional):'),'')||null
-  if(['returned_to_supplier','replacement_received','credit_note_received','close_other'].includes(action))reference=prompt(t('prompt.reference_optional','Reference / document number (optional):'),'')||null
-  if(action==='credit_note_received'&&!reference)return fail(new Error(t('validation.credit_reference','Credit note/reference number is required.')))
-  note=prompt(t('prompt.notes_optional','Notes (optional):'),'')||null
-  const r=await supabase.rpc('proc_resolve_rejection_case_v1',{p_case_id:c.id,p_action:action,p_notes:note,p_reference_no:reference,p_due_date:due})
-  if(r.error)return fail(r.error)
-  flash('Rejected-goods case updated: '+String(r.data.status).replaceAll('_',' ')+'.');loadPos()
+ async function saveFollowup(payload){
+  const r=await supabase.rpc('proc_resolve_rejection_case_v1',payload)
+  if(r.error)throw r.error
+  flash('Follow-up saved. '+(r.data.status==='resolved'?'Review any remaining delivery balance in Orders.':'The case remains open.'))
+  await loadPos()
  }
-
+ const enteredCount=lines.filter(l=>Number(vals[l.id]?.received||0)>0).length
  const show=k=>fieldEnabled(fields,'receiving',k)
  const label=(k,v)=>fieldLabel(fields,'receiving',k,v)
- const receiveColumns='minmax(0,1fr) '+(show('received_qty')?'56px ':'')+(show('accepted_qty')?'56px ':'')+'32px'
  return <div className="stack">
+  {rejectionEnabled&&can('receiving.view')&&<div className="toolbar" role="tablist" aria-label="Receiving workspace"><button className={'btn '+(workspace==='delivery'?'primary':'')} role="tab" aria-selected={workspace==='delivery'} onClick={()=>setWorkspace('delivery')}>Deliveries</button><button className={'btn '+(workspace==='followup'?'primary':'')} role="tab" aria-selected={workspace==='followup'} onClick={()=>setWorkspace('followup')}>Follow-ups{loadState==='ready'?' ('+cases.length+')':''}</button></div>}
+  {loadState==='error'&&<div role="alert" className="notice">Could not refresh deliveries and follow-ups. <button className="btn small" onClick={loadPos}>Retry receiving</button></div>}
+  {workspace==='delivery'&&<>
+  {result&&<div className="card pad" ref={resultPanel} role="region" aria-label="Receipt result"><h3>3. Receipt saved</h3><p>{result.grnNo} · {result.poNo}{result.replayed?' · Saved receipt confirmed':''}</p><p>Stock includes accepted goods only.{result.rejected?' Rejected goods need follow-up.':' Review delivery progress in Orders.'}</p><div className="toolbar">{result.rejected&&rejectionEnabled&&can('receiving.view')?<button className="btn primary" onClick={()=>setWorkspace('followup')}>Settle rejected goods →</button>:can('procurement.orders.view')&&<button className="btn primary" onClick={()=>navigate('po',result.poId)}>Track / complete order →</button>}<button className="btn" onClick={()=>setResult(null)}>Next delivery</button></div></div>}
   <div className="card pad">
-   <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Accepted stock is retry-safe and cannot exceed the outstanding PO quantity. Rejected quantities create follow-up cases automatically.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!visibleLines.length||busy||Boolean(attempt)} onClick={setAllFull}>✓ Mark All Remaining Received</button><button className="btn primary" disabled={busy||!lines.length} onClick={post}>{busy?'Posting…':'Post GRN'}</button></div>}</div>
-   <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><ModernSelect aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>setPoId(e.target.value)}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}</option>)}</ModernSelect></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>
+   <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Choose an order, inspect quantities, then review and post.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!visibleLines.length||busy||Boolean(attempt)} onClick={setAllFull}>Accept full remaining delivery</button><StockSubmitAction active={activeView==='receiving'}><button className="btn primary receive-post-dock" aria-label={busy?'Posting…':attempt?'Retry saved receipt':'Review receipt ('+enteredCount+') →'} disabled={busy||!draftReady||!enteredCount} onClick={post}><span className="receive-review-full">{busy?'Posting…':attempt?'Retry saved receipt':'Review receipt ('+enteredCount+') →'}</span><span className="receive-review-compact">{busy?'Posting…':attempt?'Retry receipt':'Review ('+enteredCount+') →'}</span></button></StockSubmitAction></div>}</div>
+   <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><ModernSelect aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>{setPoId(e.target.value);onReceivingSelected(e.target.value)}}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}{['received','closed'].includes(p.status)?' · Confirm saved receipt':''}</option>)}</ModernSelect></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" disabled={busy||Boolean(attempt)} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>
    {canReceive&&poId&&draftReady&&<ReceiptOcr poId={poId} lines={lines} disabled={busy||Boolean(attempt)} fail={fail} onApply={async rows=>{if(!await confirmAction('Apply '+rows.length+' reviewed OCR row(s)? This replaces their draft quantities; accepted and rejected quantities must be entered after inspection.'))return false;setVals(v=>{const next={...v};for(const row of rows)next[row.lineId]={received:row.received,accepted:'',rejected:'0',reason:''};return next});flash('Reviewed received quantities applied. Inspect goods and enter accepted / rejected quantities before posting.')}}/>}
-   {lines.length>0&&<><div className="sticky-work-search section"><input aria-label="Search receiving items" className="input" placeholder="Search item, size or code" value={search} onChange={e=>setSearch(e.target.value)}/><label className="checkline"><input type="checkbox" checked={showCompleted} onChange={e=>setShowCompleted(e.target.checked)}/>Show completed lines</label><p className="muted tiny">{visibleLines.length} shown · {lines.filter(l=>remaining(l)>0).length} awaiting delivery · {draftStatus}</p>{attempt&&<p role="status">A receipt attempt is saved. Post GRN retries that exact receipt safely; quantities stay locked until its result is resolved.</p>}</div><div className="desktop-table tablewrap section"><table className="table"><thead><tr><th>✓ Full</th>{show('description')&&<th>Item</th>}{show('ordered_qty')&&<th>Ordered</th>}{show('previously_accepted')&&<th>Previously Accepted</th>}{show('received_qty')&&<th>Received Now</th>}{show('accepted_qty')&&<th>Accepted</th>}{show('rejected_qty')&&<th>Rejected</th>}{show('rejection_reason')&&<th>Reason</th>}</tr></thead><tbody>{visibleLines.map(l=>{const v=vals[l.id]||{};return <tr key={l.id}><td className="center"><input type="checkbox" checked={isFull(l)} disabled={!canReceive||busy||Boolean(attempt)||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/></td>{show('description')&&<td><strong>{itemTitle(l.item||{})}</strong></td>}{show('ordered_qty')&&<td>{qty(l.qty)}</td>}{show('previously_accepted')&&<td>{qty(already(l))}<div className="muted tiny">Remaining {qty(remaining(l))}</div></td>}{show('received_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'received',e.target.value)}))}/></td>}{show('accepted_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'accepted',e.target.value)}))}/></td>}{show('rejected_qty')&&<td><input className="input stock-entry" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'rejected',e.target.value)}))}/></td>}{show('rejection_reason')&&<td><input className="input" disabled={!canReceive||busy||Boolean(attempt)} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'reason',e.target.value)}))}/></td>}</tr>})}</tbody></table></div>
-   <div className="mobile-card-list receiving-rows" role="region" aria-label="Receiving item rows">
-    <div className="receive-row-columns" style={{gridTemplateColumns:receiveColumns}}><span>Item · remaining</span>{show('received_qty')&&<span>Received</span>}{show('accepted_qty')&&<span>Accepted</span>}<span>Full</span></div>
-    {visibleLines.map(l=>{const v=vals[l.id]||{},title=itemTitle(l.item||{});return <div className="receive-entry-row" key={l.id} style={{gridTemplateColumns:receiveColumns}}>
-     <div className="row-item-name"><strong title={title}>{title}</strong><span className="muted tiny">Left {qty(remaining(l))} {l.item?.uom||''}</span></div>
-     {show('received_qty')&&<input aria-label={'Received '+title} className="input row-quantity" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.received??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'received',e.target.value)}))}/>}
-     {show('accepted_qty')&&<input aria-label={'Accepted '+title} className="input row-quantity" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.accepted??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'accepted',e.target.value)}))}/>}
-     <label className="receive-full-check" title={'Receive full remaining quantity: '+title}><input aria-label={'Full receipt '+title} type="checkbox" checked={isFull(l)} disabled={!canReceive||busy||Boolean(attempt)||remaining(l)<=0} onChange={e=>setFull(l,e.target.checked)}/></label>
-     <details className="receive-row-details"><summary>Details / damage {Number(v.rejected)>0?'· '+qty(v.rejected)+' rejected':''}</summary><div className="muted tiny">Ordered {qty(l.qty)} · Cancelled {qty(l.cancelled_qty)} · Previously accepted {qty(already(l))}</div><div className="row-extra-fields">{show('rejected_qty')&&<label className="field">Rejected<input aria-label={'Rejected '+title} className="input" inputMode="decimal" disabled={!canReceive||busy||Boolean(attempt)} value={v.rejected??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'rejected',e.target.value)}))}/></label>}{show('rejection_reason')&&<label className="field">Reason<input aria-label={'Rejection reason '+title} className="input" disabled={!canReceive||busy||Boolean(attempt)} value={v.reason??''} onChange={e=>setVals(x=>({...x,[l.id]:receivingValue(v,'reason',e.target.value)}))}/></label>}</div></details>
-    </div>})}
-   </div></>}
+   {lines.length>0&&<><DeliveryProgress lines={lines}/><div className="sticky-work-search receiving-search section"><input aria-label="Search receiving items" className="input" placeholder="Search item, size or code" value={search} onChange={e=>setSearch(e.target.value)}/><label className="checkline"><input type="checkbox" checked={showCompleted} onChange={e=>setShowCompleted(e.target.checked)}/>Show completed lines</label><p className="muted tiny">{visibleLines.length} shown · {lines.filter(l=>remaining(l)>0).length} awaiting delivery · {draftStatus}</p>{attempt&&<p role="status">A receipt attempt is saved. Retry saved receipt retries that exact receipt safely; quantities stay locked until its result is resolved.</p>}</div><div className="receiving-rows" role="region" aria-label="Receiving item rows">{visibleLines.map(l=><ReceiptLine key={l.id} line={l} value={vals[l.id]||{}} disabled={!canReceive||busy||Boolean(attempt)} show={show} full={isFull(l)} onFull={on=>setFull(l,on)} onChange={value=>setVals(previous=>({...previous,[l.id]:value}))}/>)}</div></>}
   </div>
 
-  {rejectionEnabled&&can('receiving.view')&&<div className="card pad"><div className="sectionhead"><div><h3>Rejected Goods Follow-up</h3><p>Every rejected GRN quantity remains open until it is returned, replaced, credited or deliberately closed.</p></div><div className="toolbar"><Badge>{cases.length} open</Badge><button className="btn small" disabled={busy} onClick={loadPos}>{t('common.refresh','Refresh')}</button></div></div>{cases.length===0?<Empty>No unresolved rejected goods.</Empty>:<div className="stack section">{cases.slice(casePage*50,(casePage+1)*50).map(c=><div className="procurement-data-row" key={c.id}><div className="stock-card-title"><div><strong>{itemTitle(c)}</strong><div className="muted tiny">{c.grn_no} · {c.po_no} · {c.supplier_name}</div></div><Badge>{c.status}</Badge></div><div className="stock-mobile-grid"><div><span>Rejected</span><b>{qty(c.rejected_qty)}</b></div><div><span>Reason</span><b>{c.rejection_reason||'—'}</b></div><div><span>Due</span><b>{c.due_date||'—'}</b></div><div><span>Reference</span><b>{c.reference_no||'—'}</b></div></div>{canReceive&&<div className="toolbar section"><button className="btn small" onClick={()=>resolveCase(c,'returned_to_supplier')}>Returned</button><button className="btn small" onClick={()=>resolveCase(c,'replacement_requested')}>Request Replacement</button><button className="btn small" onClick={()=>resolveCase(c,'credit_note_requested')}>Request Credit Note</button><button className="btn small good" onClick={()=>resolveCase(c,'replacement_received')}>Replacement Received</button><button className="btn small good" onClick={()=>resolveCase(c,'credit_note_received')}>Credit Note Received</button>{canReceive&&<button className="btn small" onClick={()=>resolveCase(c,'accept_loss')}>Accept Loss</button>}</div>}</div>)}</div>}<ListPages total={cases.length} page={casePage} onChange={setCasePage} label="Rejected goods"/></div>}
+  </>}
+  {workspace==='followup'&&rejectionEnabled&&can('receiving.view')&&<div className="card pad"><div className="sectionhead"><div><h3>Rejected Goods Follow-up</h3><p>Choose a case, record what happens next, then review. Returning goods alone keeps the case open.</p></div><div className="toolbar"><Badge>{loadState==='ready'?cases.length+' open':loadState==='error'?'Unavailable':'Loading…'}</Badge><button className="btn small" disabled={busy} onClick={loadPos}>{t('common.refresh','Refresh')}</button></div></div><input className="input section" aria-label="Search rejected goods" placeholder="Find order, supplier or item" value={caseSearch} onChange={e=>{setCaseSearch(e.target.value);setCasePage(0)}}/>{loadState==='loading'?<Empty>Loading follow-ups…</Empty>:loadState==='error'?<Empty>Follow-ups unavailable. Retry above.</Empty>:filteredCases.length===0?<Empty>{caseSearch?'No matching follow-ups.':'No unresolved rejected goods.'}</Empty>:<div className="stack section">{filteredCases.slice(casePage*10,(casePage+1)*10).map(c=><div className="procurement-data-row" key={c.id}><div className="stock-card-title"><div><strong>{itemTitle(c)}</strong><div className="muted tiny">{c.grn_no} · {c.po_no} · {c.supplier_name}</div></div><Badge>{c.status}</Badge></div><div className="stock-mobile-grid"><div><span>Rejected</span><b>{qty(c.rejected_qty)}</b></div><div><span>Reason</span><b>{c.rejection_reason||'—'}</b></div><div><span>Due</span><b>{c.due_date||'—'}</b></div><div><span>Reference</span><b>{c.reference_no||'—'}</b></div></div>{canReceive&&<div className="toolbar section"><button className="btn primary small" onClick={()=>setFollowup(c)}>Update follow-up →</button>{can('procurement.orders.view')&&<button className="btn small" onClick={()=>navigate('po',c.po_id)}>View order</button>}</div>}</div>)}</div>}<ListPages total={filteredCases.length} page={casePage} onChange={setCasePage} pageSize={10} label="Rejected goods"/></div>}
+ {followup&&<RejectionFollowup key={followup.id} record={followup} onClose={()=>setFollowup(null)} onSave={saveFollowup}/>}
  </div>
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import {ItemActivity} from './item-activity'
 import {ModernSelect} from './modern-select'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
@@ -29,19 +30,37 @@ async function uploadUrgentImage(file,prefix){
  return path
 }
 
-export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+export function UrgentActions({activeView='urgent_actions',profile,fields,features=[],flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
  const canManage=can('urgent.manage')
  const canAutomation=can('procurement.requirements.manage')||can('procurement.rfq.manage')||can('procurement.orders.edit')||can('admin.audit.view')
+ const stockOnly=!canAutomation
  const[rows,setRows]=useState([]),[jobs,setJobs]=useState([]),[loading,setLoading]=useState(true),[priority,setPriority]=useState('all'),[reason,setReason]=useState('all')
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[selectedItem,setSelectedItem]=useState(null)
  const[urgent,setUrgent]=useState({required_qty:'',current_stock:'',reason:'manual_urgent',customer_paid:false,customer_reference:'',notes:''}),[urgentImage,setUrgentImage]=useState(null)
  const[missing,setMissing]=useState({proposed_name:'',brand:'',category:'GENERAL',main_group:'',subgroup:'',size:'',uom:'PCS',movement:'NORMAL',required_qty:'',suggested_max_stock:'',reason:'customer_request',customer_paid:false,customer_reference:'',notes:''}),[missingImage,setMissingImage]=useState(null)
- const[busy,setBusy]=useState(false)
+ const[busy,setBusy]=useState(false),[actionBusy,setActionBusy]=useState(''),[activity,setActivity]=useState(null)
+ async function continuePurchasing(r){
+  setActionBusy(r.action_id)
+  try{
+   const result=await supabase.from('proc_v_requirements').select('*').eq('id',r.action_id).single()
+   if(result.error)throw result.error
+   setActivity(result.data)
+  }catch(e){fail(e)}finally{setActionBusy('')}
+ }
  const[queuePage,setQueuePage]=useState(0),[jobPage,setJobPage]=useState(0)
- const loadRevision=useRef(0)
+ const loadRevision=useRef(0),queueHeading=useRef(null)
+ const[scope,setScope]=useState('all')
+ function openQueue(filter){
+  setPriority(['urgent','high'].includes(filter)?filter:'all')
+  setScope(['customer_paid','missing_item'].includes(filter)?filter:'all')
+  setReason('all');setQueuePage(0)
+  queueHeading.current?.focus({preventScroll:true})
+  queueHeading.current?.scrollIntoView({block:'start',behavior:'instant'})
+ }
 
  const load=useCallback(async()=>{const revision=++loadRevision.current;setLoading(true);try{
-  const r=await allRows(()=>supabase.from('proc_v_urgent_actions').select('*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id'))
+  const stockFields='action_type,action_id,item_id,missing_request_id,description,brand,category,main_group,subgroup,size,uom,movement,required_qty,effective_priority,urgency_reason,customer_paid,customer_reference,image_path,created_at,book_stock'
+  const r=await allRows(()=>supabase.from('proc_v_urgent_actions').select(stockOnly?stockFields:'*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id'))
   if(r.error)throw r.error
   let nextJobs=[]
   if(canAutomation){
@@ -51,8 +70,8 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
   }
   if(revision===loadRevision.current){setRows(r.data||[]);setJobs(nextJobs);setQueuePage(0);setJobPage(0)}
  }catch(e){if(revision===loadRevision.current)fail(e)}finally{if(revision===loadRevision.current)setLoading(false)}},[fail,canAutomation])
- useEffect(()=>{load();return()=>{loadRevision.current++}},[load])
- useEffect(()=>{setQueuePage(0)},[priority,reason])
+ useEffect(()=>{if(activeView!=='urgent_actions')return;load();return()=>{loadRevision.current++}},[load,activeView])
+ useEffect(()=>{setQueuePage(0)},[priority,reason,scope])
 
  useEffect(()=>{
   let cancelled=false
@@ -69,7 +88,8 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
  const shown=useMemo(()=>rows.filter(r=>
   (priority==='all'||r.effective_priority===priority)
   &&(reason==='all'||r.urgency_reason===reason)
- ),[rows,priority,reason])
+  &&(scope==='all'||(scope==='customer_paid'?r.customer_paid:r.action_type==='missing_item'))
+ ),[rows,priority,reason,scope])
 
  async function markExisting(){
   if(!selectedItem)return fail(new Error(t('validation.urgent_existing','Select an existing item.')))
@@ -129,7 +149,12 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
   setBusy(false)
   if(x.error)return fail(x.error)
   flash('Item created/matched and '+x.data.requirement_no+' added to Procurement Review.')
-  load()
+  await load()
+  if(x.data?.requirement_no){
+   const requirement=await supabase.from('proc_v_requirements').select('*').eq('requirement_no',x.data.requirement_no).single()
+   if(requirement.error)return fail(requirement.error)
+   setActivity(requirement.data)
+  }
  }
  async function approve(r){
   if(!canManage||r.action_type!=='existing_item')return
@@ -164,12 +189,20 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
  }
 
  return <>
-  <div className="sectionhead urgent-page-head"><div><h3>{t('urgent.title','Urgent Actions')} <InfoButton topic="urgent_orders" language={language}/></h3><p>{t('urgent.subtitle','Priority purchasing queue for zero stock, customer-paid needs and other time-critical requirements.')}</p></div></div>
+  {activity&&<ItemActivity row={activity} can={can} navigate={navigate} onClose={()=>setActivity(null)}/>}
+  <div className="sectionhead urgent-page-head"><div><h3>{t('urgent.title','Urgent Actions')} <InfoButton topic={stockOnly?'urgent_stock':'urgent_orders'} language={language}/></h3><p>{stockOnly?'Record zero stock, missing items and other urgent stock issues.':t('urgent.subtitle','Priority purchasing queue for zero stock, customer-paid needs and other time-critical requirements.')}</p></div></div>
   <div className="urgent-summary-grid">
-   <div className="card metric"><div className="kicker">Urgent</div><div className="value num">{rows.filter(x=>x.effective_priority==='urgent').length}</div><div className="sub">Immediate owner/procurement action</div></div>
-   <div className="card metric"><div className="kicker">High Priority</div><div className="value num">{rows.filter(x=>x.effective_priority==='high').length}</div><div className="sub">Includes FAST-moving shortages</div></div>
-   <div className="card metric"><div className="kicker">Customer Paid</div><div className="value num">{rows.filter(x=>x.customer_paid).length}</div><div className="sub">Committed customer orders</div></div>
-   <div className="card metric"><div className="kicker">Missing Items</div><div className="value num">{rows.filter(x=>x.action_type==='missing_item').length}</div><div className="sub">Need Item Master review/conversion</div></div>
+   {[
+    ['urgent','Urgent',rows.filter(x=>x.effective_priority==='urgent').length,stockOnly?'Needs urgent stock attention':'Immediate owner/procurement action'],
+    ['high','High Priority',rows.filter(x=>x.effective_priority==='high').length,'Includes FAST-moving shortages'],
+    ['customer_paid','Customer Paid',rows.filter(x=>x.customer_paid).length,'Committed customer orders'],
+    ['missing_item','Missing Items',rows.filter(x=>x.action_type==='missing_item').length,stockOnly?'Missing from stock list':'Need Item Master review/conversion']
+   ].map(([key,label,count,description])=>{
+    const active=reason==='all'&&(key==='urgent'||key==='high'?priority===key&&scope==='all':scope===key&&priority==='all')
+    return <button type="button" key={key} className={'card metric metric-link'+(active?' active-record':'')} aria-pressed={active} aria-controls="urgent-priority-queue" onClick={()=>openQueue(key)}>
+     <span className="kicker" style={{display:'block'}}>{label}</span><span className="value num" style={{display:'block'}}>{count}</span><span className="sub" style={{display:'block'}}>{description}</span><span className="metric-action">View actions →</span>
+    </button>
+   })}
   </div>
 
   <div className="split section">
@@ -179,7 +212,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
      <div className="selected-item-box"><div><strong>{itemTitle(selectedItem)}</strong><div className="muted tiny">{[selectedItem.item_code,selectedItem.brand,selectedItem.uom].filter(Boolean).join(' · ')}</div></div><button className="btn small" onClick={()=>setSelectedItem(null)}>Change</button></div>
      <div className="formgrid section">
       <div className="field"><label>Physical Stock Now</label><input className="input" inputMode="decimal" value={urgent.current_stock} onChange={e=>{const value=normalizeQuantityInput(e.target.value);if(value!==null)setUrgent(x=>({...x,current_stock:value,reason:value!==''&&Number(value)===0?'zero_stock':x.reason}))}}/></div>
-      <div className="field"><label>Required Qty <span className="muted">(blank = auto replenish)</span></label><input className="input" inputMode="decimal" value={urgent.required_qty} onChange={e=>setUrgent(x=>({...x,required_qty:e.target.value}))}/></div>
+      <div className="field"><label>Required Qty <span className="muted">{stockOnly?'(optional)':'(blank = auto replenish)'}</span></label><input className="input" inputMode="decimal" value={urgent.required_qty} onChange={e=>setUrgent(x=>({...x,required_qty:e.target.value}))}/></div>
       <div className="field"><label>Why urgent?</label><ModernSelect className="select" value={urgent.reason} onChange={e=>setUrgent(x=>({...x,reason:e.target.value}))}>{Object.entries(reasonLabels).map(([k,v])=><option value={k} key={k}>{v}</option>)}</ModernSelect></div>
       <div className="field"><label>Photo (optional)</label><input className="input" type="file" accept="image/*" onChange={e=>setUrgentImage(e.target.files?.[0]||null)}/></div>
       <div className="field"><label>Customer reference (optional)</label><input className="input" value={urgent.customer_reference} onChange={e=>setUrgent(x=>({...x,customer_reference:e.target.value}))}/></div>
@@ -191,7 +224,7 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
    </div>
 
    <div className="card pad">
-    <div className="sectionhead"><div><h3>Customer Requested · Item Not in System</h3><p>Create a missing-item request with the customer quantity and optional photo. Admin/Procurement can convert it into the Item Master and procurement queue.</p></div></div>
+    <div className="sectionhead"><div><h3>Customer Requested · Item Not in System</h3><p>{stockOnly?'Record the requested item, quantity and optional photo.':'Create a missing-item request with the customer quantity and optional photo. Admin/Procurement can convert it into the Item Master and procurement queue.'}</p></div></div>
     <div className="formgrid">
      <div className="field wide"><label>Requested Item / Description</label><input className="input" value={missing.proposed_name} onChange={e=>setMissing(x=>({...x,proposed_name:e.target.value}))} placeholder="What did the customer ask for?"/></div>
      <div className="field"><label>Required Qty</label><input className="input" inputMode="decimal" value={missing.required_qty} onChange={e=>setMissing(x=>({...x,required_qty:e.target.value}))}/></div>
@@ -224,12 +257,12 @@ export function UrgentActions({profile,fields,features=[],flash,fail,can=()=>fal
   </div>}
 
   <div className="card pad section">
-   <div className="sectionhead"><div><h3>Priority Queue</h3><p>Sorted by business urgency: customer-paid and zero-stock items first, then explicit urgent/high priorities and FAST-moving shortages.</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
-   <div className="toolbar section"><ModernSelect className="select toolbar-select" value={priority} onChange={e=>setPriority(e.target.value)}><option value="all">All priorities</option>{priorities.map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={reason} onChange={e=>setReason(e.target.value)}><option value="all">All reasons</option>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</ModernSelect><span className="muted tiny">{shown.length} active action(s)</span></div>
+   <div className="sectionhead"><div><h3 id="urgent-priority-queue" ref={queueHeading} tabIndex={-1} style={{scrollMarginTop:160}}>Priority Queue</h3><p>Sorted by business urgency: customer-paid and zero-stock items first, then explicit urgent/high priorities and FAST-moving shortages.</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
+   <div className="toolbar section"><ModernSelect className="select toolbar-select" aria-label="Action type" value={scope} onChange={e=>setScope(e.target.value)}><option value="all">All action types</option><option value="customer_paid">Customer paid</option><option value="missing_item">Missing items</option></ModernSelect><ModernSelect className="select toolbar-select" value={priority} onChange={e=>setPriority(e.target.value)}><option value="all">All priorities</option>{priorities.map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={reason} onChange={e=>setReason(e.target.value)}><option value="all">All reasons</option>{Object.entries(reasonLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</ModernSelect>{(priority!=='all'||reason!=='all'||scope!=='all')&&<button type="button" className="btn small" onClick={()=>openQueue('all')}>Show all / Clear filters</button>}<span className="muted tiny" role="status">{shown.length} active action(s)</span></div>
    {loading?<Empty>Loading urgent actions…</Empty>:shown.length===0?<Empty>No urgent actions in this filter.</Empty>:<div className="urgent-action-list">{shown.slice(queuePage*50,(queuePage+1)*50).map(r=><div className={'urgent-action-card priority-'+r.effective_priority} key={r.action_type+'-'+r.action_id}>
-    <div className="urgent-card-head"><div><div className="pillrow"><Badge>{r.effective_priority}</Badge><Badge>{r.action_type==='missing_item'?'missing item':r.movement}</Badge>{r.customer_paid&&<Badge>customer paid</Badge>}</div><h3>{itemTitle(r)}</h3><div className="muted tiny">{[r.brand,r.uom,r.category,r.main_group].filter(Boolean).join(' · ')}</div></div><div className="priority-score"><span>Priority score</span><b>{r.priority_score}</b></div></div>
-    <div className="urgent-card-grid"><div><span>Reason</span><b>{reasonLabels[r.urgency_reason]||r.urgency_reason||'FAST / Stock'}</b></div><div><span>Required</span><b>{qty(r.required_qty)}</b></div><div><span>Book Stock</span><b>{r.book_stock===null||r.book_stock===undefined?'—':qty(r.book_stock)}</b></div><div><span>Status</span><b>{String(r.status).replaceAll('_',' ')}</b></div>{r.customer_reference&&<div><span>Customer Ref</span><b>{r.customer_reference}</b></div>}</div>
-    <div className="toolbar section">{r.image_path&&<button className="btn small" onClick={()=>viewImage(r.image_path)}>View Photo</button>}{canManage&&r.action_type==='missing_item'&&<><button className="btn good" disabled={busy} onClick={()=>convert(r)}>Create Item + Requirement</button><button className="btn bad" onClick={()=>rejectMissing(r)}>Reject</button></>}{canManage&&r.action_type==='existing_item'&&r.approval_status==='pending_review'&&<button className="btn good" onClick={()=>approve(r)}>Approve for Supplier Prices</button>}</div>
+    <div className="urgent-card-head"><div><div className="pillrow"><Badge>{r.effective_priority}</Badge><Badge>{r.action_type==='missing_item'?'missing item':r.movement}</Badge>{r.customer_paid&&<Badge>customer paid</Badge>}</div><h3>{itemTitle(r)}</h3><div className="muted tiny">{[r.brand,r.uom,r.category,r.main_group].filter(Boolean).join(' · ')}</div></div>{!stockOnly&&<div className="priority-score"><span>Priority score</span><b>{r.priority_score}</b></div>}</div>
+    <div className="urgent-card-grid"><div><span>Reason</span><b>{reasonLabels[r.urgency_reason]||r.urgency_reason||'FAST / Stock'}</b></div><div><span>Required</span><b>{qty(r.required_qty)}</b></div><div><span>Book Stock</span><b>{r.book_stock===null||r.book_stock===undefined?'—':qty(r.book_stock)}</b></div>{!stockOnly&&<div><span>Status</span><b>{String(r.status).replaceAll('_',' ')}</b></div>}{r.customer_reference&&<div><span>Customer Ref</span><b>{r.customer_reference}</b></div>}</div>
+    <div className="toolbar section">{canAutomation&&r.action_type==='existing_item'&&<button type="button" className="btn primary record-button" disabled={!!actionBusy} onClick={()=>continuePurchasing(r)}>{actionBusy===r.action_id?'Opening…':'Next action · RFQ / purchase order →'}</button>}{r.image_path&&<button className="btn small" onClick={()=>viewImage(r.image_path)}>View Photo</button>}{canManage&&r.action_type==='missing_item'&&<><button className="btn good" disabled={busy} onClick={()=>convert(r)}>Create Item + Requirement</button><button className="btn bad" onClick={()=>rejectMissing(r)}>Reject</button></>}{canManage&&r.action_type==='existing_item'&&r.approval_status==='pending_review'&&<button className="btn good" onClick={()=>approve(r)}>Approve for Supplier Prices</button>}</div>
    </div>)}</div>}
    <ListPages total={shown.length} page={queuePage} onChange={setQueuePage} label="Urgent actions"/>
   </div>

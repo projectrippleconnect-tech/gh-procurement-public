@@ -1,15 +1,14 @@
 'use client'
-import {useCallback,useEffect,useRef,useState} from 'react'
+import {useCallback,useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation} from './danger-confirmation'
-import {choicesFromPicker,parseCompanyVcards,toCompanyPhone} from '@/lib/company-contacts.mjs'
+import {toCompanyPhone} from '@/lib/company-contacts.mjs'
 
 export function CompanyContactManager({company,canManage=false,flash=()=>{},fail=()=>{},onChanged=()=>{}}){
  const confirmDanger=useDangerConfirmation()
- const [contacts,setContacts]=useState([]),[search,setSearch]=useState(''),[fileSearch,setFileSearch]=useState('')
- const [imported,setImported]=useState([]),[draft,setDraft]=useState({name:'',phone:''}),[editId,setEditId]=useState('')
+ const [contacts,setContacts]=useState([]),[search,setSearch]=useState('')
+ const [draft,setDraft]=useState({name:'',phone:''}),[editId,setEditId]=useState('')
  const [busy,setBusy]=useState(false),[open,setOpen]=useState(false)
- const fileRef=useRef(null)
  const load=useCallback(async()=>{
   if(!company?.id)return
   const r=await supabase.from('proc_suppliers').select('id,name,phone,whatsapp').eq('supplier_kind','company').eq('active',true).order('name')
@@ -20,7 +19,6 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
  const current=contacts.find(s=>s.id===company?.default_supplier_id)
  const selectedPhone=toCompanyPhone(current?.phone||current?.whatsapp)
  const savedResults=search.trim()?contacts.filter(s=>(s.name+' '+(s.phone||'')+' '+(s.whatsapp||'')).toLowerCase().includes(search.trim().toLowerCase())).slice(0,15):[]
- const importedResults=imported.filter(c=>(c.name+' '+c.phone).toLowerCase().includes(fileSearch.trim().toLowerCase())).slice(0,40)
  async function perform(action){
   if(busy)return
   setBusy(true)
@@ -29,7 +27,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
  async function link(id){
   const r=await supabase.from('proc_companies').update({default_supplier_id:id||null,updated_at:new Date().toISOString()}).eq('id',company.id).select('id').single()
   if(r.error)throw r.error
-  setSearch('');setDraft({name:'',phone:''});setEditId('');setImported([])
+  setSearch('');setDraft({name:'',phone:''});setEditId('')
   await onChanged()
   flash(id?'Designated company contact saved.':'Company contact unlinked. Existing supplier and order history is preserved.')
  }
@@ -37,31 +35,6 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
   if(!current)return
   setDraft({name:current.name||'',phone:current.phone||current.whatsapp||''})
   setEditId(current.id);setOpen(true)
- }
- function selectCandidate(person){
-  setDraft({name:person.name,phone:person.phone});setEditId('');setOpen(true);setImported([])
- }
- async function pickFromPhone(){
-  if(!navigator.contacts?.select){
-   flash('This browser does not support phone contacts. Use Import .vcf or add the contact manually.')
-   return
-  }
-  try{
-   // The native picker supplies its own search; only the selected name and number are returned.
-   const chosen=choicesFromPicker(await navigator.contacts.select(['name','tel'],{multiple:false}))
-   if(!chosen.length)throw new Error('No valid Sri Lankan phone number was selected.')
-   if(chosen.length===1)selectCandidate(chosen[0])
-   else{setImported(chosen);setFileSearch('');setOpen(true)}
-  }catch(error){if(error?.name!=='AbortError')fail(error)}
- }
- async function importVcf(file){
-  if(!file)return
-  if(file.size>2*1024*1024)throw new Error('Select a .vcf contacts file smaller than 2 MB.')
-  if(!/\.vcf$/i.test(file.name))throw new Error('Only .vcf contact files are supported.')
-  const parsed=parseCompanyVcards(await file.text())
-  if(!parsed.length)throw new Error('The file has no valid Sri Lankan phone numbers.')
-  setImported(parsed);setFileSearch('');setOpen(true)
-  flash(parsed.length+' contact number(s) available. Search and choose one to save; the file is not uploaded.')
  }
  async function saveDraft(){
   const name=draft.name.trim()
@@ -93,23 +66,12 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
   {selectedPhone&&<div className="toolbar"><a className="btn small" href={'tel:'+selectedPhone}>Call</a>{/^\+947\d{8}$/.test(selectedPhone)&&<a className="btn small" href={'https://wa.me/'+selectedPhone.slice(1)} target="_blank" rel="noopener noreferrer">WhatsApp</a>}</div>}
   {canManage&&open&&<div className="section">
    <div className="toolbar">
-    <button type="button" className="btn small" disabled={busy} onClick={()=>perform(pickFromPhone)}>Pick from phone</button>
-    <button type="button" className="btn small" disabled={busy} onClick={()=>fileRef.current?.click()}>Import .vcf</button>
-    <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" aria-label="Import phone contact file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';perform(()=>importVcf(file))}}/>
     {current&&<><button type="button" className="btn small" disabled={busy} onClick={startEdit}>Edit current</button><button type="button" className="btn small bad" disabled={busy} onClick={()=>confirmDanger({title:'Remove designated contact',message:'Unlink '+(current?.name||'this contact')+' from '+company.name+'?',warning:'Supplier records and past orders remain untouched. Automatic company orders may need another designated contact.',confirmLabel:'Remove company link',onConfirm:()=>link(null)})}>Remove from company</button></>}
    </div>
-   <p className="muted tiny">Phone picker opens your device contact search when supported. Otherwise import a shared .vcf contact or enter the number. Only the contact you save is stored.</p>
    <label className="field">Search saved company contacts
     <input className="input" type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or number…"/>
    </label>
    {savedResults.length>0&&<div className="section" aria-label="Saved company contact results">{savedResults.map(person=><div key={person.id} className="company-document-row"><span>{person.name} · {person.phone||person.whatsapp}</span><button type="button" className="btn small" disabled={busy} onClick={()=>perform(()=>link(person.id))}>Use for this company</button></div>)}</div>}
-   {imported.length>0&&<div className="section">
-    <label className="field">Search contacts from phone / .vcf
-     <input className="input" type="search" value={fileSearch} onChange={e=>setFileSearch(e.target.value)} placeholder="Search imported contacts…"/>
-    </label>
-    <div className="muted tiny">{imported.length} option(s); choose one. Unselected contacts stay on this device.</div>
-    {importedResults.map(person=><div className="company-document-row" key={person.phone}><span>{person.name} · {person.phone}</span><button type="button" className="btn small" onClick={()=>selectCandidate(person)}>Choose</button></div>)}
-   </div>}
    <div className="formgrid section">
     <label className="field">Contact name<input className="input" autoComplete="off" value={draft.name} onChange={e=>setDraft(v=>({...v,name:e.target.value}))} placeholder="Company contact name"/></label>
     <label className="field">Contact number<input className="input" type="tel" inputMode="tel" autoComplete="off" value={draft.phone} onChange={e=>setDraft(v=>({...v,phone:e.target.value}))} placeholder="+94771234567"/></label>
@@ -117,7 +79,7 @@ export function CompanyContactManager({company,canManage=false,flash=()=>{},fail
    {editId&&<p className="muted tiny">Editing this supplier changes its details in existing supplier references too. Removing the company link does not delete the supplier.</p>}
    <div className="toolbar">
     <button type="button" className="btn primary" disabled={busy||!draft.name.trim()||!draft.phone.trim()} onClick={()=>perform(saveDraft)}>{busy?'Saving…':editId?'Save contact changes':'Save & assign contact'}</button>
-    <button type="button" className="btn small" disabled={busy} onClick={()=>{setDraft({name:'',phone:''});setEditId('');setImported([])}}>Clear</button>
+    <button type="button" className="btn small" disabled={busy} onClick={()=>{setDraft({name:'',phone:''});setEditId('')}}>Clear</button>
    </div>
   </div>}
  </section>
