@@ -14,6 +14,7 @@ import {Badge,DataTable,Empty,fieldEnabled,fieldLabel,StockSubmitAction} from '.
 import {extractPriceListFile} from '@/lib/price-list-extract'
 import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
+import {hasFilterChoices} from '@/lib/select-options.mjs'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
 import {CompanyContactDirectory} from './company-contact-directory'
@@ -212,6 +213,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  const companyHasSuggestions=useMemo(()=>companyMatches?.some(r=>isApproximateItemMatch(r,search))||false,[companyMatches,search])
  const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&(!companyMatchIds||companyMatchIds.has(r.id))),[rows,companyMatchIds,category,subgroup,brand])
  const currentCompany=companies.find(c=>c.id===companyId)
+ const filterChoices={category:hasFilterChoices(rows,r=>r.item?.category,category),subgroup:hasFilterChoices(rows.filter(r=>!category||r.item?.category===category),r=>r.item?.subgroup,subgroup),brand:hasFilterChoices(rows,r=>r.item?.brand,brand),section:hasFilterChoices(rows,r=>r.section_id,sectionFilter)}
+ const hasFilters=Object.values(filterChoices).some(Boolean)
  const display=useMemo(()=>normalizeCompanyDisplay(settings?.company_lists_display),[settings?.company_lists_display])
  const visibleFields=display.fields,rowLayout=display.row_layout
  const sectionLabels=useMemo(()=>sectionPaths(sections),[sections])
@@ -422,11 +425,11 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   <div className="company-stock-header">
    <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'…':'↻'}</button>{canManage&&<button className="btn small" aria-label={setupOpen?'Back to stock':'Company setup'} onClick={()=>setSetupOpen(v=>!v)}>{setupOpen?'Back to stock':'Setup'}</button>}</div></div>
    <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} disabled={busy} onChange={e=>{setCompanyId(e.target.value);try{localStorage.setItem('gh-company-selection-v1:'+profile.id,e.target.value)}catch{};setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="all">All Companies</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={allCompanies?'Search all companies and items (typos OK)':t('company_lists.search','Search company items (typos OK)')} value={search} onChange={e=>setSearch(uppercaseItemText(e.target.value))}/></div>
-   {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
-    <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
-    <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
-    <label className="field">Section<select aria-label="Company list section" className="select" value={sectionFilter} onChange={e=>setSectionFilter(e.target.value)}><option value="">All sections</option>{sections.map(s=><option key={s.id} value={s.id}>{sectionLabels.get(s.id)}</option>)}</select></label>
-    <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
+   {companyId&&hasFilters&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand,sectionFilter].filter(Boolean).length>0?' · '+[category,subgroup,brand,sectionFilter].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
+    {filterChoices.category&&<label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>}
+    {filterChoices.subgroup&&<label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>}
+    {filterChoices.section&&<label className="field">Section<select aria-label="Company list section" className="select" value={sectionFilter} onChange={e=>setSectionFilter(e.target.value)}><option value="">All sections</option>{sections.map(s=><option key={s.id} value={s.id}>{sectionLabels.get(s.id)}</option>)}</select></label>}
+    {filterChoices.brand&&<label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>}
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
   <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
@@ -474,7 +477,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {companyId&&!allCompanies&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
   {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companySections={sections} companyItems={rows.map(r=>({...r.item,section_id:r.section_id,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
   <button className="btn small" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button>
-  <CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
+  <CompanyListOcr companyId={companyId} companyName={currentCompany?.name||''} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
   {canManage&&<button className="btn small bad" onClick={archiveCompanyList}>Remove company list</button>}
   </div></details>}
   {canManage&&companyId&&!allCompanies&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows} superAdmin={(profile.role_key||profile.role)==='admin'}/>}
