@@ -25,6 +25,7 @@ import {CompanySectionManager} from './company-section-manager'
 import {CompanySectionRouteManager} from './company-section-route-manager'
 import {CompanySubmissionResult} from './company-submission-result'
 import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
+import {sufficientStockOverrides,sufficientOverrideNotes} from '@/lib/stock-submission-outcome.mjs'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
 import {companyLotRows,companyLotGroups} from '@/lib/company-stock-lot.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
@@ -183,8 +184,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
 
  useEffect(()=>{
   if(!companyId||draftReady.current!==companyId)return
-  const t=setTimeout(()=>localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current})),200)
-  return()=>clearTimeout(t)
+  try{localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current}))}
+  catch{fail(new Error('Draft could not be saved on this device. Keep this screen open and retry.'))}
  },[entry,sufficient,companyId])
 
  useEffect(()=>{
@@ -348,11 +349,15 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   if(!counted.length)return fail(new Error(t('company_lists.enter_one','Enter at least one stock quantity.')))
   if(counted.some(r=>!sufficient[r.id]&&!isQuantityInput(entry[r.id])))return fail(new Error(t('company_lists.stock_error','Stock quantities must be zero or positive.')))
   if(counted.some(r=>r.max_stock_review&&!sufficient[r.id]))return fail(new Error('An admin must enter the maximum stock for items marked Review before procurement.'))
-  if(!await confirmAction('Finalize '+counted.length+' company stock item(s)'+(lotGroups.length>1?' across '+lotGroups.length+' company lots':'')+'? This is the only step that may generate or send configured RFQs / Direct POs.',{title:'Final confirm · Company stock',confirmLabel:'Finalize company lot',details:lotGroups.length>1?'Each company is finalized separately. A failure preserves unfinished companies for retry.':'One final stock count will be created for this company. Save draft if counting is not complete.'}))return
+  // The editable review is the only confirmation; retain all server-side route guards.
+  if(!companyReviewOpen||companyHistoryOpen)return
   if(submitLock.current)return
   submitLock.current=true
   setBusy(true)
   try{
+   const overrides=sufficientStockOverrides(entry,sufficient,counted.map(r=>({...r,item_id:r.id,reorder_level:r.reorder_level??reorderFor(r.target_stock)})))
+   let overrideReason=''
+   if(overrides.length&&!await confirmDanger({tone:'action',title:'Explain sufficient-stock override',message:overrides.length+' item(s) have an exact count at or below reorder but are marked sufficient.',requireReason:true,confirmLabel:'Record reason & submit',onConfirm:({reason})=>{overrideReason=reason}}))return
    const groups=allCompanies?companies.map(c=>({id:c.id,rows:counted.filter(r=>r.company_id===c.id)})).filter(g=>g.rows.length):[{id:companyId,rows:counted}]
    const results=[]
    let remainingEntry={...entry},remainingSufficient={...sufficient}
@@ -361,7 +366,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
     const submissionKey=draftKey+'-submission'+(allCompanies?':'+group.id:'')
     let submissionId=localStorage.getItem(submissionKey)
     if(!submissionId){submissionId=crypto.randomUUID();localStorage.setItem(submissionKey,submissionId)}
-    const saved=await companyApi('submit',{submissionId,companyId:group.id,lines:p,startedAt:startedAt.current||new Date().toISOString()})
+    const saved=await companyApi('submit',{submissionId,companyId:group.id,lines:p,notes:sufficientOverrideNotes(overrides.filter(item=>group.rows.some(row=>row.id===item.id)),overrideReason),startedAt:startedAt.current||new Date().toISOString()})
     results.push({...saved,company_id:group.id})
     localStorage.removeItem(submissionKey)
     for(const r of group.rows){delete remainingEntry[r.id];delete remainingSufficient[r.id]}
@@ -386,11 +391,11 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} companyId={itemHistory.companyId} onClose={()=>setItemHistory(null)}/>}
   {companyReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal company-lot-modal" role="dialog" aria-modal="true" aria-label="Review company stock lot">
-    <div className="modal-head"><div><h3>{companyHistoryOpen?'Company stock history':'Review company lot · '+countTotal+' items'}</h3><p className="muted tiny">Saved draft · one final confirmation</p></div><button type="button" className="btn small" aria-label="Close review" onClick={()=>setCompanyReviewOpen(false)}>✕</button></div>
+    <div className="modal-head"><div><h3>{companyHistoryOpen?'Company stock history':'Review company lot · '+countTotal+' items'}</h3><p className="muted tiny">Review once, then submit · drafts save automatically</p></div><button type="button" className="btn small" aria-label="Close review" onClick={()=>setCompanyReviewOpen(false)}>✕</button></div>
     <div className="stock-lot-actions" role="group" aria-label="Company stock lot actions">
      <button type="button" className="btn" onClick={saveCompanyDraftNow}>Save draft</button>
      <button type="button" className="btn" onClick={()=>{setCompanyHistoryOpen(x=>!x);if(!companyHistoryReady)void loadCompanyHistory()}}>{companyHistoryOpen?'Review':'History'}</button>
-     <button type="button" className="btn primary" disabled={busy||loading||companyHistoryOpen||!companyHistoryReady||!countTotal||!!companyLotBlocked.length||oversizedCompanyLot} onClick={submit}>{busy?'Finalizing…':'Finalize · '+countTotal}</button>
+     <button type="button" className="btn primary" disabled={busy||loading||companyHistoryOpen||!companyHistoryReady||!countTotal||!!companyLotBlocked.length||oversizedCompanyLot} onClick={submit}>{busy?'Submitting…':'Submit · '+countTotal}</button>
     </div>
     {!companyHistoryReady&&<p className="notice" role="alert">{companyHistoryError||'Checking previous company counts…'} <button type="button" className="btn small" disabled={companyHistoryLoading} onClick={()=>void loadCompanyHistory()}>Retry</button></p>}
     {!companyHistoryOpen&&!!companyLotBlocked.length&&<p className="notice" role="alert">{companyLotBlocked.length} previously submitted item(s). Remove or explicitly choose Recount before final confirmation.</p>}
@@ -488,7 +493,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   </>}
   {!setupOpen&&canCount&&companyId&&active&&<StockSubmitAction active={active}><div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
    <div className="count-dock-summary" role="status"><strong>{countTotal} of {rows.length} counted</strong><small>{search||category||subgroup||brand||sectionFilter?'Includes counted items outside filters':'Zero counts as entered · blank items are skipped'}</small></div>
-   <button className="btn primary" aria-label={'Review company stock lot with '+countTotal+' items'} disabled={busy||loading} onClick={()=>{setCompanyHistoryOpen(false);setCompanyReviewOpen(true)}}><span className="stock-submit-full">Review Lot · {countTotal}</span><span className="stock-submit-compact" aria-hidden="true">Review · {countTotal}</span></button>
+   <button className="btn primary" aria-label={'Review company stock lot with '+countTotal+' items'} disabled={busy||loading} onClick={()=>{setCompanyHistoryOpen(false);setCompanyReviewOpen(true)}}><span className="stock-submit-full">Review &amp; submit · {countTotal}</span><span className="stock-submit-compact" aria-hidden="true">Submit · {countTotal}</span></button>
   </div></StockSubmitAction>}
  </>
 }

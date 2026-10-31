@@ -12,6 +12,7 @@ import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel as or
 import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes,ITEM_TEXT_FIELDS} from '@/lib/item-text.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
+import {stockSubmissionOutcome,sufficientStockOverrides,sufficientOverrideNotes} from '@/lib/stock-submission-outcome.mjs'
 import {stockLotReview} from '@/lib/stock-lot.mjs'
 import {latestStockMarkers,generalStockHistoryRows} from '@/lib/stock-item-history.mjs'
 import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
@@ -50,7 +51,7 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
    supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']),
    supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','pending_approval'),
    supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','approved'),
-   supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted']),
+   supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).in('status',['prepared','sent','partially_quoted','quoted']),
    supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['sent','partially_received'])
   ]
   const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent','review','approval','send','prices','deliveries']
@@ -562,17 +563,19 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    if(remaining||checked.length!==lot.count)throw new Error('The entire stock lot must be finalized together. No partial submissions were made.')
    if(counted.some(([,v])=>!isQuantityInput(v)))throw new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.'))
    const canSeeReview=canNavigate('requirements')
-   const details=canSeeReview?'The complete lot will become ONE submitted count. Shortages will move to Procurement Review.':'The complete lot will be saved as ONE submitted stock count.'
-   const approved=await confirmAction('Finalize the entire '+lot.count+'-item stock lot now? This locks this count in history. Subsequent corrections require an intentional new recount.',{title:'Final confirmation · '+lot.count+' items',confirmLabel:'Finalize entire lot',details})
-   if(!approved)return
+   // The editable lot review is the confirmation. Submit once from that review.
+   if(!lotReviewOpen)throw new Error('Review the stock lot before submitting.')
    setBusy(true)
+   const overrides=sufficientStockOverrides(entry,sufficient,localSearchIndex)
+   let overrideReason=''
+   if(overrides.length&&!await confirmDanger({tone:'action',title:'Explain sufficient-stock override',message:overrides.length+' item(s) have an exact count at or below reorder but are marked sufficient.',requireReason:true,confirmLabel:'Record reason & submit',onConfirm:({reason})=>{overrideReason=reason}}))return
+   const notes=sufficientOverrideNotes(overrides,overrideReason)
    await draftWrites.current
    await ensureServerCountStart()
    const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v)})
    // This RPC creates one stock count. It is never called by Save Draft or Review.
-   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:null})
+   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:notes,p_attachment_path:null})
    if(r.error)throw r.error
-   const automation=r.data?.automation||null
    const now=new Date().toISOString()
    const marker={count_id:r.data?.count_id||null,count_no:r.data?.count_no||'Finalized lot',submitted_at:now}
    setFinalizedMarkers(prev=>{
@@ -588,16 +591,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     try{await draftWrites.current;const removed=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id);if(removed.error)console.warn('Completed lot draft cleanup delayed',removed.error)}catch(e){console.warn('Completed lot draft cleanup delayed',e)}
    }
    setEntry({});setSufficient({});setSkipped(new Set());setCursor(0);setExplicitRecounts(new Set());startedAt.current=null;setLotReviewOpen(false)
-   let message='One stock lot finalized. '
-   if(!canSeeReview)message+=lot.count+' item(s) saved.'
-   else if(automation?.status==='review_required')message+=lot.count+' item(s) saved · '+(automation.requirements||0)+' shortage(s) await Procurement Review.'
-   else if(automation?.status==='no_requirements')message+=lot.count+' item(s) saved · no purchase is needed.'
-   else message+=lot.count+' item(s) saved for procurement review.'
-   setSubmission({message,remaining:0,needsReview:automation?.status!=='no_requirements'})
+   const outcome=stockSubmissionOutcome(r.data,{purchaseVisible:canSeeReview})
+   setSubmission({...outcome,message:lot.count+' item(s) saved. '+outcome.message,remaining:0})
    await load()
    if(historyOpen)await loadStockHistory()
    void refreshFinalizedMarkers()
-   if(automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
+   // Keep the saved result visible; the buyer can choose the next action.
   }catch(e){
    fail(e)
   }finally{
@@ -675,7 +674,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
 
  const canSeePurchaseHistory=canNavigate('requirements')||canNavigate('po')
  const submitCount=new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])]).size
- const submitLabel=busy?'Finalizing…':'Review Lot · '+submitCount
+ const submitLabel=busy?'Submitting…':'Review & submit · '+submitCount
  const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>changeStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>changeStockTab('company')}>Company Items</button>}</div>
  if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
@@ -684,7 +683,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
     <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">One editable draft. Nothing is submitted until final confirmation.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
-    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)} aria-label="Save stock draft and pause">Save draft</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}} aria-label="View past stock submissions">History</button><button type="button" className="btn primary" aria-label={`Final confirmation for ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Finalizing…':`Finalize · ${pendingLot.count}`}</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)} aria-label="Save stock draft and pause">Save draft</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}} aria-label="View past stock submissions">History</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Submitting…':`Submit · ${pendingLot.count}`}</button></div>
     {!markersReady&&<p className="notice" role="alert">Checking recent finalized stock lots is required before final confirmation. <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
     {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
      {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
@@ -696,12 +695,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
      </div>)}</div>
     </>}
 
-    <p className="muted tiny">Draft edits save automatically. Final confirmation creates one stock count and sends any shortages to the existing procurement workflow.</p>
+    <p className="muted tiny">Draft edits save automatically. Submit saves this reviewed lot once. Shortages continue through the configured purchasing workflow.</p>
    </div>
   </div>}
-  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
+  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{submission.title}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.key!=='saved'&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>{t('stock.continue_review','To Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
-   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Finalizing…':`Review · ${submitCount}`}</span></button></StockSubmitAction></div></div>
+   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
     <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
     <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>

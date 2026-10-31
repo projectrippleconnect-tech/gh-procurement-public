@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
+import {sufficientStockOverrides,sufficientOverrideNotes} from '../lib/stock-submission-outcome.mjs'
 
 // Exercise the component's actual submit handler with isolated API/storage adapters.
 // No production records or WhatsApp calls are made.
@@ -12,7 +13,7 @@ function fixture(){
  const calls=[],errors=[],storage=new Map(),results=[]
  const state={entry:{a:'0',b:'5'},sufficient:{},failCompany:null}
  const scope={
-  canCount:true,busy:false,allCompanies:true,companyId:'all',
+  sufficientStockOverrides,sufficientOverrideNotes,reorderFor:()=>null,companyReviewOpen:true,companyHistoryOpen:false,canCount:true,busy:false,allCompanies:true,companyId:'all',
   companyHistoryReady:true,companyLotBlocked:[],oversizedCompanyLot:false,lotGroups:[{companyId:'A'},{companyId:'B'}],submitLock:{current:false},
   companies:[{id:'A'},{id:'B'},{id:'C'}],
   rows:[{id:'a',company_id:'A'},{id:'b',company_id:'B'},{id:'blank',company_id:'C'}],
