@@ -98,9 +98,11 @@ jobs:
         env:
           REGRESSION_MODES: ${{ matrix.modes }}
         run: |
+          result=0
           for mode in $REGRESSION_MODES; do
-            env "GH_UI_${mode}=1" npm run test:ui || exit $?
+            env "GH_UI_${mode}=1" npm run test:ui || result=1
           done
+          exit "$result"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

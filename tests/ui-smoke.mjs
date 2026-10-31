@@ -1355,7 +1355,7 @@ try{
    await page.getByRole('button',{name:'Review company stock lot with 1 items',exact:true}).click()
    await page.getByRole('dialog',{name:'Review company stock lot',exact:true}).getByRole('button',{name:'Submit · 1',exact:true}).click()
    await result.getByText(/1 item\(s\) need review/).waitFor()
-   await result.locator('summary').click()
+   await result.locator('summary').filter({hasText:'Counted items and purchasing status'}).click()
    await result.getByText(/Stock shortage: 20.*Reserved in existing POs: 19.*Uncovered: 1/).waitFor()
    assert.equal(await result.getByText(/0 new shortage/).count(),0)
    assert.equal(companyCountAttempt,2)

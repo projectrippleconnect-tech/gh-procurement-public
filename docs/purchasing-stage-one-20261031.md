@@ -5,7 +5,7 @@ Prepared source only. This update does not deploy the app or apply production mi
 ## Revised implementation
 
 - Main purchasing navigation is Work / Stock / Receive / More. Existing role permissions determine which destinations appear. Accounts without Work access retain their permitted document screens.
-- Work combines the former Home and Purchasing entry points. Needs me contains actions permitted for the current account; In progress contains waiting cases; History retains completed, rejected and cancelled cases. The old dashboard queues, recent lists and pipeline are removed. Standalone stock/new-item tasks and sending failures remain accessible. Business totals load only when opened in Reports.
+- Work combines the former Home and Purchasing entry points. Needs me contains actions permitted for the current account; In progress contains routine supplier/delivery waits with optional follow-up/receiving actions; History retains completed, rejected and cancelled cases. The old dashboard queues, recent lists and pipeline are removed. Standalone stock/new-item tasks and sending failures remain accessible. Business totals load only when opened in Reports.
 - Work defaults to All items. Its optional General / Company filter is independent of the saved Stock/document preference, so a previous stock selection cannot hide the other list's work.
 - The existing requirement ID is the stable purchasing case reference. Read-only computed links attach its source count, every related quotation, purchase-order lines and receipt lines. Relationships use foreign keys, not item names. Documents can also be browsed separately.
 - Each case shows both unreserved quantity still to buy and quantity still to receive on sent orders. Draft, pending-approval and approved-but-unsent quantities appear separately as reserved quantities. Buying and receiving actions can coexist.
@@ -29,13 +29,13 @@ Prepared source only. This update does not deploy the app or apply production mi
 
 ## Stage-1 checks
 
-All 494 automated tests pass, including the isolated-schema integration checks. TypeScript validation, the production build, full isolated database regressions and patch whitespace checks pass. Focused coverage verifies concurrent buying/receiving, partial quotations, unsent reservations, completed-case history, role-based actions, independent All-items scope, multiple active RFQs, linked order state, and invoker/anonymous access declarations. The primary next action follows blocking/overdue/approval priorities. One concurrent receiving or buying action can remain visible; other actions live inside the record.
+The extended suite now contains 497 automated tests, including the isolated-schema integration checks. TypeScript validation, the production build, full isolated database regressions and patch whitespace checks pass. Focused coverage verifies concurrent buying/receiving, partial quotations, unsent reservations, completed-case history, role-based actions, independent All-items scope, multiple active RFQs, linked order state, and invoker/anonymous access declarations. The primary next action follows blocking/overdue/approval priorities. One concurrent receiving or buying action can remain visible; other actions live inside the record.
 
 Rendered receipt rows pass server-render checks for unique inputs, explicit acceptance and visible rejection details. Browser layout validation was not completed: the Playwright browser download fails in this environment. These checks do not replace stage-2 browser acceptance testing.
 
-## Stage 2 remaining
+## Stage 2 verification
 
-Core browser fixtures now recognise Work navigation, the paginated RPC, Stock options and explicit receipt inspection. Full browser regression remains required. Run browser regression and full role/RLS checks, partial-order and posted-receipt scenarios, deep links, quotation drafts/history, approval and sending safeguards, receiving follow-ups, dataset-scale loading/pagination, and phone/tablet/desktop browser validation. Verify restricted roles in the browser; the list derives the overall delivery balance from the requirement receipt rollup without downloading receipt history. Run database security advisors before release.
+The full acceptance scope, corrections, evidence location and existing advisory notes are recorded in [the Stage 2 acceptance record](purchasing-stage-two-20261101.md). The current result is tracked by the PR's checks. Production release remains a separate stage.
 
 ## Stage 3 remaining
 
