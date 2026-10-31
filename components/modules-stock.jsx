@@ -2,9 +2,8 @@
 
 import {ModernSelect} from './modern-select'
 import {WorkCases} from './work-cases'
-import {DashboardActions} from './dashboard-actions'
+import {WorkExtras} from './work-extras'
 import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
-import {reviewWorkQuery,quoteWorkQuery,scopePurchasingQuery} from '@/lib/purchasing-workspace.mjs'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
@@ -31,86 +30,13 @@ const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyList
 
 const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 
-export function Dashboard({itemListType='general',onItemListTypeChange,can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
- const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
- const[queueCounts,setQueueCounts]=useState({})
- const[workScope,setWorkScope]=useState('all')
- const purchasingAccess=['requirements','rfq','po'].some(canNavigate)
- const scopeWork=(query,field)=>purchasingAccess?scopePurchasingQuery(query,workScope,field):query
- const[loadState,setLoadState]=useState({})
- const loadSerial=useRef(0)
- const[overdueOpen,setOverdueOpen]=useState(false)
- const destinations={active_items:['items',''],open_requirements:['requirements','all'],still_to_order:['requirements','to_order'],awaiting_receipt:['requirements','delivery'],open_pos:['po','open'],po_value:['po','non_cancelled'],invoice_variances:['invoices','variance'],stock_due:['stock','due'],urgent_actions:['urgent_actions','']}
- const load=useCallback(async()=>{try{
-  const serial=++loadSerial.current
-  setLoadState({summary:'loading',requirements:'loading',orders:'loading',rfq:'loading',po:'loading',stockDue:'loading',receiptVariance:'loading',urgent:'loading',review:'loading',approval:'loading',send:'loading',prices:'loading',deliveries:'loading'})
-  const today=businessDate()
-  const tasks=[
-   supabase.from('proc_v_dashboard').select('*').single(),
-   supabase.from('proc_v_requirements').select('*').in('status',['open','quoting','partially_ordered','ordered','partially_received']).order('created_at',{ascending:false}).limit(8),
-   supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['pending_approval','approved','sent','partially_received']).order('created_at',{ascending:false}).limit(6),
-   supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).lt('due_date',today).in('status',['sent','partially_quoted']),
-   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).lt('expected_date',today).in('status',['sent','partially_received']),
-   supabase.from('proc_v_stock_check_due').select('item_id',{count:'exact',head:true}).eq('is_due',true),
-   supabase.from('proc_v_receipt_reconciliation').select('po_line_id',{count:'exact',head:true}).gt('over_received_qty',0),
-   supabase.from('proc_v_urgent_actions').select('action_id',{count:'exact',head:true}),
-   scopeWork(reviewWorkQuery(supabase.from('proc_v_requirements').select('id',{count:'exact',head:true})),'proc_requirement_is_company'),
-   scopeWork(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','pending_approval'),'proc_po_is_company'),
-   scopeWork(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).eq('status','approved'),'proc_po_is_company'),
-   scopeWork(quoteWorkQuery(supabase.from('proc_rfqs').select('id',{count:'exact',head:true})),'proc_rfq_is_company'),
-   scopeWork(supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).in('status',['sent','partially_received']),'proc_po_is_company')
-  ]
-  const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent','review','approval','send','prices','deliveries']
-  await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(index>=3&&!Number.isInteger(result.count))throw new Error('Queue count unavailable');if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else if(index<8)setAlerts(v=>({...v,[key]:result.count||0}));else setQueueCounts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
- }catch(e){fail(e)}},[fail,workScope,purchasingAccess])
- useEffect(()=>{if(activeView==='dashboard')load()},[load,activeView])
- const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
- const cards=[
-  ['dashboard.active_items','Active items',d.active_items,'Master catalogue'],
-  ['dashboard.open_requirements','Open requirements',d.open_requirements,'Need procurement action'],
-  ['dashboard.still_to_order','Still to order',d.still_to_order,'Not yet placed'],
-  ['dashboard.awaiting_receipt','Awaiting receipt',d.awaiting_receipt,'Ordered, not fully received'],
-  ['dashboard.open_pos','Open POs',d.open_pos,'Approval / delivery'],
-  ['dashboard.po_value','PO value',money(d.po_value),'Non-cancelled POs'],
-  ['dashboard.invoice_variances','Invoice variances',d.invoice_variances,'Mismatch alerts'],
-  ['dashboard.stock_due','Stock checks due',alerts.stockDue||0,'Based on cycle-count schedule'],
-  ['dashboard.urgent_actions','Urgent actions',alerts.urgent||0,'Zero stock, customer-paid and FAST-mover priority'],
-  ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
- ].filter(x=>enabled(x[0]))
+export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',navigate=()=>{},canNavigate=()=>false}){
+ const[revision,setRevision]=useState(0)
  return <>
-  {canNavigate('requirements')&&<WorkCases activeView={activeView} can={can} canNavigate={canNavigate} navigate={navigate}/>}
-  <details className="section" open={!canNavigate('requirements')}><summary>Task queues &amp; exceptions</summary>
-  {purchasingAccess&&<ItemListSelector value={workScope} onChange={setWorkScope} allowAll t={t}/>}
-  <DashboardActions can={can} counts={{...alerts,...queueCounts}} states={loadState} canNavigate={canNavigate} navigate={navigate} onRefresh={load} lastWork={lastWork} resumeWork={resumeWork}/>
-  </details>
-  <details className="dashboard-totals section"><summary>Overview &amp; totals</summary>
-  <div className="grid metrics">{cards.map(x=>{
-   const key=x[0].slice('dashboard.'.length),target=destinations[key]
-   const actionable=key==='overdue_actions'?(canNavigate('rfq')||canNavigate('po')):target&&canNavigate(target[0])
-   const source=key==='stock_due'?'stockDue':key==='urgent_actions'?'urgent':key==='overdue_actions'?(loadState.rfq==='error'||loadState.po==='error'?'error':loadState.rfq==='ready'&&loadState.po==='ready'?'overdue':'loading'):'summary'
-   const state=source==='overdue'?'ready':source==='error'||source==='loading'?source:loadState[source]
-   const content=<><div className="kicker">{t(x[0],x[1])}</div><div className="value num" id={x[0]+'-value'}>{state==='ready'?(x[2]??0):state==='error'?'Unavailable':'…'}</div><div className="sub">{t(x[0]+'.sub',x[3])}</div></>
-   return actionable?<button type="button" className="card metric metric-link" key={x[0]} aria-label={t(x[0],x[1])} aria-describedby={x[0]+'-value'} aria-expanded={key==='overdue_actions'?overdueOpen:undefined} aria-controls={key==='overdue_actions'?'dashboard-overdue':undefined} onClick={()=>key==='overdue_actions'?setOverdueOpen(v=>!v):navigate(...target)}>{content}<span className="metric-action">{t('dashboard.view_details','View details')} →</span></button>:<div className="card metric" key={x[0]}>{content}</div>
-  })}</div>
-  {overdueOpen&&<div className="card pad section" id="dashboard-overdue"><h3>{t('dashboard.overdue_actions','Overdue actions')}</h3><div className="toolbar">{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq','overdue')}>{t('dashboard.overdue_rfqs','Overdue supplier requests')} · {alerts.rfq||0}</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','overdue')}>{t('dashboard.overdue_pos','Overdue purchase orders')} · {alerts.po||0}</button>}</div></div>}
-  </details>
-  <details className="dashboard-recent section"><summary>Recent purchases &amp; activity</summary>
-  <div className="split section">
-   <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.procurement_attention','Procurement attention')}</h3><p>{t('dashboard.procurement_attention_hint','Newest unresolved requirements')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
-    {loadState.requirements==='error'?<p role="alert">Requirements unavailable. Tap Refresh to retry.</p>:loadState.requirements!=='ready'?<p role="status">Loading requirements…</p>:<DataTable columns={[
-     {key:'requirement_no',label:'Requirement'},
-     {key:'description',label:'Item',render:i=>uppercaseItemText(i.description)},
-     {key:'adjusted_qty',label:'Required',render:r=>qty(r.adjusted_qty)},
-     {key:'remaining_to_order',label:'Still To Order',render:r=><b className="warn-text">{qty(r.remaining_to_order)}</b>},
-     {key:'ordered_not_received',label:'Ordered Not Received',render:r=>qty(r.ordered_not_received)},
-     {key:'status',label:'Status'}
-    ]} rows={req} mobileCards/>}
-   </div>
-   <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.po_pipeline','PO pipeline')}</h3><p>{t('dashboard.po_pipeline_hint','Approval and delivery status')}</p></div></div>
-    {loadState.orders==='error'?<p role="alert">Orders unavailable. Tap Refresh to retry.</p>:loadState.orders!=='ready'?<p role="status">Loading orders…</p>:pos.length?pos.map(x=><button className="btn record-button compact-record" key={x.id} disabled={!canNavigate('po')} onClick={()=>navigate('po',x.id)}><div><strong>{x.po_no}</strong><div className="muted tiny">{x.supplier?.name||'Supplier'}</div></div><div className="right"><Badge>{x.status}</Badge><div className="num record-value">{money(x.total)}</div></div></button>):<Empty/>}
-   </div>
-  </div>
-  </details>
+  <div className="toolbar work-refresh"><button className="btn small" onClick={()=>setRevision(x=>x+1)}>Refresh work</button></div>
+  {canNavigate('requirements')?<WorkCases revision={revision} activeView={activeView} can={can} canNavigate={canNavigate} navigate={navigate}/>:<WorkExtras can={can} revision={revision} activeView={activeView} canNavigate={canNavigate} navigate={navigate} includePurchasing/>}
+  {canNavigate('requirements')&&<WorkExtras can={can} revision={revision} activeView={activeView} canNavigate={canNavigate} navigate={navigate}/>}
+  {lastWork&&canNavigate(lastWork.view)&&<button className="btn small" onClick={resumeWork}>Continue saved draft or document →</button>}
  </>
 }
 
@@ -693,8 +619,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} onClose={()=>setItemHistory(null)}/>}
   {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
-    <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">One editable draft. Nothing is submitted until final confirmation.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
-    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)} aria-label="Save stock draft and pause">Save draft</button><button type="button" className="btn" onClick={()=>{setLotReviewOpen(false);setHistoryOpen(true);void loadStockHistory()}} aria-label="View past stock submissions">History</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Submitting…':`Submit · ${pendingLot.count}`}</button></div>
+    <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">Check your quantities, then submit once.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)}>Back to counting</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Submitting…':`Submit · ${pendingLot.count}`}</button></div>
     {!markersReady&&<p className="notice" role="alert">Checking recent finalized stock lots is required before final confirmation. <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
     {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
      {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
@@ -706,12 +632,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
      </div>)}</div>
     </>}
 
-    <p className="muted tiny">Draft edits save automatically. Submit saves this reviewed lot once. Shortages continue through the configured purchasing workflow.</p>
+    <p className="muted tiny" role="status">{draftSave.server==='failed'?'Draft sync failed. Keep this screen open and retry.':draftSave.server==='saved'?'Draft saved':draftSave.local?'Draft saved on this device':'Draft not saved yet. Keep this screen open.'}</p>{draftSave.server==='failed'&&<button className="btn small" onClick={()=>setDraftRetry(n=>n+1)}>Retry draft sync</button>}
    </div>
   </div>}
-  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{submission.title}</h3><AttentionBadge reason={submission.attentionReason}/><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{(submission.key!=='saved'||submission.needsAttention)&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>{t('stock.continue_review','To Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
+  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{submission.title}</h3><AttentionBadge reason={submission.attentionReason}/><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{(submission.key!=='saved'||submission.needsAttention)&&canNavigate('dashboard')&&<button className="btn" onClick={()=>navigate('dashboard')}>View work →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
-   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">{t('stock.history','History')}</button><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
+   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter quantities, then review and submit.')}</p></div><div className="toolbar"><details className="stock-options"><summary>Options</summary><button className="btn small" onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">Submission history</button></details><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
     <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
     <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>

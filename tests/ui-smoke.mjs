@@ -249,6 +249,12 @@ try{
    }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
    else if(name==='proc_requirements'&&req.method()==='HEAD'&&dashboardReviewFailure)return route.fulfill({status:503,json:{message:'Fixture dashboard queue unavailable'}})
+   else if(name==='proc_work_page_v1'){
+    const body=req.postDataJSON(),scope=body.p_scope,tab=body.p_tab
+    const fixture={...requirement,approval_status:requirementApproval,proc_requirement_is_company:false,proc_work_documents:{rfqs:[],orders:[]}}
+    const visible=scope!=='company'
+    data={counts:{'Needs me':visible?1:0,'In progress':0,History:0},rows:visible&&tab==='Needs me'&&body.p_page===0?[fixture]:[]}
+   }
    else if(name==='proc_v_dashboard')data={active_items:1,open_requirements:1,still_to_order:1,awaiting_receipt:0,open_pos:0,po_value:0}
    else if(receivingMode&&name==='proc_v_rejection_cases'){if(followupFailure)return route.fulfill({status:503,json:{message:'Fixture follow-up unavailable'}});data=receivingCase&&receivingCase.status!=='resolved'?[receivingCase]:[]}
    else if(receivingMode&&name==='proc_resolve_rejection_case_v1'){const b=req.postDataJSON();caseWrites.push(b);if(b.p_action==='replacement_received'){receivingAccepted+=receivingCase.rejected_qty;receivingCase.status='resolved'}else receivingCase.status=b.p_action==='replacement_requested'?'replacement_due':'resolved';data={status:receivingCase.status}}
@@ -376,11 +382,11 @@ try{
    stallStartup=false;releaseStartup()
    for(let attempt=0;attempt<100&&!stalledReturned;attempt++)await page.waitForTimeout(25)
    await page.waitForTimeout(100)
-   assert.equal(await page.getByRole('heading',{name:'Home',exact:true}).count(),0,'Late access result cannot bypass the failed startup')
+   assert.equal(await page.getByRole('heading',{name:'Work',exact:true}).count(),0,'Late access result cannot bypass the failed startup')
    await page.getByRole('button',{name:'Retry',exact:true}).click()
   }
   await page.unroute(root+'/')
-  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
   for(let attempt=0;attempt<200&&!policyViolations.length;attempt++)await page.waitForTimeout(25)
   assert.equal(await page.evaluate(()=>window.__ghUntrustedInlineExecuted===true),false,'Untrusted inline JavaScript must be blocked')
   assert.ok(policyViolations.some(x=>x.directive==='script-src-elem'&&x.blocked==='inline'),'Browser must enforce the inline-script refusal')
@@ -389,8 +395,8 @@ try{
   async function navigate(label){
    let target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    if(await target.count()===0){
-    if(await page.getByRole('button',{name:'Open menu',exact:true}).isVisible())
-     await page.getByRole('button',{name:'Open menu',exact:true}).click()
+    if(await page.locator('.mobile-bottom-nav').isVisible())
+     await page.locator('.mobile-bottom-nav button').last().click()
     else await page.locator('summary').filter({hasText:'More / Admin'}).click()
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
@@ -696,9 +702,10 @@ try{
    await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
    await page.getByLabel('Search receiving items',{exact:true}).waitFor()
    const mobile=width<=700
-   const row=mobile?view.locator('.receive-entry-row').first():view.locator('.desktop-table tbody tr').first()
-   if(mobile){await row.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('6');await row.locator('summary').click();await row.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('2');await row.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Broken')}
-   else{await row.locator('input').nth(1).fill('6');await row.locator('input').nth(3).fill('2');await row.locator('input').nth(4).fill('Broken')}
+   const row=view.locator('.receipt-inspection-row').first()
+   await row.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('6')
+   await row.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('2')
+   await row.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Broken')
    const reviewButton=view.getByRole('button',{name:'Review receipt (1) →',exact:true})
    await reviewButton.click()
    let review=page.getByRole('dialog',{name:'2. Review receipt',exact:true})
@@ -733,7 +740,8 @@ try{
    await page.getByRole('tab',{name:'Deliveries',exact:true}).click()
    await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
    await page.getByText('60% received',{exact:true}).filter({visible:true}).waitFor()
-   await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+   await page.getByRole('button',{name:'Accept full remaining delivery',exact:true}).click()
+    await page.getByRole('dialog',{name:'Accept full remaining delivery',exact:true}).getByRole('button',{name:'Confirm inspected delivery',exact:true}).click()
    await page.getByRole('button',{name:'Review receipt (1) →',exact:true}).click()
    await page.getByRole('dialog',{name:'2. Review receipt',exact:true}).getByText('4 received · 4 accepted · 0 rejected',{exact:true}).waitFor()
    await page.getByRole('dialog').getByRole('button',{name:'Post receipt',exact:true}).click()
@@ -747,7 +755,7 @@ try{
    receivingReplayKey='00000000-0000-4000-8000-000000000077'
    const recoveryDraft='gh_receiving_draft_v1:'+profile.id+':'+po.id
    await page.evaluate(({draft,key,lineId})=>localStorage.setItem(draft,JSON.stringify({receiptKey:key,vals:{[lineId]:{received:'10',accepted:'10',rejected:'0',reason:''}},notes:'Saved before a dropped connection',attempt:{lines:[{po_line_id:lineId,received_qty:10,accepted_qty:10,rejected_qty:0,rejection_reason:null}],notes:'Saved before a dropped connection'}})),{draft:recoveryDraft,key:receivingReplayKey,lineId:'00000000-0000-4000-8000-000000000009'})
-   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⇩ Receive Goods')
+   await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor();await navigate('⇩ Receive Goods')
    await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
    await page.getByRole('button',{name:'Retry saved receipt',exact:true}).click()
    await page.getByRole('dialog',{name:'2. Review receipt',exact:true}).getByText(/An already posted receipt will not add stock again/).waitFor()
@@ -756,7 +764,7 @@ try{
    assert.equal(receivingAccepted,10,'Recovery adds no stock');assert.equal(receipts.length,3);assert.equal(receipts[2].p_receipt_key,receivingReplayKey)
    assert.equal(await page.evaluate(draft=>localStorage.getItem(draft),recoveryDraft),null,'Confirmed recovery clears the saved attempt')
    receivingCase={...receivingCase,status:'open'};grantedPermissions=permissions.filter(x=>x!=='receiving.manage')
-   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⇩ Receive Goods')
+   await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor();await navigate('⇩ Receive Goods')
    await page.getByRole('tab',{name:'Follow-ups (1)',exact:true}).click()
    assert.equal(await page.getByRole('button',{name:'Update follow-up →',exact:true}).count(),0,'Read-only users cannot resolve rejected goods')
    assert.equal(await page.getByRole('button',{name:/^Review receipt/}).filter({visible:true}).count(),0,'Read-only users cannot post receipts')
@@ -839,7 +847,7 @@ try{
    await navigate('⌂ Home')
    await home.getByRole('button',{name:/Continue purchase order/}).waitFor()
    await page.reload()
-   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await home.getByRole('button',{name:/Continue purchase order/}).click()
    await page.locator('.po-expanded').filter({visible:true}).waitFor()
    assert.ok((await page.locator('.po-expanded').filter({visible:true}).innerText()).includes('PO-FIXTURE'),'Resume reopens the saved PO identity')
@@ -856,7 +864,7 @@ try{
    await page.waitForTimeout(250)
    await navigate('⌂ Home')
    await page.reload()
-   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await home.getByRole('button',{name:/Continue stock count/}).click()
    assert.equal(await page.getByRole('tab',{name:'Company Items',exact:true}).getAttribute('aria-selected'),'true')
    assert.equal(await page.getByLabel('Current stock: '+item.description,{exact:true}).inputValue(),'0','Company stock draft restores with its selected list')
@@ -1015,7 +1023,7 @@ try{
    await page.locator('details.admin-accordion[open]').filter({hasText:'Time & Location Restrictions'}).waitFor()
    // Emulate the protected native bridge only for testing the server-driven UI.
    await context.addInitScript(()=>{window.GHProcurementAndroid={refreshCapturePolicy:()=>{}}})
-   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⚙ Admin')
+   await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor();await navigate('⚙ Admin')
    await page.getByLabel('Search settings',{exact:true}).fill('screenshot')
    await page.locator('.settings-search-results').getByRole('button',{name:'Screenshot Protection',exact:false}).click()
    await page.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).click()
@@ -1023,7 +1031,7 @@ try{
    await page.getByRole('button',{name:'Block screenshots now',exact:true}).click()
    await page.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).waitFor()
    assert.deepEqual(captureChanges.map(c=>c.p_enabled),[true,false])
-   currentProfile={...profile,role:'viewer',role_key:'custom_test'};await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⚙ Admin')
+   currentProfile={...profile,role:'viewer',role_key:'custom_test'};await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor();await navigate('⚙ Admin')
    await page.getByLabel('Search settings',{exact:true}).fill('screenshot')
    assert.equal(await page.getByRole('button',{name:'Allow my screenshots for 5 minutes',exact:true}).count(),0,'Staff never receive the capture override')
    assert.deepEqual(errors,[])
@@ -1095,12 +1103,12 @@ try{
    await context.grantPermissions(['geolocation'],{origin:root})
    await context.setGeolocation({latitude:7.0552571,longitude:80.5345549,accuracy:5})
    await page.getByRole('button',{name:'Verify location / Retry',exact:true}).click()
-   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    accessReason='outside_location';await page.reload()
    await page.getByText('You must be at the approved location to use this system.',{exact:true}).waitFor()
    assert.equal(await page.locator('.app').count(),0)
    accessReason='allowed';accessExpirySeconds=2;await page.reload()
-   await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await page.getByText('Verify your location to open the workspace.',{exact:true}).waitFor({timeout:6000})
    assert.equal(await page.locator('.app').count(),0,'Server lease expiry locks an open workspace')
    assert.deepEqual(errors,[])
@@ -1306,7 +1314,7 @@ try{
    }
    await stock.fill('00101')
    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('gh-stock-count-draft:00000000-0000-4000-8000-000000000002')||'{}').entry?.['00000000-0000-4000-8000-000000000003']==='101')
-   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await navigate('✓ Stock Entry');await stock.waitFor();assert.equal(await stock.inputValue(),'101')
    await page.getByRole('button',{name:'Review & submit · 1',exact:true}).click()
    const submitDialog=page.getByRole('dialog',{name:'Review stock lot before final submission',exact:true})
@@ -1454,8 +1462,8 @@ try{
   await context.close();continue
   }
   if(process.env.GH_UI_SIMPLIFIED_STOCK==='1'){
-   const work=page.getByRole('region',{name:'Purchasing work lists',exact:true})
-   for(const label of ['To Review','Awaiting Quotes','Orders'])await work.getByRole('button',{name:new RegExp('^'+label)}).waitFor()
+   const work=page.getByRole('region',{name:'Connected purchases',exact:true})
+   for(const label of ['Needs me','In progress','History'])await work.getByRole('button',{name:new RegExp('^'+label)}).waitFor()
    await page.screenshot({path:'test-results/simplified-work-lists-'+width+'.png',fullPage:true})
    await navigate('✓ Stock Entry')
    const input=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
@@ -2293,7 +2301,7 @@ try{
     await page.screenshot({path:'test-results/'+width+'-RFQ-added-supplier.png',fullPage:true})
     grantedPermissions=permissions.filter(p=>p!=='procurement.rfq.manage')
     await page.reload()
-    await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+    await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
     await navigate('Q RFQs & Quotes')
     await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
     await page.getByText('Only enter the supplier\'s unit price.',{exact:false}).waitFor()
@@ -2309,14 +2317,13 @@ try{
     await page.getByLabel('Search receiving items',{exact:true}).waitFor()
     if(width<=700){
      const receivingRows=page.getByRole('region',{name:'Receiving item rows',exact:true})
-     await receivingRows.locator('.receive-entry-row').first().waitFor()
-     assert.equal(await receivingRows.locator('.receive-entry-row').count(),9,'Nine receiving items remain visible as rows')
-     const heights=await receivingRows.locator('.receive-entry-row').evaluateAll(rows=>rows.map(r=>r.getBoundingClientRect().height))
-     assert.ok(heights.every(h=>h<=110),'Closed receiving rows must be compact: '+heights.join(','))
-     const firstRow=receivingRows.locator('.receive-entry-row').first()
+     await receivingRows.locator('.receipt-inspection-row').first().waitFor()
+     assert.equal(await receivingRows.locator('.receipt-inspection-row').count(),9,'Nine receiving items remain visible as rows')
+     const heights=await receivingRows.locator('.receipt-inspection-row').evaluateAll(rows=>rows.map(r=>r.getBoundingClientRect().height))
+     assert.ok(heights.every(h=>h<300),'Inspection rows must remain usable without oversized panels: '+heights.join(','))
+     const firstRow=receivingRows.locator('.receipt-inspection-row').first()
      await firstRow.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('5')
-     assert.equal(await firstRow.getByLabel('Accepted '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).inputValue(),'5','Row receipt entry preserves automatic acceptance')
-     await firstRow.locator('summary').click()
+     assert.equal(await firstRow.getByLabel('Accepted '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).inputValue(),'','Received goods require explicit acceptance')
      await firstRow.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('1')
      assert.equal(await firstRow.getByLabel('Accepted '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).inputValue(),'4','Expanded damage entry preserves acceptance math')
      await firstRow.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Damaged packaging')
@@ -2325,11 +2332,12 @@ try{
     }
     const receivedInput=page.locator('.content > section:not([hidden]) input').filter({visible:true})
     // Draft survives a full page reload and retains the selected account/PO scope.
-    await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+    await page.getByRole('button',{name:'Accept full remaining delivery',exact:true}).click()
+    await page.getByRole('dialog',{name:'Accept full remaining delivery',exact:true}).getByRole('button',{name:'Confirm inspected delivery',exact:true}).click()
     await page.waitForFunction(()=>!!localStorage.getItem('gh_receiving_draft_v1:00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000007'))
-    await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor();await navigate('⇩ Receive Goods');await chooseOption(selector,po.id)
+    await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor();await navigate('⇩ Receive Goods');await chooseOption(selector,po.id)
     await page.getByLabel('Search receiving items',{exact:true}).waitFor()
-    assert.equal(await page.locator('.receive-full-check input,.desktop-table tbody input[type="checkbox"]').filter({visible:true}).first().isChecked(),true,'Receiving values survive reload')
+    assert.equal(await page.locator('input[aria-label^="Full receipt "]').filter({visible:true}).first().isChecked(),true,'Receiving values survive reload')
     for(const poId of [po.id,otherPo.id,po.id]){
      if(await selector.getAttribute('data-value')!==poId){
       const loaded=page.waitForResponse(r=>{const u=new URL(r.url());return u.pathname.endsWith('/proc_po_lines')&&u.searchParams.get('po_id')==='eq.'+poId})
@@ -2338,7 +2346,8 @@ try{
      await page.getByLabel('Search receiving items',{exact:true}).waitFor()
      const savedAttempt=await page.evaluate(id=>JSON.parse(localStorage.getItem('gh_receiving_draft_v1:00000000-0000-4000-8000-000000000002:'+id)||'null')?.attempt,poId)
      if(savedAttempt)await page.getByText('A receipt attempt is saved.',{exact:false}).waitFor()
-     else await page.getByRole('button',{name:'✓ Mark All Remaining Received',exact:true}).click()
+     else await page.getByRole('button',{name:'Accept full remaining delivery',exact:true}).click()
+    await page.getByRole('dialog',{name:'Accept full remaining delivery',exact:true}).getByRole('button',{name:'Confirm inspected delivery',exact:true}).click()
      await page.getByRole('button',{name:/^(Review receipt \(\d+\) →|Retry saved receipt)$/}).click()
      await page.getByRole('dialog',{name:'2. Review receipt',exact:true}).getByRole('button',{name:'Post receipt',exact:true}).click()
      await page.getByText('Fixture receipt retry',{exact:true}).waitFor()
@@ -2419,13 +2428,13 @@ try{
   }
   grantedPermissions=['dashboard.view','invoices.view']
   await page.reload()
-  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
   await navigate('▤ Invoices')
   await page.getByRole('button').filter({hasText:'INV-VARIANCE'}).click()
   assert.equal(await page.getByRole('button',{name:'Record Variance Action',exact:true}).count(),0,'Invoice viewers cannot open variance editing')
   grantedPermissions=['dashboard.view']
   await page.reload()
-  await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
   assert.equal(await page.locator('.metric-link').count(),0,'Dashboard-only users have no inaccessible shortcuts')
   // The reported staff account is allowed Stock Check but not Dashboard.
   // Verify it opens Stock Check on sign-in rather than presenting a blank shell.
@@ -2443,7 +2452,7 @@ try{
   console.log('PASS stock handler begins with populated stock view, no dashboard permission, and clean navigation at '+width+'px')
   if(width===320){
    currentProfile=profile;grantedPermissions=permissions;rfqItemCount=205
-   await page.reload();await page.getByRole('heading',{name:'Home',exact:true}).waitFor()
+   await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await navigate('Q RFQs & Quotes')
    await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
    await page.getByRole('button',{name:'View Price Comparison',exact:true}).click()

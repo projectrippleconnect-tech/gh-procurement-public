@@ -1,4 +1,5 @@
 'use client'
+import {BusinessOverview} from './business-overview'
 import {RecordDeletion} from './delete-record'
 import {AccessSettings} from './access-settings'
 import {SettingsSearch} from './settings-search'
@@ -102,6 +103,7 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
   setTimeout(()=>{setSelected(Array.isArray(p.columns)?p.columns:[]);setStatus(p.filters?.status||'');setCategory(p.filters?.category||'');setFrom(p.filters?.from||'');setTo(p.filters?.to||'')},0)
  }
  return <>
+  {can('dashboard.view')&&<BusinessOverview/>}
   <div className="card pad"><div className="sectionhead"><div><h3>{t('reports.builder','Report Builder')}</h3><p>{t('reports.builder_hint','Exports page through the complete filtered dataset; screen rendering is paged separately for performance.')}</p></div><div className="toolbar">{can('reports.export_csv')&&<button className="btn" onClick={()=>downloadCsv('GH-'+def.label+'.csv',exportRows)}>CSV</button>}{can('reports.export_pdf')&&<button className="btn primary" onClick={exportPdf}>PDF</button>}</div></div>
    <div className="report-controls">
     <div className="field"><label>{t('reports.report','Report')}</label><ModernSelect className="select" value={type} onChange={e=>setType(e.target.value)}>{Object.entries(REPORT_DEFS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</ModernSelect></div>

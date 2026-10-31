@@ -17,13 +17,14 @@ test('single-purpose receiver sees no procurement stage hints',()=>{
 })
 test('mixed permissions expose only the stages actually granted',()=>{
  const nav=screens('stock','requirements')
- assert.deepEqual(nav('stock').map(s=>s[0]),['Stock','Review'])
- assert.deepEqual(nav('requirements').map(s=>s[0]),['Stock','Review'])
+ assert.deepEqual(nav('stock'),[])
+ assert.deepEqual(nav('requirements'),[])
  assert.deepEqual(nav('rfq'),[])
 })
-test('admins retain all five stages without exposing stages on unrelated screens',()=>{
+test('admins see the three document sections only within purchasing',()=>{
  const nav=screens('stock','requirements','rfq','po','receiving')
- assert.deepEqual(nav('stock').map(s=>s[0]),['Stock','Review','Prices','Order','Receive'])
+ assert.deepEqual(nav('stock'),[])
+ assert.deepEqual(nav('rfq').map(s=>s[0]),['Review','Quotes','Orders'])
  assert.deepEqual(nav('dashboard'),[])
 })
 test('shared UI does not label or mount disabled workflow stages',()=>{

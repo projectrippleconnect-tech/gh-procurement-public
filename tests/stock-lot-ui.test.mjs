@@ -18,10 +18,10 @@ test('final submission requires verified history and explicit previous-item reco
  assert.match(ui,/submissionLock\.current=true/)
  assert.match(ui,/onClick=\{\(\)=>allowRecount\(i\.item_id\)\}/)
 })
-test('save and pause has no stock submission side effect',()=>{
- assert.match(ui,/Save draft/)
+test('review returns to automatically saved counting without a second save step',()=>{
+ assert.match(ui,/Back to counting/)
  assert.match(ui,/No items counted yet/)
- assert.match(ui,/Draft edits save automatically/)
+ assert.match(ui,/Draft saved on this device/)
 })
 
 test('mobile review controls precede stock rows and remain in one non-overlapping row',()=>{

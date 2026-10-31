@@ -5,17 +5,17 @@ import {dashboardWorkLists} from '../lib/dashboard-actions.mjs'
 
 test('above-reorder and sufficient stock share one no-purchase result',()=>{
  assert.equal(outcome({automation:{status:'no_requirements'}}).key,'saved')
- assert.equal(outcome({stock_outcomes:[{shortage_qty:0,uncovered_qty:0,sufficient_stock:true}]},{company:true}).title,'Stock sufficient')
+ assert.equal(outcome({stock_outcomes:[{shortage_qty:0,uncovered_qty:0,sufficient_stock:true}]},{company:true}).title,'No new purchase needed')
 })
 test('normal review, RFQ, and direct PO with either approval rule share purchase needed',()=>{
  assert.equal(outcome({automation:{status:'review_required'}}).key,'purchase_needed')
- for(const result of [{rfqs:[{id:'q'}]},{purchase_orders:[{id:'p',status:'pending_approval'}]},{purchase_orders:[{id:'p',status:'approved'}]},{stock_outcomes:[{shortage_qty:10,uncovered_qty:0,committed_qty:10}]}]){
+ for(const result of [{rfqs:[{id:'q'}]},{purchase_orders:[{id:'p',status:'pending_approval'}]},{purchase_orders:[{id:'p',status:'approved'}]}]){
   assert.equal(outcome(result,{company:true}).key,'purchase_needed')
  }
 })
 test('missing route, failed sending, and changed counts requiring intervention surface attention',()=>{
- for(const result of [{},{automation_errors:[{error:'No supplier'}]},{dispatch:{ok:false}},{rfqDispatch:{ok:false}},{stock_outcomes:[{needs_review:true,shortage_qty:10}]}])assert.equal(outcome(result,{company:true}).key,'needs_attention')
- assert.equal(outcome({}).key,'needs_attention')
+ for(const result of [{},{automation_errors:[{error:'No supplier'}]},{dispatch:{ok:false}},{rfqDispatch:{ok:false}},{stock_outcomes:[{needs_review:true,shortage_qty:10}]}])assert.equal(outcome(result,{company:true}).needsAttention,true)
+ assert.equal(outcome({}).needsAttention,true)
 })
 test('stock-only results remain neutral when the API redacts purchase data',()=>{
  assert.equal(outcome({automation:{status:'submitted'}}).title,'Saved')
@@ -24,8 +24,8 @@ test('stock-only results remain neutral when the API redacts purchase data',()=>
 test('three work lists preserve errors and do not add overlapping requirement and urgent counts',()=>{
  const ready=Object.fromEntries(['review','urgent','prices','approval','send','deliveries'].map(key=>[key,'ready']))
  const groups=dashboardWorkLists({canNavigate:()=>true,counts:{review:3,urgent:2,approval:1},states:ready})
- assert.deepEqual(groups.map(x=>x.label),['To Review','Awaiting Quotes','Orders'])
- assert.equal(groups[0].summary,'3 awaiting review · 2 urgent items')
+ assert.deepEqual(groups.map(x=>x.label),['Review','Quotes','Orders'])
+ assert.equal(groups[0].summary,'3 items to review')
  assert.match(groups[2].summary,/1 to approve/)
  assert.equal(dashboardWorkLists({canNavigate:()=>false}).length,0)
  assert.equal(dashboardWorkLists({canNavigate:()=>true,states:{...ready,prices:'error'}})[1].state,'error')
@@ -40,4 +40,11 @@ test('sufficient overrides preserve exact shortage and require an auditable reas
  assert.equal(record.items[0].quantity,0)
  assert.equal(record.reason,'Stock held in main stores')
  assert.equal(notes([],''),null)
+})
+
+test('reserved shortages keep their actual order state and no-new-purchase result',()=>{
+ const r=outcome({stock_outcomes:[{shortage_qty:10,uncovered_qty:0,committed_qty:10}]},{company:true})
+ assert.equal(r.title,'No new purchase needed')
+ assert.match(r.message,/draft, awaiting approval, approved but unsent, or sent/)
+ assert.equal(r.needsAttention,false)
 })

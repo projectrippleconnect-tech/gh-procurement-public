@@ -1440,3 +1440,35 @@ input.item-uppercase{ text-transform:uppercase; }
 .record-attention>.notice{margin-top:6px;white-space:normal;overflow-wrap:anywhere}
 .workflow-purchasing-heading{font-weight:700;font-size:13px;margin-bottom:8px}
 @media(max-width:420px){.item-list-selector .select{flex:1 1 160px}.record-attention>summary{min-height:40px}}
+
+/* Compact Work and inspection screens: natural document flow, no floating panels. */
+.work-refresh{justify-content:flex-end;margin-bottom:8px}
+.work-list-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:12px}
+.work-list-controls .item-list-selector{margin:0}
+.compact-work-case{padding:14px 0;border-bottom:1px solid var(--line);min-width:0}
+.work-case-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.work-case-heading h3{margin:0;overflow-wrap:anywhere}
+.work-case-status{margin:4px 0 8px}
+.work-case-balances{display:flex;flex-wrap:wrap;gap:6px 18px;margin:6px 0}
+.work-case-details{margin-top:8px}
+.work-case-details summary,.stock-options summary,.receipt-inspection-details summary{cursor:pointer;min-height:32px;padding:4px 0}
+.work-case-details .btn{margin:4px 6px 4px 0}
+.receipt-inspection-row{padding:12px 0;border-bottom:1px solid var(--line)}
+.receipt-inspection-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(100px,140px) auto;align-items:center;gap:12px}
+.receipt-inspection-main strong{overflow-wrap:anywhere}
+.receipt-inspection-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:8px}
+.receipt-inspection-main .field,.receipt-inspection-fields .field{min-width:0}
+.business-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.business-totals dd{margin:4px 0;font-weight:700}
+@media(max-width:700px){
+ .receipt-inspection-main{grid-template-columns:minmax(0,1fr) minmax(95px,120px)}
+ .receipt-inspection-main .checkline{min-height:44px;white-space:normal}
+ .receipt-inspection-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .receipt-inspection-fields .field:last-child{grid-column:1/-1}
+ .work-list-controls{display:block}
+ .work-list-controls .toolbar{margin-top:10px}
+ .work-case-heading{align-items:start}
+ .work-case-details summary,.stock-options summary{min-height:44px;display:list-item}
+}
+
+.stock-lot-modal>.stock-lot-actions{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}

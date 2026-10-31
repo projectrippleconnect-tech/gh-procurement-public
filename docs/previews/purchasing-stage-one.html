@@ -37,21 +37,21 @@
   get('gw-work-controls').hidden=state.screen!=='Work';
   buttons(get('gw-views'),['Needs me','In progress','History'],state.view,label=>{state.view=label;screen()});
   const host=get('gw-content');host.replaceChildren();
-  host.append(el('h3',state.screen==='Work'?state.view:state.screen));
+  if(state.screen!=='Work')host.append(el('h3',state.screen));
   if(state.screen!=='Work'){
-   const items={Stock:['Select General or Company stock','Enter quantities → review → submit','Saved count and recount history'],Receive:['Select a sent order','Record accepted quantities and post receipt','Follow the remaining delivery balance'],More:['Suppliers, item catalogue and documents','Reports and administration by permission','Help, language and account security']}[state.screen];
+   const items={Stock:['Select General or Company stock','Enter quantities → review → submit','Saved count and recount history'],Receive:['Select a sent order','Enter received quantity → explicitly accept or record rejected goods','Follow the remaining delivery balance'],More:['Suppliers, item catalogue and documents','Business totals, reports and administration by permission','Help, language and account security']}[state.screen];
    const list=el('ul',null,'gw-list');items.forEach(x=>list.append(el('li',x)));host.append(list);return;
   }
   const name=state.scope==='company'?'Company':'General';
   host.append(el('div','Example case · '+name+' Items · REQ-020','text-small text-muted'));
   if(state.view==='Needs me'){
-   host.append(el('h3','20 needed · 12 ordered · 8 received'));
+   host.append(el('h3','Hardware replenishment'));host.append(el('span','Supplier setup needed','text-small'));
    const values=el('div',null,'gw-values');values.append(el('strong','Still to buy: 8'),el('strong','Still to receive: 4'));host.append(values);
    const actions=el('div',null,'viz-row');
-   ['Assign supplier','Record delivery'].forEach(label=>{const b=el('button',label,'btn');b.type='button';b.addEventListener('click',()=>{detail.textContent=label==='Assign supplier'?'Review the remaining 8 units using the configured quotation or Direct PO route.':'Record delivery against the existing order; 4 units remain outstanding.'});actions.append(b)});host.append(actions);
-   const detail=el('p','Buying and receiving remain available on the same case.','gw-detail');detail.setAttribute('aria-live','polite');host.append(detail);
+   ['Assign supplier','Record delivery'].forEach(label=>{const b=el('button',label,label==='Assign supplier'?'btn btn-primary':'btn');b.type='button';b.addEventListener('click',()=>{detail.textContent=label==='Assign supplier'?'Review the remaining 8 units using the configured quotation or Direct PO route.':'Record delivery against the existing order; 4 units remain outstanding.'});actions.append(b)});host.append(actions);
+   const detail=el('p','','gw-detail');detail.setAttribute('aria-live','polite');host.append(detail);
   }else host.append(el('p',state.view==='In progress'?'Waiting on supplier response, authorised approval or delivery.':'Completed, rejected and cancelled requirements retain their document links.'));
-  const details=el('details',null,'gw-detail');details.append(el('summary','Connected record · count → requirement → quotations → orders → receipts','cursor-interaction'));
+  const details=el('details',null,'gw-detail');details.append(el('summary','Details & history','cursor-interaction'));
   const list=el('ul',null,'gw-list');['Stable requirement reference','Every active quotation remains available','Draft exists / awaiting approval / approved but not sent / ordered','Posted accepted quantities reduce the delivery balance','Quantity-only approval leaves prices unconfirmed'].forEach(t=>list.append(el('li',t)));details.append(list);host.append(details);
  }
  function flow(){

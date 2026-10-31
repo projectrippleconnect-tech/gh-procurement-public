@@ -58,11 +58,11 @@ test('General stock history excludes Company submissions independent of visible 
  assert.deepEqual(generalStockHistoryRows(records).map(r=>r.count_id),['g1','g2'])
  assert.deepEqual(generalStockHistoryRows(null),[])
 })
-test('General history shortcut is accessible on mobile and preserves per-item recount',()=>{
+test('Stock options preserve mobile submission history and per-item recount',()=>{
  const app=readFileSync(new URL('../components/procurement-app.jsx',import.meta.url),'utf8')
  const stock=readFileSync(new URL('../components/modules-stock.jsx',import.meta.url),'utf8')
  const css=readFileSync(new URL('../app/globals.css',import.meta.url),'utf8')
- assert.match(app,/aria-label="Open General stock submission history"/)
+ assert.match(stock,/aria-label="View recent General stock submission history"/)
  assert.match(app,/historyRequest=\{stockHistoryRequest\}/)
  assert.match(stock,/general-stock-history-modal/)
  assert.match(stock,/generalStockHistoryRows\(r\.data\)/)

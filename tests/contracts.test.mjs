@@ -53,12 +53,12 @@ test('routine shortages stop at buyer review instead of auto-awarding',()=>{
   assert.match(buying,/Prepare request · Choose suppliers/)
 })
 
-test('guided procurement respects permitted stages while retaining all five for admins',()=>{
+test('guided procurement uses shared vocabulary and respects permitted document sections',()=>{
  const ui=read('components/ui.jsx'),guide=read('lib/workflow-guide.mjs'),visibility=read('lib/workflow-visibility.mjs')
- assert.match(guide,/id:1,title:'Stock entry'/);assert.match(guide,/id:6,title:'Create & send orders'/)
- assert.match(ui,/Step \{index\+1\} of \{stages\.length\}/)
+ assert.match(guide,/PROCUREMENT_STEPS=WORKFLOW_ACTIONS/);assert.match(visibility,/PURCHASING_SECTIONS/)
+ assert.match(ui,/aria-label="Purchasing sections"/)
  assert.doesNotMatch(ui,/Choose a step/);assert.doesNotMatch(ui,/Next procurement step/)
- assert.match(ui,/workflow-step-tabs/);assert.match(visibility,/\['Receive','receiving'/)
+ assert.match(ui,/workflow-step-tabs/);assert.doesNotMatch(visibility,/\['Receive','receiving'/)
  assert.match(visibility,/permitted\.length>1/)
 })
 

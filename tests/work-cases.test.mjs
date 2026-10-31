@@ -24,3 +24,32 @@ test('All items never applies a General-only predicate',()=>{
  const q={eq:()=>{throw Error('unexpected filter')}}
  assert.equal(scopePurchasingQuery(q,'all','scope'),q)
 })
+test('returned partial quotations can be compared while delivery work remains visible',()=>{
+ const c=purchasingCase({id:'need',status:'partially_received',approval_status:'approved',remaining_to_order:8,proc_work_documents:{rfqs:[{id:'q',status:'partially_quoted'}],orders:[{id:'po',status:'sent',remaining:4}]}},access)
+ assert.equal(c.primaryAction.label,'Compare prices')
+ assert.deepEqual(c.actions.map(a=>a.label),['Compare prices','Record delivery'])
+ assert.equal(c.stillBuy,8);assert.equal(c.stillReceive,4)
+})
+test('existing reservations do not imply supplier dispatch and completed cases have no action',()=>{
+ const row={id:'need',status:'ordered',approval_status:'approved',remaining_to_order:0,proc_work_documents:{orders:[{id:'po',status:'pending_approval',remaining:20}]}}
+ const c=purchasingCase(row,access)
+ assert.equal(c.stillReceive,0);assert.equal(c.reserved,20)
+ assert.equal(c.primaryAction.label,'Approve order')
+ const done=purchasingCase({...row,status:'received',proc_work_documents:{orders:[{id:'po',status:'received',remaining:0}]}},access)
+ assert.equal(done.tab,'History');assert.equal(done.primaryAction,null)
+})
+
+test('primary actions prioritise a blocking review and overdue follow-up while preserving buying and receiving',()=>{
+ const row={id:'need',status:'partially_received',approval_status:'approved',remaining_to_order:8,proc_work_documents:{rfqs:[{id:'new',status:'quoted'},{id:'late',status:'sent',due_date:'2000-01-01'}],orders:[{id:'sent',status:'partially_received',remaining:4}]}}
+ const c=purchasingCase(row,access)
+ assert.equal(c.primaryAction.filter,'late');assert.equal(c.secondaryAction.view,'receiving')
+ assert.match(c.attention,/overdue/)
+ const held=purchasingCase({...row,approval_status:'held',hold_reason:'Check recount'},access)
+ assert.equal(held.primaryAction.label,'Review hold');assert.equal(held.secondaryAction.view,'receiving')
+ assert.equal(held.attention,'Check recount')
+})
+test('unsent orders display a status distinct from their action and stay out of receipt balances',()=>{
+ const c=purchasingCase({id:'need',status:'ordered',approval_status:'approved',remaining_to_order:0,proc_work_documents:{orders:[{id:'draft',status:'approved',remaining:12}]}},access)
+ assert.equal(c.statusLabel,'Approved · not sent');assert.equal(c.primaryAction.label,'Send order')
+ assert.equal(c.stillReceive,0);assert.equal(c.secondaryAction,null)
+})
