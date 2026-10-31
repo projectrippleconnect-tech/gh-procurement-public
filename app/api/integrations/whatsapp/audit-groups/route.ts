@@ -1,3 +1,4 @@
+import {wahaGatewayConfig} from '@/lib/waha-gateway.mjs'
 // Read-only administrator diagnostics. This route never joins groups, sends messages, or configures archive destinations.
 import {createClient} from '@supabase/supabase-js'
 import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '@/lib/waha-group-discovery.mjs'
@@ -8,16 +9,9 @@ export const dynamic='force-dynamic'
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
 const desired=['RFQ','PO']
 const tidy=(data:any):any[]=>Array.isArray(data)?data:Array.isArray(data?.participants)?data.participants:Array.isArray(data?.items)?data.items:Array.isArray(data?.data)?data.data:[]
-function gateway(){
- const raw=process.env.WAHA_BASE_URL||'',key=process.env.WAHA_API_KEY||'',session=process.env.WAHA_SESSION||'default'
- if(!raw||!key||!/^[\w-]{1,50}$/.test(session))return null
- try{const u=new URL(raw)
-  if(u.protocol!=='http:'||!u.hostname.endsWith('.railway.internal')||u.username||u.password||u.pathname!=='/'||u.search||u.hash)return null
-  return {base:u.origin,key,session}
- }catch{return null}
-}
+const gateway=()=>wahaGatewayConfig(process.env)
 async function read(base:string,path:string,key:string){
- const r=await fetch(base+path,{headers:{'X-Api-Key':key,Accept:'application/json'},signal:AbortSignal.timeout(7000),cache:'no-store'})
+ const r=await fetch(base+path,{headers:{'X-Api-Key':key,Accept:'application/json'},signal:AbortSignal.timeout(7000),redirect:'error',cache:'no-store'})
  if(!r.ok)throw new Error('WAHA response '+r.status)
  return r.json()
 }

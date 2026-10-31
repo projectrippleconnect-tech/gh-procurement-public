@@ -1,3 +1,4 @@
+import {wahaGatewayConfig} from '@/lib/waha-gateway.mjs'
 import {createClient} from '@supabase/supabase-js'
 import {createHash} from 'node:crypto'
 import {extractWahaMessageId,verifyPng,wahaImagePayload,hasGatewayPermission} from '@/lib/waha-rfq'
@@ -10,18 +11,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const error=(message:string,status:number)=>Response.json({ok:false,error:message},{status,headers:{'cache-control':'no-store'}})
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}})
 
-function gatewayConfig(){
- const raw=process.env.WAHA_BASE_URL||''
- const key=process.env.WAHA_API_KEY||''
- const session=process.env.WAHA_SESSION||'default'
- if(!raw||!key)return null
- try{
-  const url=new URL(raw)
-  if(!['http:','https:'].includes(url.protocol)||!(/\.railway\.internal$/.test(url.hostname)||['localhost','127.0.0.1'].includes(url.hostname)))return null
-  if(url.username||url.password||url.pathname!=='/'||!(/^[\w-]{1,50}$/.test(session)))return null
-  return {base:url.origin,key,session}
- }catch{return null}
-}
+const gatewayConfig=()=>wahaGatewayConfig(process.env)
 
 async function authorize(request:Request){
  const token=(request.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i)?.[1]
@@ -44,7 +34,7 @@ async function authorize(request:Request){
 async function gatewaySession(config:{base:string;key:string;session:string}){
  const response=await fetch(config.base+'/api/sessions/'+encodeURIComponent(config.session),{
   headers:{'X-Api-Key':config.key,Accept:'application/json'},
-  signal:AbortSignal.timeout(5000),cache:'no-store'
+  signal:AbortSignal.timeout(5000),redirect:'error',cache:'no-store'
  })
  if(!response.ok)return {connected:false}
  const session=await response.json()
@@ -132,7 +122,7 @@ export async function POST(request:Request){
   const response=await fetch(config.base+'/api/sendImage',{
    method:'POST',
    headers:{'X-Api-Key':config.key,'Content-Type':'application/json',Accept:'application/json'},
-   body:JSON.stringify(chatPayload),signal:AbortSignal.timeout(25000),cache:'no-store'
+   body:JSON.stringify(chatPayload),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'
   })
   if(response.ok){
    const responseBody=await response.json().catch(()=>({}))
