@@ -1,0 +1,60 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {PGlite} from '@electric-sql/pglite'
+import {pgcrypto} from '@electric-sql/pglite/contrib/pgcrypto'
+import {bootstrapProcurementSchema} from '../scripts/qa/schema-bootstrap.mjs'
+import {purchasingCase} from '../lib/work-cases.mjs'
+
+test('Stage 2: real posted receipts, partial buying, company scope and custom-role RLS agree with Work',async()=>{
+ const db=new PGlite({extensions:{pgcrypto}})
+ try{
+  await bootstrapProcurementSchema(db)
+  const admin='00000000-0000-4000-8000-000000000111',loc='00000000-0000-4000-8000-000000000099'
+  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0]
+  const item=await one("insert into public.proc_items(item_code,category,description,uom) values('STAGE2','QA','Stage 2 partial item','PCS') returning id")
+  const supplier=await one("insert into public.proc_suppliers(supplier_code,name) values('STAGE2','Stage 2 supplier') returning id")
+  const company=await one("insert into public.proc_companies(company_code,name) values('STAGE2','Stage 2 company') returning id")
+  const req=await one("insert into public.proc_requirements(item_id,location_id,required_qty,adjusted_qty,ordered_qty,status,approval_status,source_type) values($1,$2,20,20,12,'ordered','approved','manual') returning id",[item.id,loc])
+  const co=await one("insert into public.proc_requirements(item_id,location_id,company_id,required_qty,adjusted_qty,status,approval_status,source_type) values($1,$2,$3,10,10,'open','approved','manual') returning id",[item.id,loc,company.id])
+  for(const status of ['prepared','sent']){
+   const q=await one('insert into public.proc_rfqs(status) values($1) returning id',[status])
+   await db.query('insert into public.proc_rfq_items(rfq_id,requirement_id,requested_qty) values($1,$2,10)',[q.id,co.id])
+  }
+  const po=await one("insert into public.proc_purchase_orders(supplier_id,status,created_by) values($1,'sent',$2) returning id",[supplier.id,admin])
+  const line=await one('insert into public.proc_po_lines(po_id,requirement_id,item_id,qty,unit_price) values($1,$2,$3,12,100) returning id',[po.id,req.id,item.id])
+  await db.exec('set role authenticated')
+  const key='00000000-0000-4000-8000-000000000801',payload=JSON.stringify([{po_line_id:line.id,received_qty:8,accepted_qty:8,rejected_qty:0}])
+  await db.query('select public.proc_receive_po_v3($1,$2,$3)',[po.id,key,payload])
+  const retry=await one('select public.proc_receive_po_v3($1,$2,$3) as result',[po.id,key,payload])
+  assert.equal(retry.result.replayed,true)
+  const call=async(scope='all')=>(await one("select public.proc_work_page_v1($1,'Needs me',0,array['requirements','rfq','po','receiving']) as data",[scope])).data
+  const result=await call(),partial=result.rows.find(r=>r.id===req.id)
+  const caseRow=purchasingCase(partial,{can:()=>true,canNavigate:()=>true})
+  assert.equal(caseRow.stillBuy,8);assert.equal(caseRow.stillReceive,4)
+  assert.ok(caseRow.actions.some(a=>a.view==='receiving'));assert.ok(caseRow.actions.some(a=>a.view==='requirements'))
+  assert.equal((await call('general')).counts['Needs me'],1)
+  const companyPage=await call('company')
+  assert.equal(companyPage.counts['Needs me'],1);assert.equal(companyPage.rows[0].proc_work_documents.rfqs.length,2)
+  const detail=await one('select public.proc_work_documents(r) as d from public.proc_v_requirements r where id=$1',[req.id])
+  assert.equal(detail.d.receipts.length,1);assert.equal(Number(detail.d.receipts[0].accepted),8)
+  assert.equal(Number((await one('select qty from public.proc_stock_balances where item_id=$1 and location_id=$2',[item.id,loc])).qty),8,'Receipt replay did not duplicate stock')
+  await db.exec('reset role')
+  const user='00000000-0000-4000-8000-000000000802'
+  await db.query("insert into public.proc_roles(role_key,name,base_role) values('stage_two_viewer','Stage 2 viewer','viewer')")
+  await db.query("insert into public.proc_role_permissions(role_key,permission_key) values('stage_two_viewer','dashboard.view'),('stage_two_viewer','procurement.requirements.view'),('stage_two_viewer','procurement.orders.view'),('stage_two_viewer','procurement.rfq.view')")
+  await db.query("insert into auth.users(id,email) values($1,'stage2@example.invalid')",[user])
+  await db.query("insert into public.proc_profiles(id,display_name,role,role_key) values($1,'Stage 2 viewer','viewer','stage_two_viewer')",[user])
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user])
+  await db.exec('set role authenticated')
+  const readOnly=await one("select public.proc_work_page_v1('all','In progress',0,array['requirements','rfq','po','receiving']) as data")
+  assert.equal(readOnly.data.counts['Needs me'],0);assert.equal(readOnly.data.counts['In progress'],2)
+  for(const row of readOnly.data.rows)assert.equal(purchasingCase(row,{can:()=>false,canNavigate:()=>true}).actions.length,0)
+  await assert.rejects(db.query('select public.proc_receive_po_v3($1,$2,$3)',[po.id,'00000000-0000-4000-8000-000000000803',payload]),/permission|Unauthorized|Not authorized|receiving/i)
+  await db.exec('reset role')
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[admin])
+  await db.query("update public.proc_roles set enabled=false where role_key='stage_two_viewer'")
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user])
+  await db.exec('set role authenticated')
+  await assert.rejects(call(),/Requirement access required/)
+ }finally{await db.close()}
+})

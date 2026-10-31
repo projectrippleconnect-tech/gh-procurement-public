@@ -107,7 +107,7 @@ try{
   let dashboardReviewFailure=false,workFailure=false
   const connectedRows=Array.from({length:28},(_,i)=>({...requirement,id:i===0?requirement.id:'connected-'+i,description:'Connected item '+i,requirement_no:'REQ-'+i,proc_requirement_is_company:i>=26,proc_work_documents:{rfqs:[],orders:[]}}))
   connectedRows[0]={...connectedRows[0],description:'PARTIAL PURCHASE',status:'partially_received',approval_status:'approved',remaining_to_order:8,proc_work_documents:{still_receive:4,rfqs:[{id:rfq.id,number:'OLDER VALID RFQ',status:'quoted'},{id:'new-rfq',number:'NEWER RFQ',status:'sent'}],orders:[{id:po.id,number:po.po_no,status:'partially_received',remaining:4}]}}
-  connectedRows.push({...requirement,id:'closed-case',description:'COMPLETED PURCHASE',status:'closed',proc_requirement_is_company:true,proc_work_documents:{rfqs:[],orders:[]}})
+  connectedRows.push({...requirement,id:'00000000-0000-4000-8000-000000000044',description:'COMPLETED PURCHASE',status:'closed',proc_requirement_is_company:true,proc_work_documents:{rfqs:[],orders:[]}})
   let exceptionFixtures=false
   const savedQuotes=new Map(),additionalCalls=[]; let extraSizeItems=[]
   let quoteReadFailure=null
@@ -428,10 +428,16 @@ try{
    await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
    await navigate('⌂ Work')
    await work.getByRole('button',{name:'Next',exact:true}).click()
-   await work.getByText('Page 2 of 2',{exact:true}).waitFor();assert.equal(await work.locator('.work-case').count(),3)
-   await selectList('company');await work.getByRole('button',{name:'History · 1',exact:true}).waitFor()
+   await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===3);await work.getByText('Page 2 of 2',{exact:true}).waitFor();assert.equal(await work.locator('.work-case').count(),3)
+   await selectList('company');await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===2);await work.getByRole('button',{name:'History · 1',exact:true}).waitFor()
    assert.equal(await work.locator('.work-case').count(),2,'Scope filtering resets pagination')
    await work.getByRole('button',{name:'History · 1',exact:true}).click();await work.getByRole('heading',{name:'COMPLETED PURCHASE',exact:true}).waitFor()
+   const completed=work.locator('.work-case').filter({hasText:'COMPLETED PURCHASE'})
+   await completed.locator('summary').click();await completed.getByRole('button',{name:'Stock count & requirement',exact:true}).click()
+   await page.getByRole('heading',{name:'Procurement Review',exact:true}).waitFor()
+   await page.getByText(/Viewing the linked requirement/).waitFor()
+   assert.ok(queries.some(u=>u.pathname.endsWith('/proc_v_requirements')&&u.searchParams.get('id')==='eq.00000000-0000-4000-8000-000000000044'&&!u.searchParams.has('status')),'History deep link is not excluded by active-only filters')
+   await navigate('⌂ Work')
    await work.getByRole('button',{name:'Needs me · 2',exact:true}).click()
    await navigate('✓ Stock Entry');await selectList('company');await navigate('⌂ Work')
    assert.equal(await listSelector().inputValue(),'company','Stock does not reset Work scope')
@@ -766,7 +772,7 @@ try{
    await row.getByLabel('Received '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('6')
    await row.getByLabel('Rejected '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('2')
    await row.getByLabel('Rejection reason '+(item.description+' · '+item.size).toUpperCase(),{exact:true}).fill('Broken')
-   const reviewButton=view.getByRole('button',{name:'Review receipt (1) →',exact:true})
+   const reviewButton=page.getByRole('button',{name:'Review receipt (1) →',exact:true})
    await reviewButton.click()
    let review=page.getByRole('dialog',{name:'2. Review receipt',exact:true})
    await review.getByText('6 received · 4 accepted · 2 rejected',{exact:true}).waitFor()
