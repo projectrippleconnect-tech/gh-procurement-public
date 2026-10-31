@@ -146,6 +146,41 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
 
+  stage-two-browser:
+    name: Stage 2 browser — ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [WORK_CASES, RECEIVING]
+    permissions:
+      contents: read
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      GH_UI_WIDTHS: '320,390,768,1366'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Exercise isolated browser flows on the reviewed source
+        run: env GH_UI_${{ matrix.mode }}=1 npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage-two-${{ matrix.mode }}
+          path: test-results/
+          retention-days: 7
+
   quote-conflicts:
     runs-on: ubuntu-latest
     timeout-minutes: 5

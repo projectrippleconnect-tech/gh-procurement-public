@@ -3,6 +3,7 @@
 import {ModernSelect} from './modern-select'
 import {WorkCases} from './work-cases'
 import {WorkExtras} from './work-extras'
+import {resumeTaskLabel} from '@/lib/dashboard-actions.mjs'
 import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
@@ -36,7 +37,7 @@ export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='
   <div className="toolbar work-refresh"><button className="btn small" onClick={()=>setRevision(x=>x+1)}>Refresh work</button></div>
   {canNavigate('requirements')?<WorkCases revision={revision} activeView={activeView} can={can} canNavigate={canNavigate} navigate={navigate}/>:<WorkExtras can={can} revision={revision} activeView={activeView} canNavigate={canNavigate} navigate={navigate} includePurchasing/>}
   {canNavigate('requirements')&&<WorkExtras can={can} revision={revision} activeView={activeView} canNavigate={canNavigate} navigate={navigate}/>}
-  {lastWork&&canNavigate(lastWork.view)&&<button className="btn small" onClick={resumeWork}>Continue saved draft or document →</button>}
+  {lastWork&&canNavigate(lastWork.view)&&<button className="btn small" onClick={resumeWork}>{resumeTaskLabel(lastWork)}</button>}
  </>
 }
 
