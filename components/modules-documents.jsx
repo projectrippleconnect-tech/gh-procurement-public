@@ -133,7 +133,7 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
  }
  async function action(type){
   if(!active)return
-  const message=type==='approve'?'Approve this purchase order?':'Confirm that this purchase order was actually sent to the supplier?'
+  const message=type==='approve'?(active.quantity_only?'Approve the quantities in this order? Prices are unconfirmed. This does not approve final spending.':'Approve this supplier, quantity, price, total and delivery terms?'):'Confirm that this purchase order was actually sent to the supplier?'
   if(!await confirmAction(message))return
   setBusy(true)
   const r=type==='approve'?await supabase.rpc('proc_approve_po_v2',{p_po_id:active.id}):await supabase.rpc('proc_mark_po_sent_v2',{p_po_id:active.id})
@@ -216,7 +216,8 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
    <SupplierDocumentEditor kind="po" value={documentTemplate} onChange={changeDocumentTemplate} company={company} lines={lines} po={active} disabled={busy||shareBusy}/>
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print po-primary-action">
-    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>Approve PO</button>}
+    {active.quantity_only&&<p className="notice">Quantity approval only. Prices are unconfirmed; this approval does not authorize final spending.</p>}
+    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>{active.quantity_only?'Approve quantity only':'Approve order'}</button>}
     {canEdit&&active.status==='approved'&&<><button className="btn primary" disabled={busy||shareBusy||!linesReady||!shareReady} title="Choose the supplier in WhatsApp and review the PNG plus caption before sending" onClick={()=>exportPo('share')}>{shareBusy?'Preparing PO PNG…':'Share PO PNG + Caption'}</button><button className="btn" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button></>}
     {can('receiving.view')&&active.status==='received'&&<button className="btn" onClick={()=>navigate('receiving','followup:'+active.po_no)}>Review follow-ups</button>}
     {canEdit&&canApprove&&active.status==='received'&&<button className="btn primary" disabled={busy||shareBusy||!linesReady} onClick={closeOrder}>Complete order →</button>}

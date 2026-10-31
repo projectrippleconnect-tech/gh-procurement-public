@@ -1,6 +1,7 @@
 'use client'
 import {companySubmissionNext} from '@/lib/purchasing-next-step.mjs'
 import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
+import {ORDER_STATES} from '@/lib/work-cases.mjs'
 import {AttentionBadge} from './purchasing-workspace'
 import {stockSubmissionOutcome} from '@/lib/stock-submission-outcome.mjs'
 export function CompanySubmissionResult({result,navigate,canNavigate=()=>true,onContinueCounting=()=>{}}){
@@ -24,9 +25,9 @@ export function CompanySubmissionResult({result,navigate,canNavigate=()=>true,on
   {purchaseVisible&&outcomes.length>0&&<details><summary>Counted items and purchasing status ({outcomes.length})</summary>
    {outcomes.map((l,index)=><div key={index} className="section" style={{borderBottom:'1px solid var(--line)',paddingBottom:10}}>
     <strong>{l.description}</strong>
-    <p className="tiny">Current: {l.sufficient_stock?'Sufficient':l.current_stock} · Stock shortage: {l.shortage_qty} · In existing POs: {l.committed_qty} · Uncovered: {l.uncovered_qty}</p>
+    <p className="tiny">Current: {l.sufficient_stock?'Sufficient':l.current_stock} · Stock shortage: {l.shortage_qty} · Reserved in existing POs: {l.committed_qty} · Uncovered: {l.uncovered_qty}</p>
     <p className="tiny">{l.reason}</p>
-    {(l.orders||[]).map(p=><button key={p.id} className="btn small" disabled={!canNavigate('po')} onClick={()=>navigate('po',p.id)}>PO {p.number} · {p.status} · {p.qty} unit(s)</button>)}
+    {(l.orders||[]).map(p=><button key={p.id} className="btn small" disabled={!canNavigate('po')} onClick={()=>navigate('po',p.id)}>PO {p.number} · {ORDER_STATES[p.status]||p.status} · {p.qty} unit(s)</button>)}
     {(l.rfqs||[]).map(q=><p key={q.id} className="tiny">RFQ {q.number} · {q.status}</p>)}
    </div>)}
   </details>}

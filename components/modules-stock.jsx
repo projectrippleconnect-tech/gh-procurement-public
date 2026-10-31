@@ -1,6 +1,7 @@
 'use client'
 
 import {ModernSelect} from './modern-select'
+import {WorkCases} from './work-cases'
 import {DashboardActions} from './dashboard-actions'
 import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
 import {reviewWorkQuery,quoteWorkQuery,scopePurchasingQuery} from '@/lib/purchasing-workspace.mjs'
@@ -33,8 +34,9 @@ const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 export function Dashboard({itemListType='general',onItemListTypeChange,can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
  const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
  const[queueCounts,setQueueCounts]=useState({})
+ const[workScope,setWorkScope]=useState('all')
  const purchasingAccess=['requirements','rfq','po'].some(canNavigate)
- const scopeWork=(query,field)=>purchasingAccess?scopePurchasingQuery(query,itemListType,field):query
+ const scopeWork=(query,field)=>purchasingAccess?scopePurchasingQuery(query,workScope,field):query
  const[loadState,setLoadState]=useState({})
  const loadSerial=useRef(0)
  const[overdueOpen,setOverdueOpen]=useState(false)
@@ -60,7 +62,7 @@ export function Dashboard({itemListType='general',onItemListTypeChange,can=()=>f
   ]
   const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent','review','approval','send','prices','deliveries']
   await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(index>=3&&!Number.isInteger(result.count))throw new Error('Queue count unavailable');if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else if(index<8)setAlerts(v=>({...v,[key]:result.count||0}));else setQueueCounts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
- }catch(e){fail(e)}},[fail,itemListType,purchasingAccess])
+ }catch(e){fail(e)}},[fail,workScope,purchasingAccess])
  useEffect(()=>{if(activeView==='dashboard')load()},[load,activeView])
  const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
  const cards=[
@@ -76,8 +78,11 @@ export function Dashboard({itemListType='general',onItemListTypeChange,can=()=>f
   ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
  ].filter(x=>enabled(x[0]))
  return <>
-  {purchasingAccess&&<ItemListSelector value={itemListType} onChange={onItemListTypeChange} t={t}/>}
+  {canNavigate('requirements')&&<WorkCases activeView={activeView} can={can} canNavigate={canNavigate} navigate={navigate}/>}
+  <details className="section" open={!canNavigate('requirements')}><summary>Task queues &amp; exceptions</summary>
+  {purchasingAccess&&<ItemListSelector value={workScope} onChange={setWorkScope} allowAll t={t}/>}
   <DashboardActions can={can} counts={{...alerts,...queueCounts}} states={loadState} canNavigate={canNavigate} navigate={navigate} onRefresh={load} lastWork={lastWork} resumeWork={resumeWork}/>
+  </details>
   <details className="dashboard-totals section"><summary>Overview &amp; totals</summary>
   <div className="grid metrics">{cards.map(x=>{
    const key=x[0].slice('dashboard.'.length),target=destinations[key]
