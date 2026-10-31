@@ -73,6 +73,12 @@ test('verified archive claims exactly once and finishes after sending PNG to the
   assert.equal(rpcs.filter(p=>p.name.includes('finish')).length,1)
   assert.equal(rpcs[0].args.p_source_id,'original-uuid')
   assert.equal(rpcs[0].args.p_page,1)
+  const sending=globalThis.fetch
+  globalThis.fetch=async(input,init)=>String(input).endsWith('/api/sendImage')?{ok:true,json:async()=>({})}:sending(input,init)
+  const uncertain=await mirrorStaffGroupCopy({...data,sourceId:'another-source'})
+  assert.equal(uncertain.status,'unknown')
+  assert.equal(rpcs.at(-1).args.p_status,'unknown')
+  globalThis.fetch=sending
   const duplicate=await mirrorStaffGroupCopy({...data,db:{rpc:async name=>({data:null,error:{code:'23505'}})}})
   assert.equal(duplicate.status,'already_recorded')
   assert.equal(paths.filter(p=>p.endsWith('/api/sendImage')).length,1)
