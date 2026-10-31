@@ -1002,7 +1002,7 @@ try{
    }
    await dock.getByRole('button',{name:'Submit 1 item →',exact:true}).click()
    await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
-   await view.getByText(/Existing purchasing records reserve 1 shortage item/).waitFor()
+   await view.getByText(/Existing purchasing records reserve the shortage/).waitFor()
    assert.equal(companyCountAttempt,1)
    assert.ok(await dock.getByRole('button',{name:'Submit 0 items →',exact:true}).isDisabled())
    await view.getByRole('button',{name:'Company setup',exact:true}).click()
@@ -1345,7 +1345,7 @@ try{
    await page.getByRole('button',{name:'Review company stock lot with 1 items',exact:true}).click()
    await page.getByRole('dialog',{name:'Review company stock lot',exact:true}).getByRole('button',{name:'Submit · 1',exact:true}).click()
    const result=view.getByRole('region',{name:'Company stock submission result',exact:true})
-   await result.getByText(/Existing purchasing records reserve 1 shortage item/).waitFor()
+   await result.getByText(/Existing purchasing records reserve the shortage/).waitFor()
    await view.getByRole('button',{name:'Recount',exact:true}).first().waitFor()
    assert.equal(await current.count(),0,'A finalized count requires an intentional recount')
    await view.getByRole('button',{name:'Recount',exact:true}).first().click()
