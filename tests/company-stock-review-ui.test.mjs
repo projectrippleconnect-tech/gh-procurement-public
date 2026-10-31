@@ -7,9 +7,9 @@ const companySource=source.slice(source.indexOf('export function CompanyLists'),
 
 test('Company header opens Review Lot; only reviewed modal may finalize',()=>{
  assert.match(companySource,/onClick=\{\(\)=>\{setCompanyHistoryOpen\(false\);setCompanyReviewOpen\(true\)\}\}/)
- assert.match(companySource,/Review Lot · \{countTotal\}/)
+ assert.match(companySource,/Review &amp; submit · \{countTotal\}/)
  assert.match(companySource,/className="modal card stock-lot-modal company-lot-modal"/)
- assert.match(companySource,/Finalize · '\+countTotal/)
+ assert.match(companySource,/Submit · '\+countTotal/)
  assert.equal([...companySource.matchAll(/onClick=\{submit\}/g)].length,1)
 })
 test('Company stock history and previously finalized markers use owner-scoped RPC',()=>{
