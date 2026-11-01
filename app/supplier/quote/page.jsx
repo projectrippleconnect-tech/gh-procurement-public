@@ -55,7 +55,7 @@ export default function SupplierQuotePortal(){
   setRevision(data.revision)
   const previous=new Map((data.response||[]).map(x=>[x.id,x]))
   setExpanded({})
-  setLines((data.items||[]).map(x=>({...emptyItem(x.id),uom:x.uom,...previous.get(x.id),notes:String(previous.get(x.id)?.notes||'').replace(PRICE_REVIEW_NOTE,'').trim()})))
+  setLines((data.items||[]).map(x=>({...emptyItem(x.id),uom:x.uom,...previous.get(x.id),notes:String(previous.get(x.id)?.supplier_notes??previous.get(x.id)?.notes??'').replace(PRICE_REVIEW_NOTE,'').trim()})))
  },[])
  useEffect(()=>{
   const value=new URLSearchParams(window.location.hash.slice(1)).get('token')||new URLSearchParams(window.location.search).get('token')||sessionStorage.getItem('gh-supplier-token')||''

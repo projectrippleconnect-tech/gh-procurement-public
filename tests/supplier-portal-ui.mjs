@@ -78,8 +78,14 @@ try{
   results.push({width,status:'passed'})
  }
  const second=await context.newPage();await second.goto(root+'/supplier/quote#token='+token);await second.getByLabel('Price for '+items[0].description,{exact:true}).waitFor()
- await page.getByLabel('Price for '+items[0].description,{exact:true}).fill('101');await page.getByRole('button',{name:'Save draft',exact:true}).click();await page.getByRole('status').getByText(/Draft saved/).waitFor()
- await second.getByLabel('Price for '+items[0].description,{exact:true}).fill('102');await second.getByRole('button',{name:'Save draft',exact:true}).click();await second.getByRole('alert').getByText(/another window/).waitFor()
+ const firstSave=page.waitForResponse(r=>r.url().endsWith('/proc_portal_submit_v1'))
+ await page.getByLabel('Price for '+items[0].description,{exact:true}).fill('101');await page.getByRole('button',{name:'Save draft',exact:true}).click();assert.equal((await firstSave).status(),200);await page.getByRole('status').getByText(/Draft saved/).waitFor()
+ const staleSave=second.waitForResponse(r=>r.url().endsWith('/proc_portal_submit_v1'))
+ await second.getByLabel('Price for '+items[0].description,{exact:true}).fill('102');await second.getByRole('button',{name:'Save draft',exact:true}).click();const stale=await staleSave
+ assert.equal(stale.status(),409,'The second tab must use its older quotation revision')
+ await second.getByRole('alert').waitFor()
+ const conflictText=await second.getByRole('alert').innerText()
+ assert.match(conflictText,/another window|வேறு சாளரத்தில்/,'Stale conflict stays visible in the selected language')
  assert.equal(await second.getByLabel('Price for '+items[0].description,{exact:true}).inputValue(),'102','Stale save preserves local edits')
  assert.deepEqual(errors,[])
  const gate=await fetch(root+'/api/supplier-portal/worker',{method:'POST'});assert.equal(gate.status,401)

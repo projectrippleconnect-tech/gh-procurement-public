@@ -65,7 +65,7 @@ export function WorkCases({activeView,can,canNavigate,navigate,revision=0,langua
    {cases.map(c=><article key={c.id} className="work-case compact-work-case" aria-labelledby={'case-'+c.id}>
     <div className="work-case-heading"><h3 id={'case-'+c.id}>{c.row.description}{c.row.size?' · '+c.row.size:''}</h3><span className="muted tiny">{tr(c.row.proc_requirement_is_company?'Company':'General')}</span></div>
     <p className="work-case-status">{tr(c.statusLabel)}</p>
-    {!c.history&&(c.stillBuy>0||c.stillReceive>0)&&<p className="work-case-balances">{c.stillBuy>0&&<strong>{tr('Buy')} {qty(c.stillBuy)} {c.row.uom}</strong>}{c.stillReceive>0&&<strong>{tr('Receive quantity')} {qty(c.stillReceive)} {c.row.uom}</strong>}</p>}
+    {!c.history&&(c.stillBuy>0||c.stillReceive>0)&&<p className="work-case-balances">{c.stillBuy>0&&<strong>{tr('Buy')} {qty(c.stillBuy)} {c.row.uom}</strong>}{c.stillReceive>0&&<strong>{tr('Receive')} {qty(c.stillReceive)} {c.row.uom}</strong>}</p>}
     <AttentionBadge reason={tr(c.attention)} label={tr('Needs attention')}/>
     <div className="toolbar">{c.primaryAction&&<button className="btn primary" onClick={()=>navigate(c.primaryAction.view,c.primaryAction.filter,c.primaryAction.step)}>{tr(c.primaryAction.label)}</button>}{c.secondaryAction&&<button className="btn small" onClick={()=>navigate(c.secondaryAction.view,c.secondaryAction.filter,c.secondaryAction.step)}>{tr(c.secondaryAction.label)}</button>}</div>
     <CaseDetails key={c.id+':'+revision} language={language} purchase={c} canNavigate={canNavigate} navigate={navigate}/>

@@ -14,7 +14,7 @@ Scope: supplier-form simplification, compact phone rows, essential EN/TA control
 
 ## Validation
 
-- 515 unit/integration tests pass locally, including a real isolated anonymous supplier submission that synchronizes rates with null/unconfirmed commercial terms, legacy-value preservation, branding, Tamil controls and rendered receiving acceptance.
+- 516 unit/integration tests pass locally, including a real isolated anonymous supplier submission that synchronizes rates with null/unconfirmed commercial terms, legacy-value preservation, branding, Tamil controls and rendered receiving acceptance.
 - TypeScript, changed JSX parsing and production build pass. No production database migration is required.
 - Supplier browser scenarios now confirm without delivery/charge fields, assert unconfirmed commercial scope, preserve images/drafts/stale-conflict behavior, and exercise English/Tamil at 320, 360, 390, 768 and 1280 pixels.
 - Local browser installation failed because the downloaded archive was invalid. The branch's existing hosted quality gate runs the updated supplier browser cases and all Work/Receiving/stock/directory/access/performance regressions. Its checks are the authoritative browser acceptance result; do not infer a completed hosted run from this local checkpoint.

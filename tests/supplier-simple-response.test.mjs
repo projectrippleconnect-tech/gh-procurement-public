@@ -64,3 +64,11 @@ test('real anonymous supplier confirmation imports prices but leaves commercial 
   assert.equal(terms.terms,null,'Supplier price confirmation cannot create confirmed commercial terms')
  }finally{await db.close()}
 })
+
+test('a long existing supplier remark remains available beyond the imported review-note preview',()=>{
+ const remark='x'.repeat(500)
+ const response=supplierPriceResponse([{id:'long',status:'in_stock',price:12,quantity:2,notes:remark}])[0]
+ assert.equal(response.supplier_notes,remark)
+ assert.equal(response.notes.length,500)
+ assert.ok(response.notes.startsWith(PRICE_REVIEW_NOTE))
+})
