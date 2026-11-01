@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2'
 import webpush from 'npm:web-push@3.6.7'
 const db=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
-const cors={'Access-Control-Allow-Origin':'https://gh-procurement.netlify.app','Access-Control-Allow-Headers':'authorization,apikey,content-type','Content-Type':'application/json'}
+const cors={'Access-Control-Allow-Origin':'https://gh-procurement.netlify.app','Access-Control-Allow-Headers':'authorization, x-client-info, apikey, content-type, x-retry-count, traceparent, tracestate, baggage','Access-Control-Allow-Methods':'POST, OPTIONS','Content-Type':'application/json'}
 const json=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:cors})
 async function checked(query:any){const r=await query;if(r.error)throw r.error;return r.data}
 Deno.serve(async req=>{
