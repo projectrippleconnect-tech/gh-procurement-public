@@ -1,6 +1,6 @@
 # Requirements completion — stage 1
 
-Scope: supplier-form simplification, compact phone rows, essential EN/TA controls and GEN document branding. Prepared against the current performance release. Production publication remains part of the final release stage; this change does not enable supplier sending, automatic approval or purchasing, issue OTPs or change category routes.
+Scope: supplier-form simplification, compact phone rows, essential EN/TA controls and GEN document branding. Prepared against the current performance release. Published manually to the existing Netlify site on 1 November 2026; this change does not enable supplier sending, automatic approval or purchasing, issue OTPs or change category routes.
 
 ## Result
 
@@ -22,3 +22,13 @@ Scope: supplier-form simplification, compact phone rows, essential EN/TA control
 ## Remaining stages
 
 Category-route corrections, supplier OTP/permanent portal, device notification activation, WhatsApp/audit delivery, unattended purchasing and full remaining-gap acceptance remain separate from stage 1. No live supplier contact or purchasing test is included here.
+
+## Verified manual publication — 1 November 2026
+
+- Deployed application revision: `5b2535b39489be784e3fe0932ea722f2d21de1f1`.
+- Manual release run [10](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/41277425901) completed successfully, including fresh contract/TypeScript/database/build checks, supplier EN/TA browser acceptance, stock/Work/receiving/performance checks and exact-live-revision verification.
+- Existing quality run [513](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/41267858241) passed all nine jobs for this exact application revision. Fourteen focused tests were independently rerun during release verification and passed.
+- Live supplier page responds with GEN and working English/Tamil switching. Release production checks passed health, connected database, ready schema, login/CSP, OCR assets and rejection of unauthenticated sending.
+- No production database migration, category-route changes, OTPs or real supplier dispatches were performed. Existing automated purchasing/sending release flags remain false.
+- Browser acceptance uses isolated fixtures and phone-sized viewports; physical testing on the owner's Android phone remains a distinct acceptance limitation.
+- Rollback application revision: `cd08cb306863bb2d7d28e7d96a6b46a92c7a6761`, using the existing reviewed manual release workflow.
