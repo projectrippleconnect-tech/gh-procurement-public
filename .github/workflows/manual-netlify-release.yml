@@ -1,11 +1,11 @@
 # Operator-triggered ONLY. No push, schedule, pull_request or Netlify Git integration.
-# Release candidate: app-wide loading improvements; preserves reviewed workflows and gateway fixes.
+# Release candidate: Stages 5–7 WhatsApp acknowledgement safety and repeatable acceptance checkpoint.
 name: GH Procurement - Manual Netlify release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type DEPLOY to publish simplified stock and purchasing flows to the EXISTING Netlify site'
+        description: 'Type DEPLOY to publish the Stage 5–7 reliability patch to the EXISTING Netlify site'
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: cd08cb306863bb2d7d28e7d96a6b46a92c7a6761
+      GH_RELEASE_SHA: c95aa5b73a3a460a722d34fb4c3216f2ed92afc9
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: cd08cb306863bb2d7d28e7d96a6b46a92c7a6761
+          ref: c95aa5b73a3a460a722d34fb4c3216f2ed92afc9
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -130,7 +130,7 @@ jobs:
         run: |
           node --input-type=module - <<'NODE'
           import assert from 'node:assert/strict'
-          const response=await fetch('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/41258936924',{headers:{Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)})
+          const response=await fetch('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/41313465758',{headers:{Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)})
           assert.equal(response.status,200,'Quality verification must be readable before publication')
           const run=await response.json()
           assert.equal(run.head_sha,process.env.GH_RELEASE_SHA,'Quality checks must cover the exact release revision')
@@ -166,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
-            --message "Manual GH Procurement loading performance release $GH_RELEASE_SHA" \
+            --message "Manual GH Procurement requirements Stages 5–7 release $GH_RELEASE_SHA" \
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
