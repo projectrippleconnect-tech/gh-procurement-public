@@ -1,0 +1,78 @@
+# One-time, non-deploying update of the FOUR nonsecret GH Procurement gateway settings.
+# Triggered only when this workflow file is added/modified on its reviewed branch.
+# Requires existing GitHub Actions secret GH_NETLIFY_AUTH_TOKEN. No changes to API secrets.
+name: GH Procurement - Configure Netlify WAHA variables (safe)
+on:
+  push:
+    branches:
+      - fix/portable-secure-waha-gateway
+    paths:
+      - .github/workflows/stage5-netlify-vars.yml
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-netlify-env-settings
+  cancel-in-progress: false
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+    steps:
+      - name: Confirm private Netlify credential is provisioned
+        run: |
+          set -euo pipefail
+          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+            echo "STOP: GH_NETLIFY_AUTH_TOKEN is not available. No changes made."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned Netlify CLI
+        run: npm install --global netlify-cli@27.13.0
+      - name: Verify exact existing GH Procurement project
+        run: |
+          set -euo pipefail
+          netlify sites:list --json > "$RUNNER_TEMP/gh-sites.json"
+          node - <<'NODE'
+          const fs=require('fs')
+          const j=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/gh-sites.json','utf8'))
+          const sites=Array.isArray(j)?j:(j.sites||[])
+          const target=sites.find(s=>s.id===process.env.NETLIFY_SITE_ID)
+          if(!target||target.name!=='gh-procurement'){
+            throw new Error('Target site mismatch. No environment variables changed.')
+          }
+          console.log('Verified exact existing Netlify project')
+          NODE
+      - name: Set production sending OFF FIRST then gateway metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          # All default Netlify CLI scopes (free plan); only production context.
+          # No deployments or supplier sends. WAHA_API_KEY is not read or changed.
+          netlify env:set WAHA_SENDING_ENABLED false --context production --site "$NETLIFY_SITE_ID" --force
+          netlify env:set WAHA_BASE_URL https://gh-procurement-waha.hostless.app --context production --site "$NETLIFY_SITE_ID" --force
+          netlify env:set WAHA_ALLOWED_HOST gh-procurement-waha.hostless.app --context production --site "$NETLIFY_SITE_ID" --force
+          netlify env:set WAHA_SESSION default --context production --site "$NETLIFY_SITE_ID" --force
+      - name: Verify production values and no deploy occurred
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            key="$1"
+            expected="$2"
+            actual="$(netlify env:get "$key" --context production --site "$NETLIFY_SITE_ID")"
+            if [ "$actual" != "$expected" ]; then
+              echo "Unexpected production value for $key"
+              exit 1
+            fi
+            echo "Verified $key"
+          }
+          check WAHA_SENDING_ENABLED false
+          check WAHA_BASE_URL https://gh-procurement-waha.hostless.app
+          check WAHA_ALLOWED_HOST gh-procurement-waha.hostless.app
+          check WAHA_SESSION default
+          echo "Four nonsecret production-only settings verified. No deployment requested."
