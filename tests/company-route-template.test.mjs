@@ -20,7 +20,7 @@ test('direct POs always identify bypassed rates without inventing prices',()=>{
  assert.equal(routeImageModel({...base,template:{fields:{rate:false}}}).lines[0].rate,'Direct PO')
 })
 test('template defaults and limits prevent invalid sender data',()=>{
- assert.equal(routeTemplate({name:''}).name,'General Hardware')
+ assert.equal(routeTemplate({name:''}).name,'GEN')
  assert.throws(()=>routeTemplate({name:'x'.repeat(81)}),/Invalid/)
  assert.throws(()=>routeTemplate({caption:42}),/Invalid/)
 })

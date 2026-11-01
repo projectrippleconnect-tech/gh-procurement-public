@@ -1,5 +1,6 @@
 'use client'
 
+import {interfaceTranslator} from '@/lib/interface-copy.mjs'
 import {ModernSelect} from './modern-select'
 import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
 
@@ -31,6 +32,7 @@ const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 export {Dashboard} from './work-dashboard'
 
 export function StockCheck({activeView='stock',initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange,itemListType,onItemListTypeChange}){
+ const tr=interfaceTranslator(language)
  const confirmAction=useActionConfirmation()
  const[stockTab,setStockTab]=useState(()=>{try{return can('company_lists.view')&&localStorage.getItem('gh-stock-list-tab:'+profile.id)==='company'?'company':'general'}catch{return 'general'}})
  function changeStockTab(value){setStockTab(value);onItemListTypeChange?.(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
@@ -633,7 +635,7 @@ export function StockCheck({activeView='stock',initialFilter='',profile,fields,f
   ...(rowField('main_group')?[{key:'main_group',label:'Main Group',render:i=>uppercaseItemText(i.main_group)}]:[]),
   ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group',render:i=>uppercaseItemText(i.subgroup)}]:[]),
   ...(rowField('max_stock')?[{key:'max_stock',label:'Max',render:i=>qty(i.max_stock)}]:[]),
-  {key:'current_stock',label:'Stock',render:i=>finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)?<button className="btn small" onClick={()=>allowRecount(i.item_id)}>Recount</button>:<input aria-label={'Current stock: '+stockItemLabel(i)} className="input stock-entry" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[i.item_id]} value={sufficient[i.item_id]?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>},
+  {key:'current_stock',label:'Stock',render:i=>finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)?<button className="btn small" onClick={()=>allowRecount(i.item_id)}>{tr('Recount')}</button>:<input aria-label={'Current stock: '+stockItemLabel(i)} className="input stock-entry" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[i.item_id]} value={sufficient[i.item_id]?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>},
   {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" disabled={!!finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)} checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
  ]
 
@@ -647,16 +649,16 @@ export function StockCheck({activeView='stock',initialFilter='',profile,fields,f
   {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} onClose={()=>setItemHistory(null)}/>}
   {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
-    <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">Check your quantities, then submit once.</p></div><button type="button" className="btn small" disabled={busy} onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
-    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" disabled={busy} onClick={()=>setLotReviewOpen(false)}>Back to counting</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Submitting…':`Submit · ${pendingLot.count}`}</button></div>
-    {!markersReady&&<p className="notice" role="alert">{markerError||'Checking previous submissions for the items in this lot…'} <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
+    <div className="modal-head"><div><h3>{tr('Review stock lot')} · {pendingLot.count} {tr('items')}</h3><p className="muted tiny">{tr('Check your quantities, then submit once.')}</p></div><button type="button" className="btn small" disabled={busy} onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" disabled={busy} onClick={()=>setLotReviewOpen(false)}>{tr('Back to counting')}</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?tr('Submitting…'):`${tr('Submit')} · ${pendingLot.count}`}</button></div>
+    {!markersReady&&<p className="notice" role="alert">{markerError||'Checking previous submissions for the items in this lot…'} <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>{tr('Retry history check')}</button></p>}
     {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
      {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
      {pendingLot.overLimit&&<p className="notice" role="alert">This lot is too large for one server submission (maximum 1000 items). Nothing will be submitted until an administrator helps split it safely.</p>}
      <div className="stock-lot-rows">{pendingLot.rows.map(row=><div className="stock-lot-row" key={row.id}>
       <div className="stock-lot-item"><strong>{uppercaseItemText(row.description)}</strong>{row.previous&&<small className="stock-submitted-badge">{row.requiresRecount?'✓ Previously submitted':'↺ Explicit recount'} · {row.previous.count_no} · {submissionTime(row.previous.submitted_at)}</small>}</div>
-      {row.requiresRecount?<button type="button" className="btn small" onClick={()=>allowRecount(row.id)}>Recount</button>:<><input className="input stock-lot-qty" inputMode="decimal" aria-label={'Count for '+row.description} disabled={busy||row.sufficient} value={row.sufficient?'':row.quantity??''} onChange={e=>setCount(row.id,e.target.value)}/><label className="stock-lot-enough"><input type="checkbox" disabled={busy} checked={row.sufficient} onChange={e=>setEnough(row.id,e.target.checked)}/>Enough</label></>}
-      <button type="button" className="btn small stock-lot-remove" disabled={busy} onClick={()=>removeFromLot(row.id)} aria-label={'Remove '+row.description+' from pending lot'}>Remove</button>
+      {row.requiresRecount?<button type="button" className="btn small" onClick={()=>allowRecount(row.id)}>{tr('Recount')}</button>:<><input className="input stock-lot-qty" inputMode="decimal" aria-label={'Count for '+row.description} disabled={busy||row.sufficient} value={row.sufficient?'':row.quantity??''} onChange={e=>setCount(row.id,e.target.value)}/><label className="stock-lot-enough"><input type="checkbox" disabled={busy} checked={row.sufficient} onChange={e=>setEnough(row.id,e.target.checked)}/>{tr('Enough')}</label></>}
+      <button type="button" className="btn small stock-lot-remove" disabled={busy} onClick={()=>removeFromLot(row.id)} aria-label={'Remove '+row.description+' from pending lot'}>{tr('Remove')}</button>
      </div>)}</div>
     </>}
 
@@ -756,7 +758,7 @@ export function StockCheck({activeView='stock',initialFilter='',profile,fields,f
        </button>
        {finalizedMarkers[i.item_id]&&<StockHistoryLink itemName={stockItemLabel(i)} recounting={!alreadySubmitted} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}/>}
       </div>
-      <div className="stock-dense-input-wrap">{alreadySubmitted?<button type="button" className="btn small stock-recount-action" onClick={()=>allowRecount(i.item_id)}>Recount</button>:<>{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></>}</div>
+      <div className="stock-dense-input-wrap">{alreadySubmitted?<button type="button" className="btn small stock-recount-action" onClick={()=>allowRecount(i.item_id)}>{tr('Recount')}</button>:<>{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></>}</div>
       <label className="stock-dense-sufficient" title="Stock is above the reorder level; exact count not required"><input type="checkbox" className="stock-sufficient-checkbox" aria-label={'Sufficient stock: '+stockItemLabel(i)} disabled={!!alreadySubmitted} checked={enough} onChange={e=>setEnough(i.item_id,e.target.checked)}/></label>
      </div>
     })}
