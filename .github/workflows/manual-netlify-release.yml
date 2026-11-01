@@ -125,6 +125,19 @@ jobs:
           GH_UI_RECEIVING=1 npm run test:ui
           GH_UI_PERFORMANCE=1 npm run test:ui
 
+      - name: Require successful quality checks for this exact application revision
+        run: |
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict'
+          const response=await fetch('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/41258936924',{headers:{Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)})
+          assert.equal(response.status,200,'Quality verification must be readable before publication')
+          const run=await response.json()
+          assert.equal(run.head_sha,process.env.GH_RELEASE_SHA,'Quality checks must cover the exact release revision')
+          assert.equal(run.status,'completed','All quality checks must finish before publication')
+          assert.equal(run.conclusion,'success','All quality checks must pass before publication')
+          console.log('PASS exact release quality gate is complete and successful')
+          NODE
+
       - name: Install a pinned Netlify CLI on this temporary runner
         run: npm install --global netlify-cli@27.13.0
 
