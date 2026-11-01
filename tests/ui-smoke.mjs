@@ -448,7 +448,7 @@ try{
    assert.equal(await initialLot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'}).isDisabled(),false)
    await initialLot.getByRole('button',{name:'Back to counting'}).click()
    performanceHistoryFailure=true
-   await page.locator('.dense-pagination').getByRole('button',{name:'Next',exact:true}).click()
+   await page.locator('.dense-pagination').getByRole('button',{name:'Next',exact:true}).first().click()
    await page.getByText('PERFORMANCE ITEM 0020',{exact:true}).filter({visible:true}).first().waitFor()
    await page.getByRole('button',{name:/Review & submit · 1/}).click()
    const lot=page.getByRole('dialog',{name:'Review stock lot before final submission'})

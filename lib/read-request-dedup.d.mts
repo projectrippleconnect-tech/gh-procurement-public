@@ -1,1 +1,1 @@
-export function deduplicatedReads(fetcher: typeof fetch): typeof fetch;
+export function deduplicatedReads(fetcher: typeof fetch, options?: {now?: ()=>number;windowMs?:number}): typeof fetch;

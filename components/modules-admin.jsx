@@ -80,7 +80,7 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
    if(controller.signal.aborted||revision!==reportRevision.current)return
    if(r.error)throw r.error
    setRows((r.data||[]).map(x=>flatten(type,x)));setTotalRows(r.count??r.data?.length??0)
-  }catch(e){if(!controller.signal.aborted&&revision===reportRevision.current){setRows([]);fail(e)}}
+  }catch(e){if(!controller.signal.aborted&&revision===reportRevision.current){setRows([]);setTotalRows(0);fail(e)}}
   finally{if(!controller.signal.aborted&&revision===reportRevision.current)setLoading(false)}
  },[def,type,from,to,screenPage,screenPageSize,reportQuery,fail])
  useEffect(()=>{load();return()=>{reportRevision.current++;reportController.current?.abort()}},[load])

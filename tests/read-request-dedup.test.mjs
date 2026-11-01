@@ -27,3 +27,28 @@ test('cancelled requests keep their own signal and failures are not retained',as
  await Promise.all([fetcher(root+'proc_items',{signal:controller.signal}),fetcher(root+'proc_items',{signal:controller.signal})]);assert.equal(count,2)
  await assert.rejects(fetcher(root+'proc_items'),/offline/);await fetcher(root+'proc_items');assert.equal(count,4)
 })
+
+test('a retry can start a fresh read even if an earlier network request is stalled',async()=>{
+ let clock=0,calls=0,release
+ const gate=new Promise(r=>{release=r})
+ const fetcher=deduplicatedReads(async()=>{calls++;if(calls===1)await gate;return Response.json({call:calls})},{now:()=>clock})
+ const stalled=fetcher(root+'rpc/proc_workspace_bootstrap_v1',{method:'POST',body:'{}'})
+ await Promise.resolve();assert.equal(calls,1)
+ clock=2000
+ const fresh=await fetcher(root+'rpc/proc_workspace_bootstrap_v1',{method:'POST',body:'{}'})
+ assert.equal(calls,2);assert.deepEqual(await fresh.json(),{call:2});release();await stalled
+})
+
+test('a write invalidates pending read sharing so its refresh cannot reuse pre-write data',async()=>{
+ let reads=0,release
+ const gate=new Promise(r=>{release=r})
+ const fetcher=deduplicatedReads(async(_input,init)=>{
+  if(init.method==='POST')return Response.json({saved:true})
+  reads++;if(reads===1){await gate;return Response.json({version:'old'})}
+  return Response.json({version:'new'})
+ })
+ const old=fetcher(root+'proc_items');await Promise.resolve()
+ await fetcher(root+'rpc/proc_update_item_master_v1',{method:'POST',body:'{}'})
+ assert.deepEqual(await (await fetcher(root+'proc_items')).json(),{version:'new'});assert.equal(reads,2)
+ release();await old
+})
