@@ -23,6 +23,9 @@ test('supplier document requires valid positive quantities and nonempty UOM',()=
  assert.throws(()=>supplierSendRows([]),/no supplier items/)
  assert.throws(()=>supplierSendRows([{description:'x',qty:0,uom:'PCS'}]),/Incomplete/)
  assert.throws(()=>supplierSendRows([{description:'x',qty:2}]),/Incomplete/)
+ assert.deepEqual(supplierSendRows([{description:'GI pipe',size:'2 inch',qty:3,uom:'PCS',unitPrice:10.5,lineTotal:31.5}])[0],
+  {description:'GI pipe',size:'2 inch',qty:3,uom:'PCS',unitPrice:10.5,lineTotal:31.5})
+ assert.throws(()=>supplierSendRows([{description:'x',qty:2,uom:'PCS',unitPrice:null,lineTotal:4}]),/Invalid supplier price/)
 })
 test('owner-only audit group must be explicitly enabled and in proper WhatsApp group-id format',()=>{
  const config={enabled:'true',ownerOnly:'true',groupId:'120363123456789123@g.us'}
