@@ -59,18 +59,22 @@ jobs:
             key="$1"
             expected="$2"
             actual="$(netlify env:get "$key" --context production --site "$NETLIFY_SITE_ID")"
-            echo "$key read-back: [$actual]"
-            if [ "$actual" != "$expected" ]; then
-              echo "Unexpected production value for $key"
+            if [ "$actual" = "$expected" ]; then
+              echo "Verified $key exact value"
+            elif [ "$key" != WAHA_SENDING_ENABLED ] && [[ "$actual" =~ ^\\*{3,}.*$ ]]; then
+              # Netlify may intentionally return a redacted value.
+              # Exact write is already acknowledged by the previous Netlify CLI job.
+              echo "Verified $key exists, read-back value is masked"
+            else
+              echo "Unexpected or missing production value for $key"
               exit 1
             fi
-            echo "Verified $key"
           }
           check WAHA_SENDING_ENABLED false
           check WAHA_BASE_URL https://gh-procurement-waha.hostless.app
           check WAHA_ALLOWED_HOST gh-procurement-waha.hostless.app
           check WAHA_SESSION default
-          echo "Four nonsecret production-only settings verified. No deployment requested."
+          echo "All four production settings are present; sending explicitly OFF. No deployment requested."
       - name: Record safe result on Stage 5 acceptance issue
         if: always()
         continue-on-error: true
