@@ -88,8 +88,8 @@ try{
  await second.waitForFunction(()=>document.querySelector('.sq-keyboard-open'))
  await second.getByRole('button',{name:'Save draft',exact:true}).click();const stale=await staleSave
  assert.equal(stale.status(),409,'The second tab must use its older quotation revision')
- await second.getByRole('alert').waitFor()
- const conflictText=await second.getByRole('alert').innerText()
+ await second.locator('.supplier-quote-portal').getByRole('alert').waitFor()
+ const conflictText=await second.locator('.supplier-quote-portal').getByRole('alert').innerText()
  assert.match(conflictText,/another window|வேறு சாளரத்தில்/,'Stale conflict stays visible in the selected language')
  assert.equal(await second.getByLabel('Price for '+items[0].description,{exact:true}).inputValue(),'102','Stale save preserves local edits')
  assert.deepEqual(errors,[])
