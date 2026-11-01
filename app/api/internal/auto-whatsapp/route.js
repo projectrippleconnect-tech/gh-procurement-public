@@ -156,21 +156,32 @@ export async function POST(request){
  try{cutoff=isoCutoff()}catch{return hardFail('Activation cutoff is not valid')}
  try{
   const {db,token}=await operatorClient(config.url,config.key)
-  const jobs=checked(await db.from('proc_automation_jobs')
-   .select('id,job_type,entity_type,entity_id,status,created_at')
-   .eq('status','needs_action').in('job_type',['rfq_send','po_send'])
-   .gte('created_at',cutoff).order('created_at',{ascending:true}).limit(8),'Automation job list unavailable')
   const results=[]
-  for(const job of jobs){
-   if(!eligibleAutomaticJob(job,cutoff))continue
-   const work=job.job_type==='rfq_send'?await rfqWork(db,job.entity_id):await poWork(db,job.entity_id)
-   for(const row of work.slice(0,Math.max(0,2-results.length))){
-    // Stop on ANY uncertain send; a subsequent run will consult immutable attempt history.
-    results.push(await sendWork(db,token,row))
+  let scanned=0,more=false
+  // Page past previously attempted jobs; always examining the first N would
+  // starve newer invitations because accepted jobs remain needs_action until
+  // actual recipient delivery is confirmed independently.
+  for(let page=0;page<25&&results.length<2;page++){
+   const jobs=checked(await db.from('proc_automation_jobs')
+    .select('id,job_type,entity_type,entity_id,status,created_at')
+    .eq('status','needs_action').in('job_type',['rfq_send','po_send'])
+    .gte('created_at',cutoff).order('created_at',{ascending:true}).order('id',{ascending:true})
+    .range(page*20,page*20+19),'Automation job list unavailable')
+   scanned+=jobs.length
+   for(const job of jobs){
+    if(!eligibleAutomaticJob(job,cutoff))continue
+    const work=job.job_type==='rfq_send'?await rfqWork(db,job.entity_id):await poWork(db,job.entity_id)
+    for(const row of work.slice(0,Math.max(0,2-results.length))){
+     // Stop on ANY uncertain send; immutable history prevents silent retries.
+     results.push(await sendWork(db,token,row))
+    }
+    if(results.length>=2)break
    }
-   if(results.length>=2)break
+   if(jobs.length<20)break
+   if(page===24)more=true
   }
-  return json({ok:true,processed:results.length,results,notice:'API acceptance is not proof of recipient delivery.'})
+  return json({ok:true,processed:results.length,scanned,more,results,
+   notice:'API acceptance is not proof of recipient delivery.'})
  }catch(e){
   return hardFail('Auto-dispatch stopped safely: '+(e instanceof Error?e.message:'unexpected error'),503)
  }
