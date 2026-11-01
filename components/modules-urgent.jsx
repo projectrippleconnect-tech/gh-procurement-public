@@ -60,14 +60,12 @@ export function UrgentActions({activeView='urgent_actions',profile,fields,featur
 
  const load=useCallback(async()=>{const revision=++loadRevision.current;setLoading(true);try{
   const stockFields='action_type,action_id,item_id,missing_request_id,description,brand,category,main_group,subgroup,size,uom,movement,required_qty,effective_priority,urgency_reason,customer_paid,customer_reference,image_path,created_at,book_stock'
-  const r=await allRows(()=>supabase.from('proc_v_urgent_actions').select(stockOnly?stockFields:'*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id'))
-  if(r.error)throw r.error
-  let nextJobs=[]
-  if(canAutomation){
-   const j=await allRows(()=>supabase.from('proc_automation_jobs').select('*').in('status',['pending','needs_action','failed']).order('updated_at',{ascending:false}).order('id'))
-   if(j.error)throw j.error
-   nextJobs=j.data||[]
-  }
+  const [r,j]=await Promise.all([
+   allRows(()=>supabase.from('proc_v_urgent_actions').select(stockOnly?stockFields:'*').order('priority_score',{ascending:false}).order('created_at',{ascending:true}).order('action_type').order('action_id')),
+   canAutomation?allRows(()=>supabase.from('proc_automation_jobs').select('*').in('status',['pending','needs_action','failed']).order('updated_at',{ascending:false}).order('id')):Promise.resolve({data:[]})
+  ])
+  if(r.error)throw r.error;if(j.error)throw j.error
+  const nextJobs=j.data||[]
   if(revision===loadRevision.current){setRows(r.data||[]);setJobs(nextJobs);setQueuePage(0);setJobPage(0)}
  }catch(e){if(revision===loadRevision.current)fail(e)}finally{if(revision===loadRevision.current)setLoading(false)}},[fail,canAutomation])
  useEffect(()=>{if(activeView!=='urgent_actions')return;load();return()=>{loadRevision.current++}},[load,activeView])

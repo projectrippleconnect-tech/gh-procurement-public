@@ -28,7 +28,7 @@ import {ItemActivity} from './item-activity'
 import {nextRequirementAction} from '@/lib/procurement-flow'
 import {extractPriceListFile} from '@/lib/price-list-extract'
 import {contactNameKey,matchContactPhone,duplicateContactNumbers} from '@/lib/contact-duplicates.mjs'
-import {exportSupplierPriceRequestPdf} from '@/lib/pdf'
+import {exportSupplierPriceRequestPdf} from '@/lib/lazy-pdf.mjs'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng} from '@/lib/rfq-share'
 
 export function Requirements({itemListType='general',onItemListTypeChange,activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},guidedStep=2,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,t=(k,f)=>f||k}){
@@ -85,7 +85,13 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   if(categoryFilter)q=q.eq('category',categoryFilter)
   if(requirementSearch.trim())q=q.or(containsAny(['description','size','item_code','requirement_no'],requirementSearch.trim()))
   }
-  const tasks=[q]
+  const rowTask=Promise.resolve(q).then(a=>{
+   if(request!==requirementLoadRevision.current)return a
+   if(a.error)throw a.error
+   setRows(a.data||[]);setTotal(a.count||0)
+   return a
+  })
+  const tasks=[rowTask]
   if(canReview){
    tasks.push(allRows(()=>supabase.from('proc_suppliers').select('id,supplier_code,name,supplier_kind').eq('active',true).order('name').order('id')))
    tasks.push(supabase.from('proc_requirements').select('id',{count:'exact',head:true}).eq('approval_status','pending_review').in('status',['open','quoting','partially_ordered','ordered','partially_received']))
@@ -364,7 +370,7 @@ export function Suppliers({profile,fields,features=[],flash,fail,can=()=>false,t
  const[reviewedSupplierConflict,setReviewedSupplierConflict]=useState(false)
  const[performance,setPerformance]=useState({})
  const load=useCallback(async()=>{
-  const [r,p,d]=await Promise.all([supabase.from('proc_suppliers').select('*').order('name'),supabase.from('proc_v_supplier_performance_v2').select('*'),supabase.from('proc_v_supplier_delivery_evidence_v1').select('*')])
+  const [r,p,d]=await Promise.all([Promise.resolve(supabase.from('proc_suppliers').select('*').order('name')).then(r=>{if(!r.error)setRows(r.data||[]);return r}),supabase.from('proc_v_supplier_performance_v2').select('*'),supabase.from('proc_v_supplier_delivery_evidence_v1').select('*')])
   if(r.error)fail(r.error);else setRows(r.data||[])
   if(p.error)fail(p.error)
   else {
@@ -1067,9 +1073,9 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   }catch(e){fail(e)}finally{setBusy(false)}
  }
 
- function downloadRequest(inv){
+ async function downloadRequest(inv){
   if(!active)return
-  try{exportSupplierPriceRequestPdf({...supplierRequestArgs(inv),footer})}catch(e){fail(e)}
+  try{await exportSupplierPriceRequestPdf({...supplierRequestArgs(inv),footer})}catch(e){fail(e)}
  }
  function supplierRequestArgs(inv){
   const supplierRow=suppliers.find(x=>x.id===inv.supplier_id)

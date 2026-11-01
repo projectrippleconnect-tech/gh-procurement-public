@@ -71,3 +71,13 @@ test('Stock options preserve mobile submission history and per-item recount',()=
  assert.match(stock,/async function allowRecount\(id\)/)
  assert.match(css,/\.general-stock-history-backdrop/)
 })
+
+test('history requests use bounded concurrency and stop when a scope is cancelled',async()=>{
+ let active=0,peak=0,calls=0
+ const client={rpc:async(_name,body)=>{calls++;active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,5));active--;return {data:body.p_item_ids.map(item_id=>({item_id}))}}}
+ const ids=Array.from({length:1000},(_,n)=>'item-'+n)
+ const rows=await latestStockMarkers(client,ids)
+ assert.equal(Object.keys(rows).length,1000);assert.equal(calls,4);assert.equal(peak,3)
+ const controller=new AbortController();controller.abort();calls=0
+ await assert.rejects(latestStockMarkers(client,ids,null,{signal:controller.signal}),{name:'AbortError'});assert.equal(calls,0)
+})

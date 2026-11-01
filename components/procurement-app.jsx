@@ -19,7 +19,7 @@ import {AppearanceControls} from './appearance-controls'
 
 // Keep purchasing and PDF code out of the initial sign-in download.
 const screenLoading=()=> <p role="status">Loading screen…</p>
-const Dashboard=dynamic(()=>import('./modules-stock').then(m=>m.Dashboard),{loading:screenLoading})
+const Dashboard=dynamic(()=>import('./work-dashboard').then(m=>m.Dashboard),{loading:screenLoading})
 const StockCheck=dynamic(()=>import('./modules-stock').then(m=>m.StockCheck),{loading:screenLoading})
 const Items=dynamic(()=>import('./modules-stock').then(m=>m.Items),{loading:screenLoading})
 const Requirements=dynamic(()=>import('./modules-buying').then(m=>m.Requirements),{loading:screenLoading})
@@ -43,6 +43,7 @@ function ProcurementApp(){
  const[viewFilters,setViewFilters]=useState({}),[viewKeys,setViewKeys]=useState({})
  const[visited,setVisited]=useState(()=>new Set(['dashboard']))
  const activeScreen=useRef(view);activeScreen.current=view
+ const isActiveView=useCallback(k=>activeScreen.current===k,[])
  const[navigation,setNavigation]=useState({filter:'',revision:0})
  const[guide,setGuide]=useState({step:1,revision:0}),[guideRfqId,setGuideRfqId]=useState(''),[guidePoId,setGuidePoId]=useState(''),[guideReceivingId,setGuideReceivingId]=useState('')
  const[boot,setBoot]=useState(true),[notice,setNotice]=useState(''),[error,setError]=useState(''),[recovery,setRecovery]=useState(false)
@@ -198,6 +199,13 @@ function ProcurementApp(){
   async function hydrate(){
    try{
     const {next,config,allowed}=await withStartupDeadline((async()=>{
+     const bootstrap=await supabase.rpc('proc_workspace_bootstrap_v1')
+     if(bootstrap.error)throw bootstrap.error
+     if(bootstrap.data?.profile){
+      const {profile:next,config,permissions}=bootstrap.data
+      if(!next.active||!config||!Array.isArray(permissions))throw new Error('Workspace configuration is unavailable. Please retry.')
+      return {next,config,allowed:new Set(permissions)}
+     }
      const [{next,created},initialAllowed,config]=await Promise.all([
       ensure(session),loadPermissions(),loadConfig()
      ])
@@ -383,7 +391,7 @@ function ProcurementApp(){
  }
  function canStep(step){return visibleNav.some(n=>n[0]===guidedDestination(step))}
  function guideTo(step){if(canStep(step))go(guidedDestination(step),'',step)}
- const p={itemListType,onItemListTypeChange:setItemListType,settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView:k=>activeScreen.current===k,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,onOrderSelected:setGuidePoId,onReceivingSelected:setGuideReceivingId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
+ const p={itemListType,onItemListTypeChange:setItemListType,settings,onConfigChanged:refreshConfig,lastWork,resumeWork:()=>{if(lastWork)go(lastWork.view,lastWork.filter,lastWork.step)},isActiveView,guidedStep:guide.step,guideRevision:guide.revision,guideTo,onRfqSelected:setGuideRfqId,onOrderSelected:setGuidePoId,onReceivingSelected:setGuideReceivingId,profile,fields,features,company,footer,flash,fail,can,permissions,language,t,activeView:view,navigate:go,initialFilter:navigation.filter,canNavigate:k=>visibleNav.some(n=>n[0]===k)}
  return <div className={"app"+(['stock','requirements','rfq','po','receiving'].includes(view)?' workflow-active':'')} style={interfaceVariables(settings.interface_preferences)}>
   <aside className="sidebar">
    <div className="brand"><div className="brandmark">GH</div><div><h1>{appName}</h1><small>{isolatedStockRole?'Stock workspace':t('app.purchase_control','Purchase Control')}</small></div></div>

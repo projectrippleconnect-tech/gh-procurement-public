@@ -7,12 +7,13 @@ import {CaptureSettings} from './capture-settings'
 
 import {ModernSelect} from './modern-select'
 
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {allRows} from '@/lib/query-pages'
+import {completeReport} from '@/lib/report-export.mjs'
 import {useDangerConfirmation} from './danger-confirmation'
 import {downloadCsv,money,qty} from '@/lib/helpers'
-import {exportTablePdf} from '@/lib/pdf'
+import {exportTablePdf} from '@/lib/lazy-pdf.mjs'
 import {Badge,DataTable,Toggle,Empty,Err} from './ui'
 import {InterfaceSettings} from './interface-settings'
 import {InfoButton} from './help-ui'
@@ -60,39 +61,48 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
  const loadPresets=useCallback(async()=>{const r=await supabase.from('proc_report_presets').select('*').order('name');if(r.error)fail(r.error);else setPresets(r.data||[])},[fail])
  useEffect(()=>{loadPresets()},[loadPresets])
 
- const load=useCallback(async()=>{setLoading(true);try{
-  if(def.rpc){
-   const r=await supabase.rpc(def.rpc,{p_from:from||null,p_to:to||null})
+ const[totalRows,setTotalRows]=useState(0),[exportBusy,setExportBusy]=useState(false),[reportCategories,setReportCategories]=useState([])
+ const reportRevision=useRef(0),reportController=useRef(null)
+ const reportQuery=useCallback((offset,size,count=false,signal)=>{
+  let q=supabase.from(def.source).select(def.select,count?{count:'exact'}:{}).range(offset,offset+size-1)
+  if(def.order)q=q.order(def.order,{ascending:def.orderAscending===true})
+  if(status&&def.statusField)q=q.eq(def.statusField,status)
+  if(category&&def.categoryField)q=q.eq(def.categoryField,category)
+  if(from&&def.dateField)q=q.gte(def.dateField,from)
+  if(to&&def.dateField)q=q.lte(def.dateField,def.dateTime?to+'T23:59:59.999':to)
+  return signal?q.abortSignal(signal):q
+ },[def,status,category,from,to])
+ const load=useCallback(async()=>{
+  reportController.current?.abort();const controller=new AbortController();reportController.current=controller
+  const revision=++reportRevision.current;setLoading(true)
+  try{
+   const r=def.rpc?await supabase.rpc(def.rpc,{p_from:from||null,p_to:to||null}).abortSignal(controller.signal):await reportQuery(screenPage*screenPageSize,screenPageSize,true,controller.signal)
+   if(controller.signal.aborted||revision!==reportRevision.current)return
    if(r.error)throw r.error
-   setRows((r.data||[]).map(x=>flatten(type,x)));setScreenPage(0);return
-  }
-  const all=[]
-  let offset=0
-  while(true){
-   let q=supabase.from(def.source).select(def.select).range(offset,offset+fetchPageSize-1)
-   if(def.order)q=q.order(def.order,{ascending:def.orderAscending===true})
-   if(status&&def.statusField)q=q.eq(def.statusField,status)
-   if(category&&def.categoryField)q=q.eq(def.categoryField,category)
-   if(from&&def.dateField)q=q.gte(def.dateField,from)
-   if(to&&def.dateField)q=q.lte(def.dateField,def.dateTime?to+'T23:59:59.999':to)
-   const r=await q
-   if(r.error)throw r.error
-   all.push(...(r.data||[]).map(x=>flatten(type,x)))
-   if((r.data||[]).length<fetchPageSize)break
-   offset+=fetchPageSize
-   if(offset>=100000)throw new Error(t('validation.report_too_large','Report exceeds 100,000 rows. Narrow the date range before exporting.'))
-  }
-  setRows(all);setScreenPage(0)
- }catch(e){fail(e)}finally{setLoading(false)}},[def,type,status,category,from,to,fetchPageSize,fail])
- useEffect(()=>{load()},[load])
-
- const categories=useMemo(()=>[...new Set(rows.map(r=>r.category).filter(Boolean))].sort(),[rows])
+   setRows((r.data||[]).map(x=>flatten(type,x)));setTotalRows(r.count??r.data?.length??0)
+  }catch(e){if(!controller.signal.aborted&&revision===reportRevision.current){setRows([]);fail(e)}}
+  finally{if(!controller.signal.aborted&&revision===reportRevision.current)setLoading(false)}
+ },[def,type,from,to,screenPage,screenPageSize,reportQuery,fail])
+ useEffect(()=>{load();return()=>{reportRevision.current++;reportController.current?.abort()}},[load])
+ useEffect(()=>{setScreenPage(0)},[type,status,category,from,to])
+ useEffect(()=>{let alive=true;supabase.rpc('proc_item_filter_options_v1').then(r=>{if(alive&&!r.error)setReportCategories(r.data?.categories||[])});return()=>{alive=false}},[])
+ const categories=useMemo(()=>[...new Set([...reportCategories,...rows.map(r=>r.category).filter(Boolean)])].sort(),[rows,reportCategories])
  const visibleCols=columns.filter(c=>selected.includes(c.key))
  const tableCols=visibleCols.map(c=>({key:c.key,label:c.label,render:r=>(c.key==='status'||c.key.endsWith('_status'))?<Badge>{r[c.key]}</Badge>:displayValue(c.key,r[c.key])}))
- const exportRows=rows.map(r=>Object.fromEntries(visibleCols.map(c=>[c.label,displayValue(c.key,r[c.key])])))
- const screenRows=rows.slice(screenPage*screenPageSize,(screenPage+1)*screenPageSize)
- const screenPages=Math.max(1,Math.ceil(rows.length/screenPageSize))
- function exportPdf(){exportTablePdf({filename:'GH-'+def.label.replace(/\s+/g,'-')+'.pdf',title:def.label,subtitle:`${rows.length} record(s)`,columns:visibleCols.map(c=>({key:c.key,label:c.label,value:r=>displayValue(c.key,r[c.key])})),rows,company,footer,orientation:visibleCols.length>6?'landscape':'portrait'})}
+ const screenRows=def.rpc?rows.slice(screenPage*screenPageSize,(screenPage+1)*screenPageSize):rows
+ const screenPages=Math.max(1,Math.ceil(totalRows/screenPageSize))
+ async function exportReport(format){
+  if(exportBusy)return
+  setExportBusy(true)
+  try{
+   const result=def.rpc?await supabase.rpc(def.rpc,{p_from:from||null,p_to:to||null}):null
+   if(result?.error)throw result.error
+   const data=(result?result.data||[]:await completeReport((offset,size)=>reportQuery(offset,size),fetchPageSize)).map(x=>flatten(type,x))
+   if(format==='csv')downloadCsv('GH-'+def.label+'.csv',data.map(r=>Object.fromEntries(visibleCols.map(c=>[c.label,displayValue(c.key,r[c.key])]))))
+   else await exportTablePdf({filename:'GH-'+def.label.replace(/\s+/g,'-')+'.pdf',title:def.label,subtitle:`${data.length} record(s)`,columns:visibleCols.map(c=>({key:c.key,label:c.label,value:r=>displayValue(c.key,r[c.key])})),rows:data,company,footer,orientation:visibleCols.length>6?'landscape':'portrait'})
+  }catch(e){fail(e)}finally{setExportBusy(false)}
+ }
+
  async function savePreset(){
   if(!presetName.trim())return fail(new Error(t('validation.preset_name','Enter a preset name.')))
   const r=await supabase.from('proc_report_presets').upsert({owner_id:profile.id,name:presetName.trim(),report_type:type,columns:selected,filters:{status,category,from,to}},{onConflict:'owner_id,name,report_type'})
@@ -104,7 +114,8 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
  }
  return <>
   {can('dashboard.view')&&<BusinessOverview/>}
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('reports.builder','Report Builder')}</h3><p>{t('reports.builder_hint','Exports page through the complete filtered dataset; screen rendering is paged separately for performance.')}</p></div><div className="toolbar">{can('reports.export_csv')&&<button className="btn" onClick={()=>downloadCsv('GH-'+def.label+'.csv',exportRows)}>CSV</button>}{can('reports.export_pdf')&&<button className="btn primary" onClick={exportPdf}>PDF</button>}</div></div>
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('reports.builder','Report Builder')}</h3><p>{t('reports.builder_hint','Exports page through the complete filtered dataset; screen rendering is paged separately for performance.')}</p></div><div className="toolbar">{can('reports.export_csv')&&<button className="btn" disabled={loading||exportBusy} onClick={()=>exportReport('csv')}>CSV</button>}{can('reports.export_pdf')&&<button className="btn primary" disabled={loading||exportBusy} onClick={()=>exportReport('pdf')}>PDF</button>}</div></div>
+   {exportBusy&&<p role="status">Preparing the complete filtered export…</p>}
    <div className="report-controls">
     <div className="field"><label>{t('reports.report','Report')}</label><ModernSelect className="select" value={type} onChange={e=>setType(e.target.value)}>{Object.entries(REPORT_DEFS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</ModernSelect></div>
     {def.statusField&&<div className="field"><label>{t('reports.status','Status')}</label><input className="input" placeholder="Optional exact status" value={status} onChange={e=>setStatus(e.target.value)}/></div>}
@@ -115,7 +126,7 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
    <div className="section"><div className="field-title">{t('reports.columns','Columns')}</div><div className="column-picker">{columns.map(c=><label className={'choice-pill '+(selected.includes(c.key)?'selected-choice':'')} key={c.key}><input type="checkbox" checked={selected.includes(c.key)} onChange={e=>setSelected(v=>e.target.checked?[...v,c.key]:v.filter(x=>x!==c.key))}/>{c.label}</label>)}</div></div>
    <div className="preset-bar section"><input className="input" placeholder={t('reports.preset_name','Preset name')} value={presetName} onChange={e=>setPresetName(e.target.value)}/><button className="btn" onClick={savePreset}>{t('reports.save_layout','Save Layout')}</button><ModernSelect className="select" defaultValue="" onChange={e=>{const p=presets.find(x=>x.id===e.target.value);if(p)applyPreset(p)}}><option value="">{t('reports.load_layout','Load saved layout…')}</option>{presets.map(p=><option key={p.id} value={p.id}>{p.name} · {REPORT_DEFS[p.report_type]?.label||p.report_type}</option>)}</ModernSelect></div>
   </div>
-  <div className="card pad section"><div className="sectionhead"><div><h3>{def.label}</h3><p>{rows.length} filtered record(s) · showing {screenRows.length} on this screen page</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>{loading?<Empty>{t('reports.loading','Loading complete report…')}</Empty>:<><DataTable columns={tableCols} rows={screenRows} mobileCards/><div className="toolbar section"><button className="btn" disabled={screenPage<=0} onClick={()=>setScreenPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{t('common.page','Page')} {screenPage+1} {t('common.of','of')} {screenPages}</span><button className="btn" disabled={screenPage>=screenPages-1} onClick={()=>setScreenPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}</div>
+  <div className="card pad section"><div className="sectionhead"><div><h3>{def.label}</h3><p>{totalRows} filtered record(s) · showing {screenRows.length} on this screen page</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>{loading?<Empty>{t('reports.loading_page','Loading report page…')}</Empty>:<><DataTable columns={tableCols} rows={screenRows} mobileCards/><div className="toolbar section"><button className="btn" disabled={screenPage<=0} onClick={()=>setScreenPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{t('common.page','Page')} {screenPage+1} {t('common.of','of')} {screenPages}</span><button className="btn" disabled={screenPage>=screenPages-1} onClick={()=>setScreenPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}</div>
  </>
 }
 

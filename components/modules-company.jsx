@@ -316,13 +316,16 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    flash('Company stock draft saved. Continue counting later.')
   }catch(e){fail(new Error('Unable to save stock draft on this device. Keep this screen open.'))}
  }
+ const companyHistoryController=useRef(null)
  const loadCompanyHistory=useCallback(async()=>{
+  companyHistoryController.current?.abort()
+  const controller=new AbortController();companyHistoryController.current=controller
   const revision=++historyRequest.current
   setCompanyHistoryLoading(true);setCompanyHistoryReady(false);setCompanyHistoryError('')
   try{
    const [result,latest]=await Promise.all([
-    supabase.rpc('proc_stock_submission_history_v1',{p_limit:100}),
-    loadCompanyStockMarkers(supabase,rows)
+    companyHistoryOpen?supabase.rpc('proc_stock_submission_history_v1',{p_limit:100}).abortSignal(controller.signal):Promise.resolve({data:companyHistory}),
+    loadCompanyStockMarkers(supabase,rows,{signal:controller.signal})
    ])
    if(result.error)throw result.error
    const records=(result.data||[]).filter(h=>h.counted_by===profile.id&&String(h.category||'').startsWith('COMPANY: '))
@@ -334,8 +337,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    setCompanyHistoryReady(true)
   }catch(e){if(revision===historyRequest.current){setCompanyHistoryError('Could not verify previous company counts. Retry History before finalizing.');setCompanyHistoryReady(false);console.warn('Company count history unavailable',e)}}
   finally{if(revision===historyRequest.current)setCompanyHistoryLoading(false)}
- },[companies,profile.id,rows])
- useEffect(()=>{if(active&&companies.length)void loadCompanyHistory();return()=>{historyRequest.current++}},[active,loadCompanyHistory,companies.length])
+ },[companies,profile.id,rows,companyHistoryOpen])
+ useEffect(()=>{if(active&&companies.length)void loadCompanyHistory();return()=>{historyRequest.current++;companyHistoryController.current?.abort()}},[active,loadCompanyHistory,companies.length])
 
  async function openCompanyHistoryRecord(id){
   if(expandedHistoryId===id){setExpandedHistoryId(null);return}

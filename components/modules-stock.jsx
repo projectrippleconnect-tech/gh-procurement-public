@@ -1,9 +1,6 @@
 'use client'
 
 import {ModernSelect} from './modern-select'
-import {WorkCases} from './work-cases'
-import {WorkExtras} from './work-extras'
-import {resumeTaskLabel} from '@/lib/dashboard-actions.mjs'
 import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
@@ -31,17 +28,9 @@ const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyList
 
 const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 
-export function Dashboard({can=()=>false,lastWork,resumeWork=()=>{},activeView='dashboard',navigate=()=>{},canNavigate=()=>false}){
- const[revision,setRevision]=useState(0)
- return <>
-  <div className="toolbar work-refresh"><button className="btn small" onClick={()=>setRevision(x=>x+1)}>Refresh work</button></div>
-  {canNavigate('requirements')?<WorkCases revision={revision} activeView={activeView} can={can} canNavigate={canNavigate} navigate={navigate}/>:<WorkExtras can={can} revision={revision} activeView={activeView} canNavigate={canNavigate} navigate={navigate} includePurchasing/>}
-  {canNavigate('requirements')&&<WorkExtras can={can} revision={revision} activeView={activeView} canNavigate={canNavigate} navigate={navigate}/>}
-  {lastWork&&canNavigate(lastWork.view)&&<button className="btn small" onClick={resumeWork}>{resumeTaskLabel(lastWork)}</button>}
- </>
-}
+export {Dashboard} from './work-dashboard'
 
-export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange,itemListType,onItemListTypeChange}){
+export function StockCheck({activeView='stock',initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange,itemListType,onItemListTypeChange}){
  const confirmAction=useActionConfirmation()
  const[stockTab,setStockTab]=useState(()=>{try{return can('company_lists.view')&&localStorage.getItem('gh-stock-list-tab:'+profile.id)==='company'?'company':'general'}catch{return 'general'}})
  function changeStockTab(value){setStockTab(value);onItemListTypeChange?.(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
@@ -61,6 +50,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const serverDrafts=feature('stock.server_drafts')
 
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
+ const[knownItems,setKnownItems]=useState([])
  const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[sufficient,setSufficient]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  useEffect(()=>{if(!guidedCountEnabled)setViewMode('browse')},[guidedCountEnabled])
@@ -71,8 +61,8 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
  const[historyError,setHistoryError]=useState(''),historyCloseRef=useRef(null)
  const[itemHistory,setItemHistory]=useState(null)
- const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[markersReady,setMarkersReady]=useState(false),[explicitRecounts,setExplicitRecounts]=useState(new Set())
- const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false)
+ const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[markersChecked,setMarkersReady]=useState(false),[explicitRecounts,setExplicitRecounts]=useState(new Set())
+ const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false),markerController=useRef(null),verifiedMarkerScope=useRef(''),catalogueLoaded=useRef('')
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
  const[heldSearch,setHeldSearch]=useState(null)
  const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false),[catalogueError,setCatalogueError]=useState(''),[catalogueRetry,setCatalogueRetry]=useState(0),[searchError,setSearchError]=useState('')
@@ -207,6 +197,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(initialFilter!=='due'&&cat&&list.length&&!list.includes(cat))setCat(list.includes('GENERAL')?'GENERAL':list[0])
  }catch(e){fail(e)}})()},[fail])
 
+ const rememberItems=useCallback(rows=>setKnownItems(previous=>{const map=new Map(previous.map(i=>[i.item_id,i]));for(const row of indexStockItems(rows))map.set(row.item_id,row);return [...map.values()]}),[])
+ const serverPaged=!dueOnly&&viewMode==='browse'&&!heldSearch
+ const serverPage=serverPaged?browsePage:0,serverPageSize=serverPaged?browsePageSize:500
+ useEffect(()=>{setBrowsePage(0)},[cat,movement,mainGroup,dueOnly])
  const stockLoadRevision=useRef(0),stockLoadController=useRef(null)
  const load=useCallback(async()=>{
   stockLoadController.current?.abort()
@@ -215,12 +209,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const revision=++stockLoadRevision.current
   setLoading(true);setStockLoadError('')
   try{
-  const pageChunk=500
-  const cap=dueOnly?dailyTarget:Infinity
-  let all=[],total=0,offset=0
+  const pageChunk=serverPageSize
+  const cap=serverPaged?serverPageSize:dueOnly?dailyTarget:Infinity
+  let all=[],total=0,offset=serverPaged?serverPage*serverPageSize:0
   while(all.length<cap){
    const r=await retryStockQuery(async()=>{
-    let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0&&dueOnly?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,Math.min(offset+pageChunk-1,cap-1))
+    let q=supabase.from('proc_v_stock_check_due').select('*',{count:all.length===0?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,serverPaged?offset+pageChunk-1:Math.min(offset+pageChunk-1,cap-1))
     if(cat)q=q.eq('category',cat)
     if(movement)q=q.eq('movement',movement)
     if(mainGroup)q=q.eq('main_group',mainGroup)
@@ -230,18 +224,18 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     return response
    },{signal:controller.signal})
    if(controller.signal.aborted||revision!==stockLoadRevision.current)return
-   if(offset===0)total=r.count??0
+   if(all.length===0)total=r.count??0
    const batch=r.data||[]
    all=all.concat(batch)
    if(batch.length<pageChunk||all.length>=cap)break
    offset+=pageChunk
   }
   setDueTotal(total||all.length)
-  setItems(all)
-  if(!keepBrowsePosition.current){setCursor(0);setBrowsePage(0)}
+  setItems(all);rememberItems(all)
+  if(!keepBrowsePosition.current){setCursor(0);if(!serverPaged)setBrowsePage(0)}
   keepBrowsePosition.current=false
- }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
- useEffect(()=>{load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load])
+ }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry,serverPaged,serverPage,serverPageSize,rememberItems])
+ useEffect(()=>{if(stockTab!=='general'||activeView!=='stock')return;load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load,stockTab,activeView])
 
  useEffect(()=>{
   if(!searchOpen||typeof window==='undefined'||!window.visualViewport){setSearchViewport(null);return}
@@ -255,6 +249,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  // Load once per visit, not on every open/close of search.
  // Retry small pages on transient Postgres timeout; never mark a partial list ready.
  useEffect(()=>{
+  if(stockTab!=='general'||(!searchOpen&&!heldSearch)||!isActiveView('stock'))return
+  const key=profile.id+':'+catalogueRetry
+  if(catalogueLoaded.current===key)return
   const controller=new AbortController()
   setCatalogueReady(false);setCatalogueError('');setSearchCatalogue([])
   ;(async()=>{try{
@@ -268,19 +265,21 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     },
     onPage:rows=>setSearchCatalogue(indexStockItems(rows))
    })
-   if(result&&!controller.signal.aborted)setCatalogueReady(true)
+   if(result&&!controller.signal.aborted){catalogueLoaded.current=key;setCatalogueReady(true)}
   }catch(e){
    if(!controller.signal.aborted)setCatalogueError(isTransientStockQueryError(e)
     ?'Stock catalogue timed out. Tap Retry to load all items.'
     :'Stock catalogue could not be loaded. Tap Retry.')
   }})()
   return()=>controller.abort()
- },[profile.id,catalogueRetry])
+ },[profile.id,catalogueRetry,searchOpen,!!heldSearch,stockTab,activeView])
  const localSearchIndex=useMemo(()=>{
-  const rows=new Map(loadedItems.map(row=>[row.item_id,row]))
+  const rows=new Map(knownItems.map(row=>[row.item_id,row]))
+  for(const row of loadedItems)rows.set(row.item_id,row)
+  for(const row of searchResults)rows.set(row.item_id,row)
   for(const row of searchCatalogue)rows.set(row.item_id,row)
   return indexStockItems([...rows.values()].sort((a,b)=>(a.description||'').localeCompare(b.description||'')))
- },[loadedItems,searchCatalogue])
+ },[loadedItems,searchCatalogue,knownItems,searchResults])
  const items=useMemo(()=>heldSearch?searchStockItems(localSearchIndex,heldSearch.query,heldSearch.filters||{},Infinity):loadedItems,[heldSearch,localSearchIndex,loadedItems])
  function releaseHeldSearch(){
   // Clear only the held search, never the unsubmitted stock quantities.
@@ -452,7 +451,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }
  }
  function focusDenseInput(i){
-  setActiveBrowseId(i.item_id)
+  rememberItems([i]);setActiveBrowseId(i.item_id)
   // Mobile focus is kept above the action dock by the shared workspace handler.
   if(window.innerWidth>700)document.getElementById('browse-row-'+i.item_id)?.scrollIntoView({block:'nearest'})
  }
@@ -461,6 +460,22 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  // A stock lot remains editable until final confirmation; item IDs are unique.
  const labelMap=useMemo(()=>Object.fromEntries(localSearchIndex.map(i=>[i.item_id,stockItemLabel(i)])),[localSearchIndex])
  const pendingLot=useMemo(()=>stockLotReview(entry,sufficient,labelMap,finalizedMarkers,explicitRecounts),[entry,sufficient,labelMap,finalizedMarkers,explicitRecounts])
+ const missingDraftIdsKey=JSON.stringify([...new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])])].filter(id=>!labelMap[id]).sort())
+ useEffect(()=>{
+  const ids=JSON.parse(missingDraftIdsKey)
+  if(!ids.length||stockTab!=='general'||activeView!=='stock')return
+  const controller=new AbortController()
+  ;(async()=>{try{
+   for(let offset=0;offset<ids.length;offset+=100){
+    const r=await supabase.from('proc_items').select(stockSearchColumns).in('id',ids.slice(offset,offset+100)).abortSignal(controller.signal)
+    if(controller.signal.aborted)return
+    if(r.error)throw r.error
+    rememberItems(r.data||[])
+   }
+  }catch(e){if(!controller.signal.aborted)console.warn('Draft item descriptions could not be loaded',e)}})()
+  return()=>controller.abort()
+ },[missingDraftIdsKey,stockTab,activeView,rememberItems])
+
  async function allowRecount(id){
   const prev=finalizedMarkers[id]
   if(!prev||explicitRecounts.has(id))return true
@@ -468,23 +483,32 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(allowed){setExplicitRecounts(x=>new Set([...x,id]));beginCount()}
   return allowed
  }
+ // Verify only visible rows and the pending lot, never the downloading catalogue.
+ const historyIdsKey=JSON.stringify([...new Set([
+  ...(viewMode==='guided'?items.slice(cursor,cursor+1):serverPaged?items:items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)).map(i=>i.item_id),
+  ...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id]),
+  ...(quickItem?[quickItem.item_id]:[])
+ ])].sort())
+ const markerScope=profile.id+':'+historyIdsKey
+ const markersReady=markersChecked&&verifiedMarkerScope.current===markerScope
+ const[markerError,setMarkerError]=useState('')
  async function refreshFinalizedMarkers(){
-  const revision=++finalizedRevision.current
-  setMarkersReady(false)
+  markerController.current?.abort()
+  const controller=new AbortController();markerController.current=controller
+  const revision=++finalizedRevision.current,ids=JSON.parse(historyIdsKey)
+  setMarkersReady(false);setMarkerError('')
   try{
-   // Include old counts, not just the last few batches.
-   const latest=await latestStockMarkers(supabase,localSearchIndex.map(i=>i.item_id))
-   if(revision!==finalizedRevision.current)return
-   setFinalizedMarkers(latest)
-   setMarkersReady(true)
+   const latest=await latestStockMarkers(supabase,ids,null,{signal:controller.signal})
+   if(revision!==finalizedRevision.current||controller.signal.aborted)return
+   setFinalizedMarkers(previous=>{const next={...previous};for(const id of ids)delete next[id];return {...next,...latest}})
+   verifiedMarkerScope.current=markerScope;setMarkersReady(true)
   }catch(e){
-   if(revision===finalizedRevision.current){
-    setMarkersReady(false)
-    console.warn('Submitted stock markers unavailable',e)
+   if(revision===finalizedRevision.current&&!controller.signal.aborted){
+    setMarkersReady(false);setMarkerError('Could not check previous submissions for these items. Your entries remain on this screen. Retry the check before submitting.')
    }
   }
  }
- useEffect(()=>{void refreshFinalizedMarkers();return()=>{finalizedRevision.current++}},[profile.id,localSearchIndex])
+ useEffect(()=>{if(stockTab!=='general'||activeView!=='stock')return;void refreshFinalizedMarkers();return()=>{finalizedRevision.current++;markerController.current?.abort()}},[markerScope,stockTab,activeView])
 
  async function submit(){
   if(busy||submissionLock.current)return
@@ -492,7 +516,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   submissionLock.current=true
   try{
    if(!markersReady)throw new Error('Recent submissions have not been checked. Retry the history check before finalizing, to prevent duplicate stock counts.')
-   const lot=stockLotReview(entry,sufficient,labelMap,finalizedMarkers,explicitRecounts)
+   const lotIds=[...new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])])]
+   const fresh=await latestStockMarkers(supabase,lotIds)
+   setFinalizedMarkers(previous=>({...previous,...fresh}))
+   const lot=stockLotReview(entry,sufficient,labelMap,fresh,explicitRecounts)
    if(!lot.count)throw new Error('Enter at least one stock quantity or mark an item sufficient before reviewing the lot.')
    if(lot.overLimit)throw new Error('This stock lot contains '+lot.count+' items. The server accepts at most 1000 items in one final submission. Contact an administrator before splitting this lot.')
    if(lot.blocked.length)throw new Error(lot.blocked.length+' item(s) were already finalized. Review their Previous Submission markers and explicitly allow a recount, or remove them from this lot.')
@@ -592,9 +619,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }catch(e){fail(e)}finally{setHistoryLoading(false)}
  }
 
- const browsePages=Math.max(1,Math.ceil(items.length/browsePageSize))
- const browseItems=items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
- useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
+ const browsePages=Math.max(1,Math.ceil((serverPaged?dueTotal:items.length)/browsePageSize))
+ const browseItems=serverPaged?items:items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
+ useEffect(()=>{if(!loading&&browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages,loading])
  const cols=[
   {key:'description',label:'Item',render:i=><div>{canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>}{finalizedMarkers[i.item_id]&&<StockHistoryLink itemName={stockItemLabel(i)} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}/>}</div>},
   {key:'uom',label:'UOM',render:i=>uppercaseItemText(i.uom)},
@@ -622,7 +649,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
     <div className="modal-head"><div><h3>Review stock lot · {pendingLot.count} items</h3><p className="muted tiny">Check your quantities, then submit once.</p></div><button type="button" className="btn small" onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
     <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" onClick={()=>setLotReviewOpen(false)}>Back to counting</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?'Submitting…':`Submit · ${pendingLot.count}`}</button></div>
-    {!markersReady&&<p className="notice" role="alert">Checking recent finalized stock lots is required before final confirmation. <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
+    {!markersReady&&<p className="notice" role="alert">{markerError||'Checking previous submissions for the items in this lot…'} <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>Retry history check</button></p>}
     {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
      {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
      {pendingLot.overLimit&&<p className="notice" role="alert">This lot is too large for one server submission (maximum 1000 items). Nothing will be submitted until an administrator helps split it safely.</p>}
@@ -662,7 +689,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     <button className={'btn '+(viewMode==='browse'?'primary':'')} onClick={()=>setViewMode('browse')}>{t('stock.browse','Fast Entry')}</button>
    </div>}
 
-   {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:items.length+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
+   {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:(serverPaged?dueTotal:items.length)+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
 
    <div className="movement-tabs no-print section"><span className="muted tiny stock-inline-help">{t('stock.movement','Movement')} <InfoButton topic={isCounter?'stock_movement':'movement'} language={language}/></span>{['FAST','NORMAL','SLOW'].map(m=><button key={m} className={'btn '+(movement===m?'primary':'')} onClick={()=>setMovement(m)}>{m}</button>)}{!isCounter&&<button className={'btn '+(movement===''?'primary':'')} onClick={()=>setMovement('')}>ALL</button>}</div>
 
