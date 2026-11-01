@@ -1,0 +1,118 @@
+# Safe manual release ONLY. Keeps all supplier/portal sends disabled.
+# Create/merge reviewed PR into main; pass exact main commit SHA at trigger time.
+name: GH Procurement - Manual Stage 5 code release (sends OFF)
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Exact 40-character reviewed main commit SHA'
+        required: true
+        type: string
+      confirmation:
+        description: 'Type DEPLOY-SENDS-OFF to manually publish code with WhatsApp sending disabled'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      GH_RELEASE_SHA: ${{ inputs.release_sha }}
+      GH_CONFIRMATION: ${{ inputs.confirmation }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      NEXT_TELEMETRY_DISABLED: '1'
+      WAHA_SENDING_ENABLED: 'false'
+      GH_AUTO_DISPATCH_ENABLED: 'false'
+      GH_AUTO_DELIVERY_TEST_VERIFIED: 'false'
+      GH_WA_AUDIT_ENABLED: 'false'
+      GH_PORTAL_PROCESSING_ENABLED: 'false'
+      GH_PORTAL_DISPATCH_ENABLED: 'false'
+      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+    steps:
+      - name: Fail unless an exact reviewed main SHA and manual confirmation were provided
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GH_CONFIRMATION" = 'DEPLOY-SENDS-OFF'
+          [[ "$GH_RELEASE_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+          test -n "$NETLIFY_AUTH_TOKEN"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact commit on main and clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA"
+          git fetch origin main
+          git merge-base --is-ancestor "$GH_RELEASE_SHA" origin/main
+          test -z "$(git status --porcelain)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Block vulnerable dependencies
+        run: npm audit --audit-level=high
+      - name: TypeScript and contract tests
+        run: |
+          npm run lint
+          npm test
+      - name: Production build
+        run: npm run build
+      - name: Smoke-test mobile and desktop layouts
+        run: npm run test:ui
+      - name: Verify exact existing site is accessible and Git deploy is off
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global netlify-cli@27.13.0
+          netlify sites:list --json > "$RUNNER_TEMP/netlify-sites.json"
+          node - <<'NODE'
+          const fs=require('fs')
+          const raw=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/netlify-sites.json','utf8'))
+          const sites=Array.isArray(raw)?raw:(raw.sites||[])
+          const site=sites.find(x=>x.id===process.env.NETLIFY_SITE_ID)
+          if(!site||site.name!=='gh-procurement')throw Error('Existing Netlify target mismatch')
+          if(site.repo||site.repo_url||site.build_settings?.repo_url)throw Error('Git-linked automatic production deploy is forbidden')
+          console.log('Existing manual Netlify site verified')
+          NODE
+      - name: Publish code with ALL live supplier and portal sends OFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
+            --message "Stage 5 safe code release $GH_RELEASE_SHA — supplier sends OFF" \
+            --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
+            --secret-env 'WAHA_SENDING_ENABLED=false' \
+            --secret-env 'GH_AUTO_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_AUTO_DELIVERY_TEST_VERIFIED=false' \
+            --secret-env 'GH_WA_AUDIT_ENABLED=false' \
+            --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DELIVERY_VERIFIED=false'
+      - name: Read-only release health and exact source revision
+        run: |
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict'
+          const url='https://gh-procurement.netlify.app/api/health'
+          const response=await fetch(url,{signal:AbortSignal.timeout(15000)})
+          assert.equal(response.status,200)
+          const result=await response.json()
+          assert.equal(result.version,process.env.GH_RELEASE_SHA)
+          assert.equal(result.database,'connected')
+          assert.equal(result.schema_ready,true)
+          console.log('PASS safe code release with supplier sending disabled')
+          NODE

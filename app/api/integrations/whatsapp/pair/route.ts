@@ -1,21 +1,10 @@
 import {createClient} from '@supabase/supabase-js'
+import {gatewayConfig} from '@/lib/waha-gateway-config'
 
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const json=(data:object,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}})
 
-function privateGateway(){
- const raw=process.env.WAHA_BASE_URL||''
- const key=process.env.WAHA_API_KEY||''
- if(!raw||!key)return null
- try{
-  const url=new URL(raw)
-  if(url.protocol!=='http:'||!url.hostname.endsWith('.railway.internal')||url.username||url.password||url.pathname!=='/'||url.search)return null
-  const session=process.env.WAHA_SESSION||'default'
-  if(!/^[\w-]{1,50}$/.test(session))return null
-  return {base:url.origin,key,session}
- }catch{return null}
-}
 async function adminAccess(request:Request){
  const match=(request.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i)
  if(!match)return {error:json({ok:false,error:'Please sign in.'},401)}
@@ -36,7 +25,7 @@ async function callWaha(config:{base:string;key:string;session:string},path:stri
   method,
   headers:{'X-Api-Key':config.key,Accept:accept,...(body?{'Content-Type':'application/json'}:{})},
   ...(body?{body:JSON.stringify(body)}:{}),
-  signal:AbortSignal.timeout(10000),cache:'no-store'
+  signal:AbortSignal.timeout(10000),cache:'no-store',redirect:'error'
  })
  const data=await response.json().catch(()=>null)
  return {response,data}
@@ -48,7 +37,7 @@ async function sessionStatus(config:{base:string;key:string;session:string}){
 export async function GET(request:Request){
  const access=await adminAccess(request)
  if(access.error)return access.error
- const config=privateGateway()
+ const config=gatewayConfig()
  if(!config)return json({ok:false,configured:false,status:'NOT_CONFIGURED'},503)
  try{
   const status=await sessionStatus(config)
@@ -65,7 +54,7 @@ export async function GET(request:Request){
 export async function POST(request:Request){
  const access=await adminAccess(request)
  if(access.error)return access.error
- const config=privateGateway()
+ const config=gatewayConfig()
  if(!config)return json({ok:false,error:'Gateway not configured.'},503)
  let body:Record<string,unknown>
  try{

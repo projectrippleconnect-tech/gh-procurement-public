@@ -1,0 +1,36 @@
+# Does not contact suppliers unless both GitHub release variable and server-side
+# acceptance flags were deliberately enabled after a controlled delivery test.
+name: GH Procurement - gated unattended WhatsApp dispatch
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-unattended-whatsapp
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: vars.GH_AUTO_DISPATCH_RELEASED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check controlled live release gate
+        env:
+          GH_AUTODISPATCH_KEY: ${{ secrets.GH_AUTO_DISPATCH_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${#GH_AUTODISPATCH_KEY}" -ge 32 || { echo 'Auto-dispatch secret missing or too short'; exit 1; }
+          http=$(curl --silent --show-error --max-time 110 --output "$RUNNER_TEMP/gh-auto.json" \
+            --write-out '%{http_code}' --request POST \
+            --header "x-gh-auto-dispatch-secret: $GH_AUTODISPATCH_KEY" \
+            --url 'https://gh-procurement.netlify.app/api/internal/auto-whatsapp')
+          GH_AUTO_STATUS="$http" node - <<'NODE'
+          const fs=require('node:fs')
+          const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/gh-auto.json','utf8'))
+          if(process.env.GH_AUTO_STATUS!=='200'||data.ok!==true)throw Error('Unattended dispatch refused; see secured application logs')
+          console.log('Dispatch cycle completed. Accepted supplier messages:',Number(data.processed)||0)
+          console.log('API acceptance is not delivery proof.')
+          NODE
