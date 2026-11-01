@@ -36,18 +36,20 @@ export async function POST(request:Request){
      contacted=true
      response=await fetch(base+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:'PO-'+job.po_no+'-'+(page+1)+'.png',data:images[page].toString('base64')},caption:routeCaption(job)+'\nPage '+(page+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'})
      if(!response.ok)break
+     messageId=extractWahaMessageId(await response.json().catch(()=>({})))
+     if(!messageId){lastError='Gateway returned HTTP success without a message ID. Check WhatsApp before any resend.';break}
     }
     if(!response)throw new Error('No order image was generated.')
     // Once a page has been accepted, a later rejection is uncertain as a whole.
-    status=response.ok?'accepted':images.length>1||response.status>=500?'unknown':'failed'
-    if(response.ok){messageId=extractWahaMessageId(await response.json().catch(()=>({})));
+    status=response.ok?(lastError?'unknown':'accepted'):images.length>1||response.status>=500?'unknown':'failed'
+    if(status==='accepted'){
      for(const attachment of job.attachments||[]){
       const {data:file,error:downloadError}=await db.storage.from('gh-procurement').download(attachment.storage_path);if(downloadError||!file)throw new Error('PO accepted, but its selected attachment could not be loaded.');
       if(file.size>10*1024*1024)throw new Error('Selected attachment exceeds 10 MB.');
-      const sent=await fetch(base+'/api/sendFile',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:attachment.mime_type,filename:attachment.name,data:Buffer.from(await file.arrayBuffer()).toString('base64')},caption:[attachment.remarks,attachment.discount_percent?'Discount: '+attachment.discount_percent+'%':'',attachment.discount_amount?'Fixed discount: '+attachment.discount_amount:''].filter(Boolean).join('\n').slice(0,2000)}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'});if(!sent.ok)throw new Error('PO accepted, but a selected attachment was rejected.');
+      const sent=await fetch(base+'/api/sendFile',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:attachment.mime_type,filename:attachment.name,data:Buffer.from(await file.arrayBuffer()).toString('base64')},caption:[attachment.remarks,attachment.discount_percent?'Discount: '+attachment.discount_percent+'%':'',attachment.discount_amount?'Fixed discount: '+attachment.discount_amount:''].filter(Boolean).join('\n').slice(0,2000)}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'});if(!sent.ok)throw new Error('PO accepted, but a selected attachment was rejected.');if(!extractWahaMessageId(await sent.json().catch(()=>({}))))throw new Error('PO attachment gateway acknowledgement missing; verify delivery before any resend.');
      }
      accepted++
-    }else lastError='WhatsApp rejected the order (HTTP '+response.status+').'
+    }else if(!response.ok)lastError='WhatsApp rejected the order (HTTP '+response.status+').'
    }catch(e){status=contacted?'unknown':'failed';lastError=contacted?'Gateway response interrupted. Check WhatsApp before resending.':e instanceof Error?e.message:'Order generation failed.'}
    const {error:finishError}=await db.rpc('proc_company_finish_send',{p_id:row.id,p_status:status,p_message_id:messageId,p_error:lastError})
    const privateGroupCopies:Array<{status:string;reason:string}>=[]

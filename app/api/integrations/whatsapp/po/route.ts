@@ -127,7 +127,8 @@ export async function POST(request:Request){
   if(response.ok){
    const responseBody=await response.json().catch(()=>({}))
    messageId=extractWahaMessageId(responseBody)
-   status='accepted'
+   status=messageId?'accepted':'unknown'
+   if(!messageId)lastError='Gateway returned HTTP success without a message ID. Check WhatsApp before any resend.'
   }else{
    // WAHA 4xx is a definite rejection; a 5xx may hide a partially-completed send.
    status=response.status>=500?'unknown':'failed'
