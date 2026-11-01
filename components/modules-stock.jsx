@@ -559,7 +559,7 @@ export function StockCheck({activeView='stock',initialFilter='',profile,fields,f
    setSubmission({...outcome,message:lot.count+' item(s) saved. '+outcome.message,remaining:0})
    await load()
    if(historyOpen)await loadStockHistory()
-   void refreshFinalizedMarkers()
+   // The scope effect refreshes after the lot clears; do not restart its old scope.
    // Keep the saved result visible; the buyer can choose the next action.
   }catch(e){
    fail(e)
