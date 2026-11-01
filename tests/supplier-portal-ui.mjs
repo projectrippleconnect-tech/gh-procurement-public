@@ -71,6 +71,7 @@ try{
   await page.screenshot({path:'test-results/portal-'+width+'.png',fullPage:true})
   await page.getByRole('button',{name:'தமிழ்',exact:true}).click()
   await page.getByRole('button',{name:'இறுதியாக உறுதிப்படுத்துக',exact:true}).waitFor()
+  assert.ok(await page.evaluate(async()=>{const fonts=await document.fonts.load('16px \"GH Tamil\"','தமிழ்');await document.fonts.ready;return fonts.length>0}),'Bundled Tamil glyph font is loaded')
   assert.equal(await page.getByLabel('விலை: '+items[0].description,{exact:true}).inputValue(),'100')
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Tamil form fits '+width)
   await page.screenshot({path:'test-results/portal-tamil-'+width+'.png',fullPage:true})
@@ -81,7 +82,11 @@ try{
  const firstSave=page.waitForResponse(r=>r.url().endsWith('/proc_portal_submit_v1'))
  await page.getByLabel('Price for '+items[0].description,{exact:true}).fill('101');await page.getByRole('button',{name:'Save draft',exact:true}).click();assert.equal((await firstSave).status(),200);await page.getByRole('status').getByText(/Draft saved/).waitFor()
  const staleSave=second.waitForResponse(r=>r.url().endsWith('/proc_portal_submit_v1'))
- await second.getByLabel('Price for '+items[0].description,{exact:true}).fill('102');await second.getByRole('button',{name:'Save draft',exact:true}).click();const stale=await staleSave
+ await second.getByLabel('Price for '+items[0].description,{exact:true}).fill('102')
+ assert.equal(await second.locator('.sq-summary').isVisible(),true,'Input focus alone does not move actions')
+ await second.evaluate(()=>{Object.defineProperty(window.visualViewport,'height',{configurable:true,value:500});window.visualViewport.dispatchEvent(new Event('resize'))})
+ await second.waitForFunction(()=>document.querySelector('.sq-keyboard-open'))
+ await second.getByRole('button',{name:'Save draft',exact:true}).click();const stale=await staleSave
  assert.equal(stale.status(),409,'The second tab must use its older quotation revision')
  await second.getByRole('alert').waitFor()
  const conflictText=await second.getByRole('alert').innerText()
