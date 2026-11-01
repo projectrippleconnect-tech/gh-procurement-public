@@ -22,7 +22,7 @@ test('unattended RFQ image contains a valid readable-size PNG and actual drawing
 })
 
 test('unattended PO image renders and refuses blank, unsupported, or unbounded documents',()=>{
- const sample={kind:'po',number:'PO-6',supplier:'SUPPLIER',rows:[{description:'NAILS',size:'2 X 4',qty:10,uom:'BOX'}]}
+ const sample={kind:'po',number:'PO-6',supplier:'SUPPLIER',rows:[{description:'NAILS',size:'2 X 4',qty:10,uom:'BOX',unitPrice:125.50,lineTotal:1255}]}
  assert.equal(renderProcurementPng(sample).png.subarray(0,8).toString('hex'),'89504e470d0a1a0a')
  assert.throws(()=>renderProcurementPng({...sample,rows:[]}),/1-120/)
  assert.throws(()=>renderProcurementPng({...sample,rows:[{description:'NAILS',qty:0}]}),/Incomplete/)
