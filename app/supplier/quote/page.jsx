@@ -1,5 +1,6 @@
 'use client'
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
+import {SupplierPhoneVerification} from '@/components/supplier-phone-verification'
 import {supplierPriceResponse,missingSupplierPrice,PRICE_REVIEW_NOTE} from '@/lib/supplier-price-response.mjs'
 import {interfaceTranslator} from '@/lib/interface-copy.mjs'
 import {supplierClient as supabase} from '@/lib/supplier-client'
@@ -42,6 +43,8 @@ export default function SupplierQuotePortal(){
  useEffect(()=>{try{setLanguage(localStorage.getItem('gh-supplier-language')==='ta'?'ta':'en')}catch{}},[])
  function chooseLanguage(value){setLanguage(value);try{localStorage.setItem('gh-supplier-language',value)}catch{}}
  const [token,setToken]=useState('')
+ const accessContext=useRef({session:'',account:false,invitation:null})
+ const [verificationRequired,setVerificationRequired]=useState(false)
  const [quote,setQuote]=useState(null)
  const [lines,setLines]=useState([])
  const [error,setError]=useState('')
@@ -58,8 +61,11 @@ export default function SupplierQuotePortal(){
  const [revision,setRevision]=useState(0)
  const load=useCallback(async value=>{
   setError('')
-  const {data,error}=await supabase.rpc('proc_portal_read_v1',{p_token:value})
-  if(error)throw error
+  const ctx=accessContext.current
+  const {data,error}=await supabase.rpc(ctx.session||ctx.account?'proc_supplier_quote_read_v1':'proc_portal_read_v1',ctx.session||ctx.account?{p_token:value,p_session:ctx.session,p_invitation:ctx.invitation}:{p_token:value})
+  if(error){if(/Phone verification required/.test(error.message)){setVerificationRequired(true);setQuote(null);return}throw error}
+  if(data.verification_required){setVerificationRequired(true);setQuote(null);return}
+  setVerificationRequired(false)
   setQuote(data)
   setOffset(Date.parse(data.server_now)-Date.now())
   setDirty(false)
@@ -69,7 +75,14 @@ export default function SupplierQuotePortal(){
   setLines((data.items||[]).map(x=>({...emptyItem(x.id),uom:x.uom,...previous.get(x.id),notes:String(previous.get(x.id)?.supplier_notes??previous.get(x.id)?.notes??'').replace(PRICE_REVIEW_NOTE,'').trim()})))
  },[])
  useEffect(()=>{
-  const value=new URLSearchParams(window.location.hash.slice(1)).get('token')||new URLSearchParams(window.location.search).get('token')||sessionStorage.getItem('gh-supplier-token')||''
+  const fragment=new URLSearchParams(window.location.hash.slice(1))
+  let stored={};try{stored=JSON.parse(sessionStorage.getItem('gh-supplier-quote-context')||'{}')}catch{}
+  const explicit=fragment.has('token')||fragment.has('account')
+  const account=fragment.get('account')||(explicit?'':stored.account)||''
+  const invitation=fragment.get('invitation')||(explicit?null:stored.invitation)||null
+  const value=account||fragment.get('token')||new URLSearchParams(window.location.search).get('token')||sessionStorage.getItem('gh-supplier-token')||''
+  accessContext.current={account:!!account,invitation,session:sessionStorage.getItem('gh-supplier-verified:'+value)||''}
+  sessionStorage.setItem('gh-supplier-quote-context',JSON.stringify({account,invitation}))
   if(value)sessionStorage.setItem('gh-supplier-token',value)
   setToken(value)
   if(value)window.history.replaceState({},'',window.location.pathname)
@@ -104,8 +117,10 @@ export default function SupplierQuotePortal(){
   setBusy(true);setError('')
   try{
    const payload=supplierPriceResponse(lines)
-   const {data,error}=await supabase.rpc('proc_portal_submit_v1',{
-    p_token:token,p_response:payload,p_expected_revision:revision,p_confirm:confirm
+   const ctx=accessContext.current
+   const {data,error}=await supabase.rpc(ctx.session||ctx.account?'proc_supplier_quote_submit_v1':'proc_portal_submit_v1',{
+    p_token:token,p_response:payload,p_expected_revision:revision,p_confirm:confirm,
+    ...(ctx.session||ctx.account?{p_session:ctx.session,p_invitation:ctx.invitation}:{})
    })
    if(error)throw error
    setRevision(data.revision)
@@ -125,6 +140,7 @@ export default function SupplierQuotePortal(){
   return sum+Math.min(Number(row.quantity),Number(item.requested_qty))*Number(row.price)
  },0)||0
  const money=n=>new Intl.NumberFormat('en-LK',{maximumFractionDigits:2,minimumFractionDigits:2}).format(n)
+ if(verificationRequired)return <main style={{padding:12}}><p>GEN</p><button className="btn small" onClick={()=>chooseLanguage(language==='ta'?'en':'ta')}>{language==='ta'?'EN':'தமிழ்'}</button><SupplierPhoneVerification token={token} language={language} onVerified={session=>{accessContext.current.session=session;sessionStorage.setItem('gh-supplier-verified:'+token,session);load(token).catch(e=>setError(e.message))}}/>{error&&<p role="alert">{error}</p>}</main>
  return <main lang={language} className={'supplier-quote-portal sq-compact'+(keyboardOpen?' sq-keyboard-open':'')}>
   <style>{'.sq-compact{background:#0a1423;color:#f5f7fb;min-height:100vh;padding:10px 8px 20px;font-family:"GH Tamil",system-ui,sans-serif}.sq-compact *{box-sizing:border-box;min-width:0}.sq-sheet{max-width:920px;margin:auto}.sq-language,.sq-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.sq-language{justify-content:flex-end}.sq-language button{background:#132136;color:#f5f7fb;border:1px solid #64748b;border-radius:5px;padding:6px 10px;min-height:36px}.sq-language button[aria-pressed=true]{border-color:#fbbf24}.sq-toolbar{margin:8px 0}.sq-compact input,.sq-compact button{font:inherit}.sq-box{background:#132136;border:1px solid #33465f;border-radius:7px;padding:8px;margin-bottom:8px}.sq-muted{color:#cbd5e1;font-size:12px}.sq-compact .sq-control{width:100%;max-width:100%;border:1px solid #64748b;border-radius:7px;padding:8px 6px;background:#0b1627;color:#fff;font-size:16px}.sq-compact .sq-rate{padding:8px 4px;text-align:right}.sq-table{border:1px solid #40536d;border-radius:11px;overflow:hidden;margin:9px 0;background:#122137}.sq-grid{display:grid;grid-template-columns:minmax(0,1fr) 50px 67px 79px;gap:4px;align-items:center}.sq-head{padding:8px 7px;background:#27394f;font-size:11px;font-weight:750;color:#e5e7eb}.sq-row{padding:6px 7px;border-top:1px solid #33465f}.sq-name{font-size:13px;font-weight:700;overflow-wrap:anywhere;line-height:1.3}.sq-uom{display:block;color:#cbd5e1;font-size:11px;font-weight:400;margin-top:3px}.sq-req{font-size:13px;text-align:right;font-weight:650}.sq-quote-item-actions{grid-column:1/-1;display:flex;gap:6px 14px;flex-wrap:wrap;margin-top:0}.sq-compact .sq-link{display:inline;min-height:32px;border:0;background:none;color:#93c5fd;text-decoration:underline;padding:2px 0;font-size:11px;cursor:pointer;text-align:left}.sq-compact .sq-link:disabled{opacity:.5}.sq-compact .sq-link:focus-visible{outline:2px solid #fbbf24;outline-offset:3px}.sq-compact .sq-rate-note{display:block;font-size:10px;color:#a9bcd3;text-align:right;margin-top:3px}.sq-compact .sq-options{grid-column:1/-1;border-top:1px dashed #3e536f;margin-top:7px;padding-top:9px}.sq-compact .sq-options label{display:block;font-size:12px}.sq-compact .sq-additional{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.sq-compact .sq-variation{padding:8px;border:1px solid #33465f;border-radius:7px;margin:8px 0}.sq-compact .sq-variation input{margin-top:4px}.sq-compact input[type=file]{width:100%;max-width:100%;font-size:12px}.sq-compact .sq-primary{overflow-wrap:anywhere;background:#fbbf24;color:#141414;font-size:15px;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer}.sq-compact .sq-secondary{overflow-wrap:anywhere;background:#334155;color:#fff;font-size:15px;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer}.sq-compact button:disabled,.sq-compact input:disabled{opacity:.55;cursor:not-allowed}.sq-compact .sq-footer{position:static;box-shadow:none}.sq-compact img{max-width:100%;object-fit:cover}.sq-compact summary{cursor:pointer;font-weight:650;font-size:12px;padding:5px 0}@media(max-width:700px){.sq-compact.sq-keyboard-open .sq-summary,.sq-compact.sq-keyboard-open .sq-toolbar,.sq-compact.sq-keyboard-open header h1,.sq-compact.sq-keyboard-open .sq-language{display:none}}@media(max-width:350px){.sq-compact{padding:8px 6px 20px}.sq-grid{grid-template-columns:minmax(0,1fr) 43px 63px 73px;gap:3px}.sq-name{font-size:12px}.sq-row,.sq-head{padding-left:5px;padding-right:5px}.sq-compact .sq-rate{padding:7px 2px}}'}</style>
   <div className="sq-sheet">

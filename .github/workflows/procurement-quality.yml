@@ -52,6 +52,7 @@ jobs:
         run: |
           node tests/supplier-portal-ui.mjs
           node tests/supplier-portal-mobile.mjs
+          node tests/supplier-verified-ui.mjs
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4

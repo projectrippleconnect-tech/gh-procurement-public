@@ -98,6 +98,7 @@ jobs:
         run: |
           node tests/supplier-portal-ui.mjs
           node tests/supplier-portal-mobile.mjs
+          node tests/supplier-verified-ui.mjs
 
       - name: Verify admin notification inbox on mobile and desktop
         env:

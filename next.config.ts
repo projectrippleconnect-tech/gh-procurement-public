@@ -26,6 +26,7 @@ const nextConfig: NextConfig = {
         { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
       ] },
       { source: '/supplier-links', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' },{ key: 'Cache-Control', value: 'private, no-store' }] },
+      { source: '/supplier-access', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' },{ key: 'Cache-Control', value: 'private, no-store' },{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }] },
     ]
   },
 }
