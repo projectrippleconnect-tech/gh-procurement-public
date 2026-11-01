@@ -2,23 +2,23 @@
 
 The optional gateway sends an RFQ PNG and caption to its invited supplier. WAHA uses an unofficial WhatsApp Web bridge; it is not the WhatsApp Business Platform. Account restrictions remain possible.
 
-## Verified infrastructure, 2026-10-09
+## Historical infrastructure snapshot, 2026-10-09 (not a current health check)
 - One Railway WAHA GOWS service, private endpoint `gh-procurement-waha-gows.railway.internal:3000`, with a 500 MB volume at `/app/.sessions`.
 - No WAHA public domain. Dashboard and Swagger remain disabled.
 - The session is linked and reports `WORKING`. Historical image requests returned HTTP 201, with corresponding accepted dispatch audit records. Acceptance does not prove recipient delivery.
 - Gateway migrations are applied to the existing Supabase project. Existing procurement data and role permissions are preserved.
 
 ## Configuration and access
-The web service needs server-only `WAHA_BASE_URL`, `WAHA_API_KEY`, `WAHA_SESSION`, and `WAHA_SENDING_ENABLED`, plus its existing public Supabase URL and publishable key. The route uses the signed-in user's token and guarded database RPCs; a Supabase service-role key is not required or configured.
+The web service needs server-only `WAHA_BASE_URL`, `WAHA_API_KEY`, `WAHA_SESSION`, and `WAHA_SENDING_ENABLED`, plus its existing public Supabase URL and publishable key. For a public HTTPS gateway, also configure `WAHA_ALLOWED_HOST` to its **exact DNS hostname** (no scheme, port, wildcard or path); this must match `WAHA_BASE_URL`. Private `*.railway.internal` HTTP endpoints retain their historical path solely for backward compatibility; localhost HTTP is limited to non-production environments. Arbitrary public hosts and public HTTP are rejected. The route uses the signed-in user's token and guarded database RPCs; a Supabase service-role key is not required or configured.
 
 Pairing requires an active administrator. Sending requires an active admin/procurement profile, RFQ management permission, an active invited supplier, an unsent invitation, a valid PNG and a working session. Supplier numbers are resolved from the database.
 
 Dispatch attempts are claimed atomically before sending. A unique RFQ/supplier key blocks concurrent or repeated attempts. Accepted, failed and unknown outcomes are audited. Unknown outcomes must be inspected in WhatsApp before any manual resend. Completed dispatches cannot be overwritten through the finish RPC.
 
 ## Controlled deployment
-Automatic Railway deployment is disabled by pinning the source to an explicitly verified commit. The existing manual-trigger watch pattern is also retained. Do not reconnect the source without a commit pin.
+The web app remains on the established Netlify manual-deploy path. This change does not enable Railway, switch providers or trigger a deployment. A new always-on WAHA provider is **not yet verified**. Before adopting a free hosting service, verify that it supports the WAHA container/engine, stable outbound WhatsApp WebSocket connectivity, persistent session data, secure inbound HTTPS and recovery from restarts. Botkeep currently documents Node.js runtimes but does not certify arbitrary WAHA Docker workloads; treat it as an evaluation candidate only. Never enable `WAHA_SENDING_ENABLED` until that provider has been tested with an authorized recipient.
 
-Run the quality gate first: locked install, security audit, TypeScript validation, tests, production build and responsive browser checks. Connect the exact passing commit, then explicitly redeploy that commit's deployment if Railway's watch pattern skips its first attempt. Verify the resulting deployment metadata and `/api/health` both identify the intended commit. Never redeploy an older release accidentally.
+Run the quality gate first: locked install, security audit, TypeScript validation, tests, production build and responsive browser checks. After the quality gate passes, deploy the **exact validated commit** via the established manual Netlify process only. Verify deployment metadata and `/api/health` both identify that commit. Do not redeploy an older release or expose a WAHA dashboard or API key.
 
 ## Operator workflow
 Open the prepared RFQ invitation and check connection status. Generate the PNG and use **Send Attached PNG + Caption** once. Inspect the recipient's WhatsApp chat for the correct image and caption before **Confirm Sent**. The manual download-and-attach fallback remains available.
