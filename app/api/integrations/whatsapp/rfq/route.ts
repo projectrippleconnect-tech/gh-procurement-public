@@ -28,7 +28,7 @@ async function authorize(request:Request){
 async function gatewaySession(config:{base:string;key:string;session:string}){
  const response=await fetch(config.base+'/api/sessions/'+encodeURIComponent(config.session),{
   headers:{'X-Api-Key':config.key,Accept:'application/json'},
-  signal:AbortSignal.timeout(5000),cache:'no-store'
+  signal:AbortSignal.timeout(5000),cache:'no-store',redirect:'error'
  })
  if(!response.ok)return {connected:false}
  const session=await response.json()
@@ -118,7 +118,7 @@ export async function POST(request:Request){
   const response=await fetch(config.base+'/api/sendImage',{
    method:'POST',
    headers:{'X-Api-Key':config.key,'Content-Type':'application/json',Accept:'application/json'},
-   body:JSON.stringify(chatPayload),signal:AbortSignal.timeout(25000),cache:'no-store'
+   body:JSON.stringify(chatPayload),signal:AbortSignal.timeout(25000),cache:'no-store',redirect:'error'
   })
   if(response.ok){
    const responseBody=await response.json().catch(()=>({}))
