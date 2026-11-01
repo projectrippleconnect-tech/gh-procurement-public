@@ -66,7 +66,7 @@ test('actual notification DB lifecycle: source events, issue resolution, audited
   const po=await one("insert into public.proc_purchase_orders(po_no,supplier_id,status,expected_date) values('NOTIFY-PO',$1,'pending_approval',current_date-1) returning id",[supplier.id])
   await q('insert into public.proc_po_lines(po_id,item_id,requirement_id,qty,unit_price) values($1,$2,$3,10,10)',[po.id,item.id,req.id])
   await db.exec('select private.proc_reconcile_notification_issues()')
-  assert.ok((await q("select * from public.proc_admin_notifications where kind='unapproved_cost' and resolved_at is null")).length)
+  assert.equal((await q("select * from public.proc_admin_notifications where kind='unapproved_cost' and resolved_at is null")).length,1,'PO submission and approval issue share one notification')
   await q("update public.proc_purchase_orders set status='approved',approved_by=$2,approved_at=now() where id=$1",[po.id,adminId])
   await q("update public.proc_purchase_orders set status='sent',sent_at=now() where id=$1",[po.id])
   await db.exec('select private.proc_reconcile_notification_issues()')

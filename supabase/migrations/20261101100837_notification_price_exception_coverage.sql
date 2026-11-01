@@ -21,6 +21,38 @@ RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path='' AS $$
 $$;
 REVOKE ALL ON FUNCTION private.proc_notify_admins(text,text,text,text,text,uuid,text,text,text,timestamptz,text,text) FROM PUBLIC,anon,authenticated;
 
+-- Keep PO submission and approval-needed work as one event, rather than two pushes.
+create or replace function private.proc_admin_submission_alert() returns trigger language plpgsql security definer set search_path='' as $$
+declare k text; title_v text; body_v text; view_v text;
+begin
+ if tg_op='UPDATE' and old.status=new.status then return new;end if;
+ if tg_table_name='proc_stock_counts' then
+  if new.status<>'submitted' then return new;end if;
+  k:='stock:'||new.id;title_v:='Stock submitted';view_v:='stock';
+  select coalesce(display_name,'Stock handler') into body_v from public.proc_profiles where id=new.counted_by;
+  body_v:=coalesce(body_v,'Stock handler')||' submitted '||new.count_no||coalesce(' · '||nullif(new.category,''),'');
+ else
+  if new.status not in ('pending_approval','sent') and not (tg_op='INSERT' and new.status='approved') then return new;end if;
+  k:='po:'||new.id||':'||case when new.status='approved' then 'pending_approval' else new.status end;view_v:='po';
+  title_v:=case when new.status='sent' then 'Supply order sent' else 'Supply order submitted' end;
+  select coalesce(name,'Supplier') into body_v from public.proc_suppliers where id=new.supplier_id;
+  body_v:=new.po_no||' · '||coalesce(body_v,'Supplier')||case when new.status='pending_approval' then ' · awaiting approval' else '' end;
+ end if;
+ insert into public.proc_admin_notifications(recipient_id,event_key,kind,title,body,target_view,record_id,target_filter,severity,responsible_role,due_at,action_label,issue_key)
+ select p.id,k,case when tg_table_name='proc_purchase_orders' and new.status='pending_approval' then 'unapproved_cost' else tg_table_name end,title_v,body_v,view_v,new.id,
+ case when tg_table_name='proc_purchase_orders' then new.id::text else '' end,
+ case when new.status='pending_approval' then 'warning' else 'info' end,
+ case when new.status='pending_approval' then 'Approver' else 'Procurement' end,
+ new.created_at,
+ case when new.status='pending_approval' then 'Review and approve order' else 'Open record' end,
+ case when tg_table_name='proc_purchase_orders' and new.status='pending_approval' then 'approval:'||new.id else null end
+ from public.proc_profiles p
+ join public.proc_roles r on r.role_key=p.role_key and r.enabled
+ where p.active and p.deleted_at is null and p.role='admin'
+ on conflict(recipient_id,event_key) do nothing;
+ return new;
+end $$;
+
 CREATE FUNCTION private.proc_price_activity_alert() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE ref text; sid uuid; rid uuid; supplier text; key_v text; kind_v text; title_v text; body_v text; filter_v text;
 BEGIN
