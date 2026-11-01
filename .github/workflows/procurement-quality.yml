@@ -74,7 +74,7 @@ jobs:
           - group: Directory and documents
             modes: 'GROUP_SEND COMPANY_PO CONTACT_PASTE PRINT_TEMPLATES CATALOG'
           - group: Access and layout
-            modes: 'SETTINGS_SEARCH RECORD_DELETE PICKERS ACCESS SCROLL_PANELS'
+            modes: 'SETTINGS_SEARCH RECORD_DELETE PICKERS ACCESS SCROLL_PANELS NOTIFICATIONS'
           - group: Purchasing
             modes: 'FOCUSED GUIDE_APPROVAL BULK_SEND PO_MANUAL SIZE_ORDER'
     permissions:

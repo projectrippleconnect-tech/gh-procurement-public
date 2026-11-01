@@ -102,6 +102,16 @@ try{
    }
    assert.fail(message)
   }
+  let notificationRows=[{id:'alert-fixture',title:'Stock submitted',body:'Fixture Handler submitted 001',target_view:'stock',created_at:new Date().toISOString(),read_at:null}]
+  let phoneRegistered=false,phoneTestBody=null
+  if(process.env.GH_UI_NOTIFICATIONS==='1')await context.addInitScript(()=>{
+   let sub=null
+   const fixture={endpoint:'https://fcm.googleapis.com/isolated-phone',toJSON(){return {endpoint:this.endpoint,keys:{p256dh:'fixture',auth:'fixture'}}},async unsubscribe(){sub=null;return true}}
+   const reg={pushManager:{async getSubscription(){return sub},async subscribe(){sub=fixture;return sub}}}
+   Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{async getRegistration(){return reg},async register(){return reg},ready:Promise.resolve(reg)}})
+   Object.defineProperty(window,'Notification',{configurable:true,value:{permission:'granted',async requestPermission(){return 'granted'}}})
+   if(!('PushManager' in window))window.PushManager=function(){}
+  })
   const receivingMode=process.env.GH_UI_RECEIVING==='1'
   let receivingAccepted=0,receivingCase=null,caseWrites=[],closureWrites=[],followupFailure=false,receivingReplayKey=null
   let dashboardReviewFailure=false,workFailure=false
@@ -233,7 +243,13 @@ try{
    else if(name==='proc_company_list_items'&&process.env.GH_UI_DENSE_STOCK==='1')data=Array.from({length:12},(_,i)=>({id:'dense-row-'+i,item_id:'dense-item-'+i,target_stock:20,item:{...item,id:'dense-item-'+i,description:'ALKATHENE HOSE '+['1/2IN 200FT','3/4IN 100FT','3/4IN 200FT','1IN 100FT','1IN 200FT','1 1/2IN 100FT'][i%6],category:'ALKATHINE',subgroup:'',size:'',uom:'PCS'}}))
    else if(name==='proc_company_list_items')data=[{id:'company-row-one',company_id:'company-fixture',item_id:item.id,target_stock:20,item:{...item,item_code:'FIXTURE-ITEM',subgroup:'Locks'}},{id:'company-row-two',company_id:'company-fixture',item_id:'company-other',target_stock:10,item:{...item,id:'company-other',description:'Fixture switch',category:'ELECTRICAL',subgroup:'Switches'}}]
    else if(name==='proc_import_company_items_v1'){companyImports.push(req.postDataJSON());data={created:req.postDataJSON().p_rows.length,existing:0,company_list_linked:req.postDataJSON().p_rows.length}}
-   else if(name==='proc_admin_notifications')data=process.env.GH_UI_NOTIFICATIONS==='1'?[{id:'alert-fixture',title:'Stock submitted',body:'Fixture Handler submitted 001',target_view:'stock',created_at:new Date().toISOString(),read_at:null}]:[]
+   else if(name==='proc_admin_notifications'){
+    if(req.method()==='PATCH')notificationRows=notificationRows.map(n=>url.searchParams.get('id')==='eq.'+n.id?{...n,...req.postDataJSON()}:n)
+    data=process.env.GH_UI_NOTIFICATIONS==='1'?notificationRows.filter(n=>!url.searchParams.has('issue_key')||n.issue_key&&!n.resolved_at):[]
+   }
+   else if(name==='proc_push_subscriptions'){if(req.method()==='POST')phoneRegistered=true;if(req.method()==='DELETE')phoneRegistered=false;data=phoneRegistered?[{id:'phone-fixture'}]:[]}
+   else if(name==='proc-admin-push'){const b=req.postDataJSON();if(b.action==='test'){phoneTestBody=b;data={accepted:1}}else data={publicKey:'AQID'}}
+   else if(name==='proc_notification_postpone_v1'){const b=req.postDataJSON();assert.equal(b.p_hours,4);assert.equal(b.p_reason,'Supplier will call back');notificationRows=notificationRows.map(n=>n.id===b.p_id?{...n,snoozed_until:new Date(Date.now()+14400000).toISOString()}:n);data=null}
    else if(name==='proc_profiles'){if(stallStartup&&url.searchParams.has('id')){await startupGate;stalledReturned=true}data=url.searchParams.has('id')?[currentProfile]:staffProfiles}
    else if(name==='proc_admin_delete_user_v1'){
     const body=req.postDataJSON();deleteRequests.push(body)
@@ -623,13 +639,32 @@ try{
    await page.getByRole('button',{name:'Enable phone notifications',exact:true}).waitFor()
    await page.getByRole('region',{name:'Admin notifications'}).waitFor()
    assert.equal(await page.locator('.notification-row.unread').count(),1)
+   await page.getByRole('button',{name:'Enable phone notifications',exact:true}).click()
+   await page.getByRole('button',{name:'Send test',exact:true}).click()
+   await page.getByText('Push service accepted the test. Confirm that a pop-up appeared on this phone.',{exact:true}).waitFor()
+   assert.equal(phoneTestBody.endpoint,'https://fcm.googleapis.com/isolated-phone')
+   await page.getByRole('button',{name:'Disable on this phone',exact:true}).click()
+   assert.equal(phoneRegistered,false)
    await page.screenshot({path:'test-results/admin-notifications-'+width+'.png'})
    await page.locator('.notification-row').click()
    await requireQuery(u=>u.pathname.endsWith('/proc_admin_notifications')&&u.searchParams.get('id')==='eq.alert-fixture','Opening an alert marks only that alert as read')
    await page.getByRole('heading',{name:'Stock Entry',exact:true}).first().waitFor()
    assert.equal(await page.getByRole('region',{name:'Admin notifications'}).count(),0)
    assert.deepEqual(errors,[])
-   console.log('PASS admin notification inbox, per-phone controls, read state and stock navigation at '+width+'px')
+   notificationRows=[{id:'issue-fixture',title:'Supplier response overdue',body:'RFQ-FIXTURE · response outstanding',target_view:'rfq',record_id:rfq.id,target_filter:rfq.id,issue_key:'no-response:qa',severity:'warning',responsible_role:'Procurement',due_at:new Date().toISOString(),action_label:'Follow up supplier',created_at:new Date().toISOString(),read_at:null}]
+   await page.getByRole('button',{name:'Notifications',exact:true}).click()
+   await page.getByRole('region',{name:'Admin notifications'}).getByRole('button',{name:'Refresh',exact:true}).click()
+   await page.getByRole('button',{name:'Open Exceptions / Urgent Work',exact:true}).click()
+   const issues=page.getByLabel('Exceptions and urgent work',{exact:true})
+   await issues.getByRole('button',{name:'Postpone 4 hours',exact:true}).click()
+   await issues.getByLabel('Reason for postponement',{exact:true}).fill('Supplier will call back')
+   await issues.getByRole('button',{name:'Save postponement',exact:true}).click()
+   await issues.getByText(/Postponed until/).waitFor()
+   await page.screenshot({path:'test-results/admin-exceptions-'+width+'.png'})
+   await issues.getByRole('button',{name:'Follow up supplier',exact:true}).click()
+   await requireQuery(u=>u.pathname.endsWith('/proc_rfqs')&&u.searchParams.get('id')==='eq.'+rfq.id,'Issue action opens its exact RFQ')
+   assert.deepEqual(errors,[])
+   console.log('PASS notification device enable/test/disable, active issue queue, audited postponement and exact RFQ navigation at '+width+'px')
    await context.close();continue
   }
   if(process.env.GH_UI_COMPANY_LOADING==='1'){

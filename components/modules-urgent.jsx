@@ -1,5 +1,6 @@
 'use client'
 
+import {AdminIssueQueue} from './admin-notifications'
 import {ItemActivity} from './item-activity'
 import {ModernSelect} from './modern-select'
 
@@ -189,6 +190,7 @@ export function UrgentActions({activeView='urgent_actions',profile,fields,featur
  return <>
   {activity&&<ItemActivity row={activity} can={can} navigate={navigate} onClose={()=>setActivity(null)}/>}
   <div className="sectionhead urgent-page-head"><div><h3>{t('urgent.title','Urgent Actions')} <InfoButton topic={stockOnly?'urgent_stock':'urgent_orders'} language={language}/></h3><p>{stockOnly?'Record zero stock, missing items and other urgent stock issues.':t('urgent.subtitle','Priority purchasing queue for zero stock, customer-paid needs and other time-critical requirements.')}</p></div></div>
+  {!stockOnly&&<AdminIssueQueue profile={profile} navigate={navigate} fail={fail}/>}
   <div className="urgent-summary-grid">
    {[
     ['urgent','Urgent',rows.filter(x=>x.effective_priority==='urgent').length,stockOnly?'Needs urgent stock attention':'Immediate owner/procurement action'],
