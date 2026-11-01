@@ -26,4 +26,22 @@ Scope: directory-phone OTP, revocable reusable supplier accounts, versioned stan
 
 ## Release status
 
-Implementation and automated acceptance are being verified. No claim of live publication or real supplier delivery is made by this source document until a successful release record is appended.
+Implementation and automated acceptance are complete. The reviewed application was manually published on 1 November 2026. Physical supplier-phone delivery acceptance remains unverified; see the release record below.
+
+## Verified release — 1 November 2026
+
+- Live application revision: `4af9fae48b34d588cfdc4f23c266a55c8203b366`.
+- Exact-source [quality run 518](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/41294383818) passed all nine jobs, including 517 unit/integration tests, database/authorization regressions, production build and supplier/browser regressions. OTP, stale edits, standing-price draft/submission/approval/reuse and EN/TA layouts including Tamil at 320px passed. A real isolated SQL test additionally rejects discovery, opening and standing-price entry for unpublished invitations, even when a private link was prepared by staff.
+- [Manual Netlify release 12](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/41294541810) succeeded. Its exact-source quality gate and all pre-publication and post-publication checks passed. The earlier release attempt was cancelled before publication while the unpublished-invitation restriction was completed.
+- Independent live health reports the exact revision, connected database and ready schema. Staff access, reusable supplier portal and quotation routes respond with 200, no-store, noindex and no-referrer headers. The signed-out staff screen shows a clear sign-in instruction and no supplier data.
+- Direct live anonymous API checks reject supplier-account access and staff code issuance. Invalid link/phone requests return a failure without creating a code request. Four private tables have RLS with no anonymous/authenticated direct SELECT rights; no private supplier helper is executable by either client role. Security advisors report the expected explicit capability API/definer and intentionally inaccessible private-table notices, with no new notice categories.
+- Post-release verification found the original six POs, six RFQs, route/recipient fingerprints, approval-required setting and straight-through feature configuration unchanged. No live supplier account, challenge or standing-price record was created by acceptance checks. No real supplier message was sent and no purchasing/sending flags were enabled.
+
+The MCP service assigned database migration versions separately from the original CLI-generated source filenames. Preserve this mapping when reconciling migration history:
+
+| Source file timestamp | Applied database version | Name |
+| --- | --- | --- |
+| 20261101061230 | 20261101093145 | supplier_verified_accounts_standing_prices |
+| 20261101094209 | 20261101094409 | supplier_published_invitation_scope |
+
+**Remaining acceptance:** actual receipt and entry of an OTP on a real supplier phone, plus the owner's physical Android usability check. The deployed OTP delivery method is explicitly staff-assisted WhatsApp; automatic gateway delivery is not claimed. Staff must generate supplier links and process code requests from [Supplier access](https://gh-procurement.netlify.app/supplier-access).
