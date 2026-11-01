@@ -19,6 +19,25 @@ Acceptance sequence: (1) provider and container/runtime checks, (2) dedicated ga
 
 Production Netlify deployments remain manual and pinned to reviewed commits. This branch is a staging change: it does not change production environment values or enable message sending.
 
+## Unattended RFQ/PO queue candidate (not live)
+
+`app/api/internal/auto-whatsapp/route.js` is a **fail-closed** server-side queue processor. It generates 1-bit PNG documents without a browser and sends them via the existing authenticated, idempotent RFQ/PO routes. It then claims and sends exactly one owner-private audit image associated with the accepted supplier dispatch. API acceptance is recorded but does **not** establish recipient delivery. Non-ASCII supplier document characters that cannot be rendered are rejected rather than silently damaged.
+
+The API is not active unless all of these **server-only** production variables are explicitly provided:
+
+- `GH_AUTO_DISPATCH_ENABLED=true`, `WAHA_SENDING_ENABLED=true`, `GH_AUTO_DELIVERY_TEST_VERIFIED=true` (set only AFTER a real authorized end-to-end recipient test)
+- `GH_AUTO_DISPATCH_SECRET=<random-secret-of-at-least-32-characters>` in Netlify AND the GitHub Actions secret of the **same** name; no source-code embedding or public prefix
+- `GH_AUTO_DISPATCH_AFTER=<UTC-ISO-start-time>`: strictly exclude all historical jobs; choose a new activation instant only after the real test
+- `GH_AUTO_ACCOUNT_EMAIL` / `GH_AUTO_ACCOUNT_PASSWORD`: **dedicated active admin/procurement account** with required RFQ and PO privileges, no personally shared login
+- `GH_WA_AUDIT_ENABLED=true`, `GH_WA_AUDIT_OWNER_ONLY=true`, plus exact `GH_WA_AUDIT_RFQ_GROUP_ID` and `GH_WA_AUDIT_PO_GROUP_ID` (WhatsApp group IDs only, not phone contacts)
+- Approved gateway configuration `WAHA_BASE_URL`, `WAHA_ALLOWED_HOST`, `WAHA_API_KEY`, `WAHA_SESSION`, and the public Supabase URL/publishable key.
+
+Even with everything configured, the GitHub Actions scheduler remains **skipped** unless the repository variable `GH_AUTO_DISPATCH_RELEASED=true` is set after approval. Its 5-minute cron interval is best-effort, not a guaranteed exact-time service.
+
+The processor reads only jobs with `status=needs_action` that were **created after** the activation cutoff, selects the supplier-specific RFQ requested items/scopes or approved PO lines, and checks all existing send records before sending. After any recorded accepted/unknown/failed/sending attempt it will **never** automatically resend. It processes at most two supplier documents per invocation. It does not falsely set jobs as `completed`: recipient confirmation and final workflow progression must be reconciled separately. Missing audit-group identity or failed private copy blocks a full-success outcome.
+
+This is not ready for unmonitored production: the controlled WAHA host, persistent credentials, authorized service user, scheduler secret, audit group membership, live recipient receipts, performance and special-character coverage still require end-to-end acceptance. Keep all production flags OFF while resolving those blockers.
+
 ## Configuration and access
 The web service needs server-only `WAHA_BASE_URL`, `WAHA_API_KEY`, `WAHA_SESSION`, and `WAHA_SENDING_ENABLED`, plus its existing public Supabase URL and publishable key. For a public HTTPS gateway, also configure `WAHA_ALLOWED_HOST` to its **exact DNS hostname** (no scheme, port, wildcard or path); this must match `WAHA_BASE_URL`. Private `*.railway.internal` HTTP endpoints retain their historical path solely for backward compatibility; localhost HTTP is limited to non-production environments. Arbitrary public hosts and public HTTP are rejected. The route uses the signed-in user's token and guarded database RPCs; a Supabase service-role key is not required or configured.
 
