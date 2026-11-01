@@ -37,6 +37,7 @@ export async function POST(request:Request){
      const response=await fetch(base+'/api/sendImage',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({session,chatId,file:{mimetype:'image/png',filename:job.rfq_no+'-'+(i+1)+'.png',data:images[i].toString('base64')},caption:caption+'\nPage '+(i+1)+'/'+images.length}),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'})
      if(!response.ok){status=i>0||response.status>=500?'unknown':'failed';lastError='WhatsApp rejected the image (HTTP '+response.status+').';break}
      messageId=extractWahaMessageId(await response.json().catch(()=>({})))
+     if(!messageId){status='unknown';lastError='Gateway returned HTTP success without a message ID. Check WhatsApp before any resend.';break}
      if(i===images.length-1)status='accepted'
     }
    }catch{lastError='Sending interrupted. Check WhatsApp and dispatch history before resending.'}
