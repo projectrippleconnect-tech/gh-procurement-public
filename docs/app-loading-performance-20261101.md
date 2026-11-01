@@ -17,4 +17,25 @@ The isolated browser PERFORMANCE mode enforces request budgets on 1,001 stock it
 
 Unit/integration coverage additionally checks authenticated bootstrap access, disabled/anonymous refusal, identical-read isolation, no write deduplication, cancellation, bounded history concurrency and complete/failing exports. Production business records and supplier messages are not used as test fixtures.
 
-Functional request budgets are reproducible in isolated fixtures. They are not a claim about the exact latency of a particular phone or mobile network. Live rollout and verification results will be recorded after the release.
+Functional request budgets are reproducible in isolated fixtures. They are not a claim about the exact latency of a particular phone or mobile network. Live rollout and verification results are recorded below.
+
+
+## Production rollout completed
+
+Released 1 November 2026 (Asia/Colombo) to [GH Procurement](https://gh-procurement.netlify.app/).
+
+| Evidence | Result |
+| --- | --- |
+| Application revision | `cd08cb306863bb2d7d28e7d96a6b46a92c7a6761` |
+| Quality gate | [Run 507](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/41258936924): all nine jobs successful |
+| Manual publication | [Run 9](https://github.com/projectrippleconnect-tech/gh-procurement-public/actions/runs/41259166483): successful; required the exact candidate quality run to be complete and successful before publication |
+| Automated verification | 509 unit/integration tests, 23 full-schema database suites, native PostgreSQL guards, all 20 existing browser modes and Work/Receiving/PERFORMANCE checks at all four widths |
+| Independent live response | `ok=true`, database connected, schema ready, exact expected application revision |
+
+The PERFORMANCE checks also freeze the reviewed quantity during final verification, submit only that quantity to isolated fixtures, and verify that finishing a lot does not restart an obsolete history scope and block the next review. Phone and desktop review screenshots were inspected.
+
+The additive source migration `20261101003325_workspace_loading_bootstrap.sql` is applied as production history version `20261101004806` (`workspace_loading_bootstrap`). Its body matches the verified source. Read-only checks under the authenticated application role confirm the correct profile and current permissions/configuration. The function is stable, invoker-based, has an empty search path, and denies anonymous execution. Existing advisory finding counts did not increase.
+
+The manual release repeated build/database, stock, company recount, notifications, quotation/PO sharing, Work, Receiving and performance acceptance checks. Production health, login/CSP/no-store, OCR asset, quotation route, exact version and unauthenticated-send boundaries passed. No production business rows or supplier messages were created as tests; unattended sending flags remain disabled. No new hosting service, paid resource or card verification was introduced.
+
+The default manual workflow is pinned to the deployed application revision and its successful quality run. The previous reviewed production revision `997dc54f5736e5e086a1e1f5ac4761fec7c08e6a` is the rollback reference; the additive bootstrap function remains compatible with that frontend. The code/report are retained in the release branch, and browser evidence is attached to the workflow runs with seven-day retention for acceptance artifacts.
