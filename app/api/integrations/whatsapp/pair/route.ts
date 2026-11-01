@@ -25,7 +25,7 @@ async function callWaha(config:{base:string;key:string;session:string},path:stri
   method,
   headers:{'X-Api-Key':config.key,Accept:accept,...(body?{'Content-Type':'application/json'}:{})},
   ...(body?{body:JSON.stringify(body)}:{}),
-  signal:AbortSignal.timeout(10000),cache:'no-store'
+  signal:AbortSignal.timeout(10000),cache:'no-store',redirect:'error'
  })
  const data=await response.json().catch(()=>null)
  return {response,data}
