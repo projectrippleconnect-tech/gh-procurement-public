@@ -353,7 +353,7 @@ test('private WAHA route is authenticated, supplier-scoped, audited, and fails c
  assert.match(route,/gatewaySession\(config\)/)
  assert.match(route,/config\.base\+'\/api\/sendImage'/)
  assert.match(route,/status='unknown'/)
- assert.match(route,/status='accepted'/)
+ assert.match(route,/status=messageId\?'accepted':'unknown'/)
  assert.doesNotMatch(route,/proc_mark_rfq_supplier_sent_v1/)
  assert.match(route,/WAHA_SENDING_ENABLED/)
  assert.doesNotMatch(route,/SUPABASE_SERVICE_ROLE_KEY/)
