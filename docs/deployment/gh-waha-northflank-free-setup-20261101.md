@@ -1,3 +1,11 @@
+# SAFETY HOLD — DO NOT PROVISION NORTHFLANK (1 November 2026)
+
+**This earlier deployment plan is suspended. DO NOT use it to create a service, set environment variables, or connect WhatsApp.** Northflank's official [status page](https://status.northflank.com/) reports a major, unresolved security incident starting 30 October 2026 and advises customers to assume environment variables/secrets may have been compromised. New account signup currently displays **“Signup is currently disabled”** in the user's app. Do not use Google/GitHub OAuth as a way around the signup restriction. **Do not provide any GH Procurement, WAHA, WhatsApp, or database credentials to Northflank while the incident is unresolved.**
+
+This document remains historical setup planning only. Wait until the provider publishes a confirmed security resolution AND reopens signup, or choose a separately verified trustworthy 24/7 host. No new WAHA host has been created. GH Procurement supplier auto-sending remains disabled.
+
+---
+
 # New GH Procurement WhatsApp gateway — Northflank Sandbox provisioning
 
 **Status: prepared, NOT provisioned, NOT connected, NOT allowed to send suppliers.**
