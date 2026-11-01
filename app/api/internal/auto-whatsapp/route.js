@@ -85,17 +85,18 @@ async function rfqWork(db,rfqId){
  return output
 }
 async function poWork(db,poId){
- const po=checked(await db.from('proc_purchase_orders').select('id,po_no,status,supplier_id,po_date').eq('id',poId).maybeSingle(),'PO lookup failed')
+ const po=checked(await db.from('proc_purchase_orders').select('id,po_no,status,supplier_id,po_date,quantity_only').eq('id',poId).maybeSingle(),'PO lookup failed')
  if(!po||po.status!=='approved')return []
  const existing=checked(await db.from('proc_whatsapp_po_dispatches').select('id,status').eq('po_id',poId).limit(1),'PO send history unavailable')
  if(hasExistingAttempt(existing))return []
  const supplier=checked(await db.from('proc_suppliers').select('id,name,active').eq('id',po.supplier_id).maybeSingle(),'PO supplier lookup failed')
  if(!supplier?.active)return []
- const lines=checked(await db.from('proc_po_lines').select('item_id,qty').eq('po_id',poId),'PO lines unavailable')
+ const lines=checked(await db.from('proc_po_lines').select('item_id,qty,unit_price,line_total').eq('po_id',poId),'PO lines unavailable')
  const items=await itemsForIds(db,lines.map(x=>x.item_id))
  return [{kind:'po',id:po.id,number:po.po_no,supplier:supplier.name,dueDate:po.po_date,
   rows:supplierSendRows(lines.map(x=>({description:items.get(x.item_id)?.description,size:items.get(x.item_id)?.size,
-  uom:items.get(x.item_id)?.uom,qty:x.qty})))}]
+  uom:items.get(x.item_id)?.uom,qty:x.qty,
+  ...(po.quantity_only?{}:{unitPrice:x.unit_price,lineTotal:x.line_total})})))}]
 }
 async function auditCopy(db,work,document,dispatchId){
  const config=gatewayConfig(),groupId=auditGroup(work.kind)
