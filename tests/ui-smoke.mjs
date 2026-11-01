@@ -449,7 +449,7 @@ try{
    await initialLot.getByRole('button',{name:'Back to counting'}).click()
    performanceHistoryFailure=true
    await page.locator('.dense-pagination').getByRole('button',{name:'Next',exact:true}).first().click()
-   await page.getByText('PERFORMANCE ITEM 0020',{exact:true}).filter({visible:true}).first().waitFor()
+   await page.getByText(/^PERFORMANCE ITEM 0020/).filter({visible:true}).first().waitFor()
    await page.getByRole('button',{name:/Review & submit · 1/}).click()
    const lot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
    await lot.getByText(/Could not check previous submissions/).waitFor()
@@ -458,7 +458,7 @@ try{
    await lot.getByRole('button',{name:'Retry history check'}).click()
    await submit.waitFor();for(let n=0;n<100&&await submit.isDisabled();n++)await page.waitForTimeout(25)
    assert.equal(await submit.isDisabled(),false)
-   assert.equal(await lot.getByLabel('Count for PERFORMANCE ITEM 0000').inputValue(),'4','Draft labels and quantities survive server page changes')
+   assert.equal(await lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/).inputValue(),'4','Draft labels and quantities survive server page changes')
    await page.screenshot({path:'test-results/loading-stock-'+width+'.png'})
    await lot.getByRole('button',{name:'Back to counting'}).click()
    await navigate('↗ Reports')
