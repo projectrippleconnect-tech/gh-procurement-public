@@ -51,7 +51,7 @@ test('pairing and supplier dispatch routes reject untrusted WAHA redirects',()=>
   'app/api/integrations/whatsapp/po/route.ts'
  ]){
   const source=readFileSync(new URL('../'+path,import.meta.url),'utf8')
-  const calls=(source.match(/await fetch\\(/g)||[]).length
+  const calls=(source.match(/await fetch\(/g)||[]).length
   const guards=(source.match(/redirect:'error'/g)||[]).length
   assert.ok(calls>0,path+' must call the gateway')
   assert.equal(guards,calls,path+' must reject redirects for every WAHA request')
