@@ -70,8 +70,17 @@ try{
   await mkdir('test-results',{recursive:true});const overflow=await page.locator('input,button,section').evaluateAll(nodes=>nodes.filter(n=>{const b=n.getBoundingClientRect();return b.width&& (b.right>innerWidth+1||b.left< -1)}).map(n=>({tag:n.tagName,label:n.getAttribute('aria-label'),right:n.getBoundingClientRect().right})));assert.deepEqual(overflow,[],'Every control fits the mobile viewport');
   await page.screenshot({path:'test-results/portal-'+width+'.png',fullPage:true})
   await page.getByRole('button',{name:'தமிழ்',exact:true}).click()
-  await page.getByRole('button',{name:'இறுதியாக உறுதிப்படுத்துக',exact:true}).waitFor()
+  await page.getByRole('button',{name:'இறுதி உறுதி',exact:true}).waitFor()
   assert.ok(await page.evaluate(async()=>{const fonts=await document.fonts.load('16px \"GH Tamil\"','தமிழ்');await document.fonts.ready;return fonts.length>0}),'Bundled Tamil glyph font is loaded')
+  const cdp=await context.newCDPSession(page)
+  await cdp.send('DOM.enable');await cdp.send('CSS.enable')
+  const doc=await cdp.send('DOM.getDocument')
+  for(const selector of ['.sq-sheet h1','.sq-secondary','.sq-language button:last-child']){
+   const node=await cdp.send('DOM.querySelector',{nodeId:doc.root.nodeId,selector})
+   const fonts=await cdp.send('CSS.getPlatformFontsForNode',{nodeId:node.nodeId})
+   assert.ok(fonts.fonts.some(f=>f.isCustomFont&&/Noto Sans Tamil/.test(f.familyName)&&f.glyphCount>0),'Tamil glyphs actually render using the bundled font: '+selector+' '+JSON.stringify(fonts))
+  }
+  await cdp.detach()
   assert.equal(await page.getByLabel('விலை: '+items[0].description,{exact:true}).inputValue(),'100')
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Tamil form fits '+width)
   await page.screenshot({path:'test-results/portal-tamil-'+width+'.png',fullPage:true})
