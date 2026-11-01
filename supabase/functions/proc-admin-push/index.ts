@@ -14,9 +14,9 @@ Deno.serve(async req=>{
   if(!worker){
    const token=req.headers.get('authorization')?.replace(/^Bearer /,'')||''
    const {data,error}=await db.auth.getUser(token);if(error||!data.user)return json({error:'Sign in required'},401)
-   const p=await checked(db.from('proc_profiles').select('active,role,role_key').eq('id',data.user.id).single())
+   const p=await checked(db.from('proc_profiles').select('active,role,role_key,deleted_at').eq('id',data.user.id).single())
    const role=await checked(db.from('proc_roles').select('enabled').eq('role_key',p.role_key).single())
-   if(!p.active||p.role!=='admin'||!role.enabled)return json({error:'Admin required'},403)
+   if(p.deleted_at||!p.active||p.role!=='admin'||!role.enabled)return json({error:'Admin required'},403)
    userId=data.user.id
   }
   if(!config.vapid_public){
@@ -28,38 +28,25 @@ Deno.serve(async req=>{
   if(!worker){
    const body=await req.json().catch(()=>({}))
    if(body.action==='test'){
-    const subs=await checked(db.from('proc_push_subscriptions').select('*').eq('user_id',userId))
-    for(const s of subs)await webpush.sendNotification(s.subscription,JSON.stringify({title:'GH Procurement notifications enabled',body:'Stock submissions and supply orders will appear here.',url:'/',tag:'gh-push-test'}),{TTL:300,timeout:10000})
+    if(typeof body.endpoint!=='string')return json({error:'Choose this registered phone'},400)
+    const subs=await checked(db.from('proc_push_subscriptions').select('*').eq('user_id',userId).eq('endpoint',body.endpoint))
+    for(const s of subs)await webpush.sendNotification(s.subscription,JSON.stringify({title:'GH Procurement notifications enabled',body:'Stock, orders, supplier prices and exceptions will appear here.',url:'/',tag:'gh-push-test'}),{TTL:300,timeout:10000})
     return json({accepted:subs.length})
    }
    return json({publicKey:config.vapid_public})
   }
-  const admins=await checked(db.from('proc_profiles').select('id,role_key').eq('active',true).eq('role','admin').is('deleted_at',null))
-  const roles=await checked(db.from('proc_roles').select('role_key').eq('enabled',true))
-  const eligible=admins.filter((p:any)=>roles.some((r:any)=>r.role_key===p.role_key)).map((p:any)=>p.id)
-  if(!eligible.length)return json({sent:0})
-  const subs=await checked(db.from('proc_push_subscriptions').select('*').in('user_id',eligible))
+  const claimed=await checked(db.rpc('proc_push_claim_v1',{p_limit:10}))
   let sent=0,failed=0
-  for(const s of subs){
-   const endpoint=new URL(s.endpoint)
-   if(endpoint.protocol!=='https:'||endpoint.port||endpoint.username||endpoint.password||!(/^(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)$/).test(endpoint.hostname))continue
-
-   const notes=await checked(db.from('proc_admin_notifications').select('*').eq('recipient_id',s.user_id).gte('created_at',s.created_at).gte('created_at',new Date(Date.now()-86400000).toISOString()).order('created_at').limit(200))
-   for(const n of notes){
-    await checked(db.from('proc_push_deliveries').upsert({notification_id:n.id,subscription_id:s.id},{onConflict:'notification_id,subscription_id',ignoreDuplicates:true}))
-    // Atomic lease: concurrent cron invocations cannot deliver the same row.
-    const now=new Date().toISOString()
-    const lease=await checked(db.from('proc_push_deliveries').update({next_attempt_at:new Date(Date.now()+120000).toISOString()}).eq('notification_id',n.id).eq('subscription_id',s.id).is('sent_at',null).lte('next_attempt_at',now).lt('attempts',5).select('*').maybeSingle())
-    if(!lease)continue
-    try{
-     await webpush.sendNotification(s.subscription,JSON.stringify({title:n.title,body:n.body,url:'/?notification='+n.id,tag:n.event_key}),{TTL:86400,urgency:'high',timeout:10000})
-     await checked(db.from('proc_push_deliveries').update({sent_at:new Date().toISOString(),attempts:lease.attempts+1,last_error:null}).eq('notification_id',n.id).eq('subscription_id',s.id));sent++
-    }catch(e:any){
-     failed++
-     if([404,410].includes(e.statusCode)){await checked(db.from('proc_push_subscriptions').delete().eq('id',s.id));break}
-     await checked(db.from('proc_push_deliveries').update({attempts:lease.attempts+1,next_attempt_at:new Date(Date.now()+Math.min(3600000,60000*2**lease.attempts)).toISOString(),last_error:'Push service HTTP '+(e.statusCode||'network failure')}).eq('notification_id',n.id).eq('subscription_id',s.id))
-    }
-    if(sent+failed>=100)return json({sent,failed})
+  for(const n of claimed){
+   try{
+    const endpoint=new URL(n.subscription.endpoint)
+    if(endpoint.protocol!=='https:'||endpoint.port||endpoint.username||endpoint.password||!(/^(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)$/).test(endpoint.hostname))throw Error('Invalid push endpoint')
+    await webpush.sendNotification(n.subscription,JSON.stringify({title:n.title,body:n.body,url:'/?notification='+n.notification_id,tag:n.event_key}),{TTL:86400,urgency:'high',timeout:10000})
+    await checked(db.from('proc_push_deliveries').update({sent_at:new Date().toISOString(),last_error:null}).eq('notification_id',n.notification_id).eq('subscription_id',n.subscription_id));sent++
+   }catch(e:any){
+    failed++
+    if([404,410].includes(e.statusCode)){await checked(db.from('proc_push_subscriptions').delete().eq('id',n.subscription_id));continue}
+    await checked(db.from('proc_push_deliveries').update({next_attempt_at:new Date(Date.now()+Math.min(3600000,60000*2**(n.attempt-1))).toISOString(),last_error:'Push service HTTP '+(e.statusCode||'network failure')}).eq('notification_id',n.notification_id).eq('subscription_id',n.subscription_id))
    }
   }
   return json({sent,failed})

@@ -38,6 +38,9 @@ SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000111'
 for(const kind of ['triggers','rls','policies','grants'])for(const row of snapshot[kind])await execute(row.sql,kind)
 for(const row of snapshot.function_acl){await execute(`REVOKE ALL ON FUNCTION ${row.signature} FROM PUBLIC;`,'function ACL');for(const g of row.grants)if(['PUBLIC','anon','authenticated','service_role'].includes(g.grantee))await execute(`GRANT EXECUTE ON FUNCTION ${row.signature} TO ${g.grantee};`,'function ACL')}
 await execute('GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public,private TO authenticated;SET check_function_bodies=on;','sequence ACL')
+// The existing push installation predates migrations and is separately versioned.
+// Load only its DB objects in isolated QA; never install Vault/network/cron workers.
+await execute(fs.readFileSync('supabase/admin-notifications.sql','utf8').split('-- Existing Vault')[0].replace('create extension if not exists pg_net with schema extensions;',''),'existing admin notification schema')
 const applied=new Set(meta.migrations.map(x=>x.path)),patches=fs.readdirSync('supabase/migrations').filter(f=>f.endsWith('.sql')).map(f=>'supabase/migrations/'+f).filter(f=>!applied.has(f)).sort()
 for(const file of patches)await execute(fs.readFileSync(file,'utf8'),'new migration '+file)
 console.log(`PASS isolated production definitions: ${snapshot.tables.length} tables, ${snapshot.functions.length} functions, ${snapshot.views.length} views; ${patches.length} new migration(s)`)
