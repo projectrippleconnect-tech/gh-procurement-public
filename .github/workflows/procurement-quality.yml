@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [WORK_CASES, RECEIVING]
+        mode: [WORK_CASES, RECEIVING, PERFORMANCE]
     permissions:
       contents: read
     env:

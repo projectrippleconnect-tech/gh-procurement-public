@@ -66,7 +66,7 @@ try{
  const id='00000000-0000-4000-8000-000000000002'
  const user={id,email:'fixture@example.invalid',app_metadata:{provider:'email'},user_metadata:{},aud:'authenticated'}
  const profile={id,display_name:'Fixture Administrator',role:'admin',role_key:'admin',active:true,language:'en'}
- const permissions=['admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search','suppliers.add','suppliers.view','suppliers.edit','company_lists.view','company_lists.manage',
+ const permissions=[...(process.env.GH_UI_PERFORMANCE==='1'?['reports.view','reports.export_csv','reports.export_pdf']:[]),'admin.configure_app','admin.users.manage','dashboard.view','urgent.view','invoices.view','invoices.manage','stock.count.view','stock.count.enter','items.view','items.edit','stock.search','suppliers.add','suppliers.view','suppliers.edit','company_lists.view','company_lists.manage',
   'procurement.requirements.view','procurement.requirements.manage','procurement.rfq.view','procurement.rfq.manage',
   'procurement.orders.view','procurement.orders.edit','procurement.orders.create','procurement.orders.approve','receiving.view','receiving.manage']
  const item={id:'00000000-0000-4000-8000-000000000003',item_id:'00000000-0000-4000-8000-000000000003',
@@ -130,6 +130,9 @@ try{
   let staffInvites=[],staffProfiles=[profile],deleteFailure=true
   const deleteRequests=[]
   const destructiveRequests=[]
+  const performanceMode=process.env.GH_UI_PERFORMANCE==='1',performanceReads=[]
+  let performanceHistoryFailure=false,performanceHistoryHold=false,releasePerformanceHistory
+  const performanceHistoryGate=new Promise(resolve=>{releasePerformanceHistory=resolve})
   let stallStartup=false,releaseStartup,stalledReturned=false
   const startupGate=new Promise(resolve=>{releaseStartup=resolve})
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
@@ -165,7 +168,8 @@ try{
    const req=route.request(),url=new URL(req.url()),name=url.pathname.split('/').pop()
    queries.push(url)
    if(process.env.GH_UI_COMPANY_LOADING==='1'&&holdCompanyRefresh&&['proc_company_list_items','proc_company_sections'].includes(name))await companyRefreshGate
-   let data=[]
+   let data=[],contentTotal=1
+   if(performanceMode)performanceReads.push({name,method:req.method(),body:req.postData()?req.postDataJSON():null,offset:Number(url.searchParams.get('offset')||0),limit:Number(url.searchParams.get('limit')||1000)})
    if(url.pathname.endsWith('/auth/v1/verify')&&req.method()==='POST'){
     const body=req.postDataJSON()
     if(body.token_hash!=='fixture-valid-hash'){
@@ -253,7 +257,23 @@ try{
      data={ok:true,setup_link:'https://auth.example.invalid/verify?token=fixture-setup-only',message:'One-time setup link generated.'}
     }
    }
+   else if(name==='proc_workspace_bootstrap_v1'){
+    if(stallStartup){await startupGate;stalledReturned=true}
+    data={profile:currentProfile,permissions:grantedPermissions,config:{modules:[],fields:[],features:[{feature_key:'stock.server_drafts',enabled:true}],settings:{company_profile:{name:'General Hardware',town:'Nawalapitiya'},...(interfacePreference?{interface_preferences:interfacePreference}:{})}}}
+   }
    else if(name==='proc_my_permissions_v1')data=grantedPermissions.map(permission_key=>({permission_key}))
+   else if(performanceMode&&name==='proc_v_requirements'&&url.searchParams.get('select')==='*'){
+    contentTotal=1027
+    const start=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||1000)
+    data=Array.from({length:Math.max(0,Math.min(limit,contentTotal-start))},(_,n)=>({...requirement,id:'report-'+(start+n),requirement_no:'REPORT-'+(start+n),description:'Report fixture '+(start+n)}))
+   }
+   else if(performanceMode&&name==='proc_v_stock_check_due'){
+    contentTotal=1001
+    const start=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||1000)
+    data=Array.from({length:Math.max(0,Math.min(limit,contentTotal-start))},(_,n)=>({...item,id:start+n===0?item.id:'00000000-0000-4000-8000-'+String(start+n+100).padStart(12,'0'),item_id:start+n===0?item.id:'00000000-0000-4000-8000-'+String(start+n+100).padStart(12,'0'),description:'Performance item '+String(start+n).padStart(4,'0')}))
+   }
+   else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performanceHistoryHold){await performanceHistoryGate;data=[]}
+   else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performanceHistoryFailure){performanceHistoryFailure=false;return route.fulfill({status:503,json:{message:'History temporarily offline'}})}
    else if(name==='proc_requirements'&&req.method()==='HEAD'&&dashboardReviewFailure)return route.fulfill({status:503,json:{message:'Fixture dashboard queue unavailable'}})
    else if(name==='proc_work_page_v1'){
     if(workFailure)return route.fulfill({status:503,json:{message:'Fixture work unavailable'}})
@@ -340,7 +360,7 @@ try{
     data=[]
    }
    if(req.headers()['accept']?.includes('vnd.pgrst.object')&&Array.isArray(data))data=data[0]||null
-   await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':'0-0/1','access-control-expose-headers':'content-range'},body:JSON.stringify(data)})
+   await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':performanceMode?'0-'+Math.max(0,(Array.isArray(data)?data.length:1)-1)+'/'+contentTotal:'0-0/1','access-control-expose-headers':'content-range'},body:JSON.stringify(data)})
   })
   await context.addInitScript(({id,user})=>{
    const header=btoa(JSON.stringify({alg:'HS256',typ:'JWT'}))
@@ -412,6 +432,62 @@ try{
     target=page.getByRole('button',{name:label,exact:true}).filter({visible:true}).first()
    }
    await target.click()
+  }
+  if(performanceMode){
+   assert.ok(performanceReads.some(r=>r.name==='proc_workspace_bootstrap_v1'))
+   assert.equal(performanceReads.filter(r=>['proc_module_settings','proc_field_settings','proc_feature_settings','proc_my_permissions_v1'].includes(r.name)).length,0,'Bootstrap replaces the separate configuration and permission downloads')
+   await navigate('✓ Stock Entry')
+   await page.locator(width<=700?'.browse-stock-input':'section:not([hidden]) .desktop-table input.stock-entry').filter({visible:true}).first().waitFor()
+   await page.getByRole('button',{name:'Browse All',exact:true}).click()
+   const stockField=()=>page.locator(width<=700?'.browse-stock-input':'section:not([hidden]) .desktop-table input.stock-entry').filter({visible:true}).first()
+   await stockField().fill('4')
+   assert.equal(performanceReads.filter(r=>r.name==='proc_items').length,0,'Opening Stock does not download the search catalogue')
+   assert.ok(performanceReads.filter(r=>r.name==='proc_v_stock_check_due').every(r=>r.limit<=75),'First screen requests a bounded page')
+   assert.ok(performanceReads.filter(r=>r.name==='proc_stock_latest_item_submissions_v1').every(r=>r.body.p_item_ids.length<=75),'History checks do not fan out over the catalogue')
+   await page.getByRole('button',{name:/Review & submit · 1/}).click()
+   const initialLot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
+   for(let n=0;n<100&&await initialLot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'}).isDisabled();n++)await page.waitForTimeout(25)
+   assert.equal(await initialLot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'}).isDisabled(),false)
+   await initialLot.getByRole('button',{name:'Back to counting'}).click()
+   performanceHistoryFailure=true
+   await page.locator('.dense-pagination').getByRole('button',{name:'Next',exact:true}).first().click()
+   await page.getByText(/^PERFORMANCE ITEM 0020/).filter({visible:true}).first().waitFor()
+   await page.getByRole('button',{name:/Review & submit · 1/}).click()
+   const lot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
+   await lot.getByText(/Could not check previous submissions/).waitFor()
+   const submit=lot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'})
+   assert.equal(await submit.isDisabled(),true,'Failed validation cannot be bypassed')
+   await lot.getByRole('button',{name:'Retry history check'}).click()
+   await submit.waitFor();for(let n=0;n<100&&await submit.isDisabled();n++)await page.waitForTimeout(25)
+   assert.equal(await submit.isDisabled(),false)
+   assert.equal(await lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/).inputValue(),'4','Draft labels and quantities survive server page changes')
+   await page.screenshot({path:'test-results/loading-stock-'+width+'.png'})
+   performanceHistoryHold=true
+   await submit.click()
+   assert.equal(await lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/).isDisabled(),true,'Reviewed quantities stay frozen during final history verification')
+   assert.equal(await lot.getByRole('button',{name:'Back to counting'}).isDisabled(),true)
+   performanceHistoryHold=false;releasePerformanceHistory()
+   await lot.waitFor({state:'hidden'})
+   assert.equal(stockSubmissions.length,1);assert.equal(stockSubmissions[0].p_lines[0].current_stock,4,'Only the reviewed quantity is submitted to the isolated fixture')
+   await page.getByRole('button',{name:/Review & submit · 0/}).click()
+   const emptyLot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
+   for(let n=0;n<100&&await emptyLot.getByRole('button',{name:'Retry history check'}).count();n++)await page.waitForTimeout(25)
+   assert.equal(await emptyLot.getByRole('button',{name:'Retry history check'}).count(),0,'A completed lot cannot restart a stale history scope and block the next review')
+   await emptyLot.getByRole('button',{name:'Back to counting'}).click()
+   await navigate('↗ Reports')
+   await page.getByText('1027 filtered record(s)',{exact:false}).waitFor()
+   const reportReads=()=>performanceReads.filter(r=>r.name==='proc_v_requirements')
+   assert.ok(reportReads().every(r=>r.limit<=100),'Opening a report fetches a screen page, not all report rows')
+   const downloadPromise=page.waitForEvent('download')
+   await page.getByRole('button',{name:'CSV',exact:true}).click()
+   const download=await downloadPromise,path=await download.path(),csv=await readFile(path,'utf8')
+   assert.ok(csv.includes('REPORT-0')&&csv.includes('REPORT-1026'),'Export includes first and last filtered records beyond 1000 rows')
+   assert.equal(csv.trim().split(/\r?\n/).length,1028,'Export includes every record and the heading')
+   assert.ok(reportReads().some(r=>r.offset===1000),'Full export pages only after explicit request')
+   assert.equal(stockSubmissions.length,1,'Only the explicitly reviewed fixture lot is submitted')
+   assert.deepEqual(errors,[])
+   console.log('PASS request budgets, paged Stock, saved draft, fail-closed scoped history and complete on-demand exports at '+width+'px')
+   await context.close();continue
   }
   if(process.env.GH_UI_WORK_CASES==='1'){
    const work=page.getByRole('region',{name:'Connected purchases',exact:true})

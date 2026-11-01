@@ -16,7 +16,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation,useTextPrompt} from './danger-confirmation'
 import {businessDate,money,qty,itemTitle,whatsappUrl} from '@/lib/helpers'
-import {exportPurchaseOrderPdf} from '@/lib/pdf'
+import {exportPurchaseOrderPdf} from '@/lib/lazy-pdf.mjs'
 import {PO_SHARE_FIELDS,defaultPoShareFields,resolvePoShareFields,buildPurchaseOrderText,buildPurchaseOrderCaption,createPurchaseOrderPng,downloadPurchaseOrderPng,sharePurchaseOrderPng} from '@/lib/po-share'
 import {allRows} from '@/lib/query-pages'
 import {StockSubmitAction,ItemLabel,Badge,ListPages,DataTable,configuredColumns,fieldEnabled,fieldLabel,Empty} from './ui'
@@ -52,7 +52,7 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
  }
  async function exportPo(type){if(!linesReady||shareBusy)return;setShareBusy(true)
   try{
-   if(type==='pdf')exportPurchaseOrderPdf({...shareArgs,footer})
+   if(type==='pdf')await exportPurchaseOrderPdf({...shareArgs,footer})
    else if(type==='share'){
     const result=await sharePurchaseOrderPng(shareArgs)
     flash(result.shared

@@ -7,7 +7,7 @@ import {useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {allRows} from '@/lib/query-pages'
 import {STOCK_PRINT_COLUMNS,defaultStockPrint,stockPrintRows,resolveStockPrint,resolveStockColumnStyles,groupStockPrintRows} from '@/lib/stock-print.mjs'
-import {buildCustomStockPdf} from '@/lib/pdf'
+import {buildCustomStockPdf} from '@/lib/lazy-pdf.mjs'
 import {useDangerConfirmation} from './danger-confirmation'
 
 export function StockPrintDialog({profile,company,companyName='',companyItems=null,companySections=[],can,fail}){
@@ -32,7 +32,7 @@ export function StockPrintDialog({profile,company,companyName='',companyItems=nu
   if(!toPrint.length)return fail(new Error('No items match the selected stock filters.'))
   setBusy(true)
   try{const options=resolveStockPrint(isCompanyList?{...config,columns:config.columns.filter(k=>k!=='movement'),groupBySubcategory:true,includeUncategorized:true}:{...config,groupBySubcategory:false});if(options.tablesPerPage>1&&options.columns.length>7&&!await confirm({tone:'action',title:'Review print density',message:'Many columns in narrow tables can require more pages. Use landscape or fewer columns for more writing space.',confirmLabel:'Generate PDF'}))return
-   const doc=buildCustomStockPdf({items:toPrint,company,options,sections:isCompanyList?companySections:[],subtitle:[companyName||'All items',category,subgroup,isCompanyList?'':movement||'All movement'].filter(Boolean).join(' · ')});doc.save('GH-'+(companyName||'Stock').replace(/[^a-zA-Z0-9_-]/g,'-')+'-Stock-Check.pdf');localStorage.setItem(key,JSON.stringify(options))
+   const doc=await buildCustomStockPdf({items:toPrint,company,options,sections:isCompanyList?companySections:[],subtitle:[companyName||'All items',category,subgroup,isCompanyList?'':movement||'All movement'].filter(Boolean).join(' · ')});doc.save('GH-'+(companyName||'Stock').replace(/[^a-zA-Z0-9_-]/g,'-')+'-Stock-Check.pdf');localStorage.setItem(key,JSON.stringify(options))
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  if(!can('stock.count.view')&&!can('company_lists.view'))return null
