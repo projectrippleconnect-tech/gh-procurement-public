@@ -131,7 +131,8 @@ try{
   const deleteRequests=[]
   const destructiveRequests=[]
   const performanceMode=process.env.GH_UI_PERFORMANCE==='1',performanceReads=[]
-  let performanceHistoryFailure=false
+  let performanceHistoryFailure=false,performanceHistoryHold=false,releasePerformanceHistory
+  const performanceHistoryGate=new Promise(resolve=>{releasePerformanceHistory=resolve})
   let stallStartup=false,releaseStartup,stalledReturned=false
   const startupGate=new Promise(resolve=>{releaseStartup=resolve})
   await context.route(root+'/api/integrations/whatsapp/po**',async route=>{const req=route.request();if(req.method()==='POST'){poGatewayRequests.push(req.postDataJSON());return route.fulfill({json:{ok:true,status:'accepted'}})}return route.fulfill({json:{configured:true,connected:true,sendingEnabled:true,dispatches:[]}})})
@@ -271,6 +272,7 @@ try{
     const start=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||1000)
     data=Array.from({length:Math.max(0,Math.min(limit,contentTotal-start))},(_,n)=>({...item,id:start+n===0?item.id:'00000000-0000-4000-8000-'+String(start+n+100).padStart(12,'0'),item_id:start+n===0?item.id:'00000000-0000-4000-8000-'+String(start+n+100).padStart(12,'0'),description:'Performance item '+String(start+n).padStart(4,'0')}))
    }
+   else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performanceHistoryHold){await performanceHistoryGate;data=[]}
    else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performanceHistoryFailure){performanceHistoryFailure=false;return route.fulfill({status:503,json:{message:'History temporarily offline'}})}
    else if(name==='proc_requirements'&&req.method()==='HEAD'&&dashboardReviewFailure)return route.fulfill({status:503,json:{message:'Fixture dashboard queue unavailable'}})
    else if(name==='proc_work_page_v1'){
@@ -460,7 +462,13 @@ try{
    assert.equal(await submit.isDisabled(),false)
    assert.equal(await lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/).inputValue(),'4','Draft labels and quantities survive server page changes')
    await page.screenshot({path:'test-results/loading-stock-'+width+'.png'})
-   await lot.getByRole('button',{name:'Back to counting'}).click()
+   performanceHistoryHold=true
+   await submit.click()
+   assert.equal(await lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/).isDisabled(),true,'Reviewed quantities stay frozen during final history verification')
+   assert.equal(await lot.getByRole('button',{name:'Back to counting'}).isDisabled(),true)
+   performanceHistoryHold=false;releasePerformanceHistory()
+   await lot.waitFor({state:'hidden'})
+   assert.equal(stockSubmissions.length,1);assert.equal(stockSubmissions[0].p_lines[0].current_stock,4,'Only the reviewed quantity is submitted to the isolated fixture')
    await navigate('↗ Reports')
    await page.getByText('1027 filtered record(s)',{exact:false}).waitFor()
    const reportReads=()=>performanceReads.filter(r=>r.name==='proc_v_requirements')
@@ -471,7 +479,7 @@ try{
    assert.ok(csv.includes('REPORT-0')&&csv.includes('REPORT-1026'),'Export includes first and last filtered records beyond 1000 rows')
    assert.equal(csv.trim().split(/\r?\n/).length,1028,'Export includes every record and the heading')
    assert.ok(reportReads().some(r=>r.offset===1000),'Full export pages only after explicit request')
-   assert.equal(stockSubmissions.length,0,'Performance checks do not submit the saved draft')
+   assert.equal(stockSubmissions.length,1,'Only the explicitly reviewed fixture lot is submitted')
    assert.deepEqual(errors,[])
    console.log('PASS request budgets, paged Stock, saved draft, fail-closed scoped history and complete on-demand exports at '+width+'px')
    await context.close();continue
