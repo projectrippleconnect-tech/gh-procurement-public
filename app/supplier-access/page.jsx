@@ -5,7 +5,7 @@ import {supabase} from '@/lib/supabase'
 async function newToken(){const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),b=>b.toString(16).padStart(2,'0')).join('');return {token,hash}}
 export default function SupplierAccessAdmin(){
  const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[link,setLink]=useState(''),[delivery,setDelivery]=useState(null),[notice,setNotice]=useState(''),[reuse,setReuse]=useState({id:'',invitation:'',revision:'0'})
- async function call(name,args={}){const {data,error}=await supabase.rpc(name,args);if(error)throw error;return data}
+ async function call(name,args={}){const {data,error}=await supabase.rpc(name,args);if(error)throw Error(error.code==='42501'?'Sign in to GH Procurement with permission to manage supplier requests.':error.message);return data}
  async function load(){setData(await call('proc_supplier_access_staff_v1'))}
  useEffect(()=>{load().catch(e=>setError(e.message))},[])
  async function run(action){setBusy(true);setError('');setNotice('');try{await action();await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
