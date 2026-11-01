@@ -36,3 +36,18 @@ test('expired devices are removed and retry failures retain backoff without mark
  const retry=worker({claims:[claim],failure:503});await retry.request({},true);assert.ok(retry.calls.some(x=>x.update?.next_attempt_at));assert.equal(retry.calls.some(x=>x.update?.sent_at),false)
  const invalid=worker({claims:[{...claim,subscription:{endpoint:'https://evil.invalid/secret'}}]});await invalid.request({},true);assert.equal(invalid.sent.length,0)
 })
+
+test('Android admin push preflight allows the full Supabase browser header set without broadening origin',async()=>{
+ const source=fs.readFileSync('supabase/functions/proc-admin-push/index.ts','utf8')
+ const origin=source.match(/'Access-Control-Allow-Origin':'([^']+)'/)?.[1]
+ const allow=source.match(/'Access-Control-Allow-Headers':'([^']+)'/)?.[1]?.split(',').map(x=>x.trim())
+ const methods=source.match(/'Access-Control-Allow-Methods':'([^']+)'/)?.[1]?.split(',').map(x=>x.trim())
+ assert.equal(origin,'https://gh-procurement.netlify.app')
+ for(const header of ['authorization','x-client-info','apikey','content-type','x-retry-count','traceparent','tracestate','baggage'])assert.ok(allow?.includes(header),'Missing browser header: '+header)
+ assert.deepEqual(methods,['POST','OPTIONS'])
+ const w=worker()
+ const response=await w.request({action:'key'})
+ assert.equal(response.status,200)
+ assert.equal(response.headers.get('Access-Control-Allow-Origin'),origin)
+ assert.ok(response.headers.get('Access-Control-Allow-Headers')?.includes('x-client-info'))
+})
