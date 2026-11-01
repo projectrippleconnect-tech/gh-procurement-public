@@ -1,4 +1,5 @@
 'use client'
+import {interfaceTranslator} from '@/lib/interface-copy.mjs'
 import {ReceiptLine} from './receipt-line'
 
 import {poNextStep} from '@/lib/purchasing-next-step.mjs'
@@ -28,6 +29,7 @@ import {defaultSupplierTemplate,documentCompany,documentLines} from '@/lib/suppl
 import {remainingDelivery,poSendBlock} from '@/lib/procurement-flow'
 
 export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOrderSelected=()=>{},activeView='po',initialFilter='',profile,fields,company,footer,flash,fail,can=()=>false,language='en',navigate=()=>{},t=(k,f)=>f||k}){
+ const tr=interfaceTranslator(language)
  const textPrompt=useTextPrompt()
  const[documentTemplate,setDocumentTemplate]=useState(()=>defaultSupplierTemplate('po'))
  useEffect(()=>{try{const v=JSON.parse(localStorage.getItem('gh-po-document:'+profile.id)||'null');if(v)setDocumentTemplate({...defaultSupplierTemplate('po'),...v})}catch{}},[profile.id])
@@ -135,7 +137,7 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
  async function action(type){
   if(!active)return
   const message=type==='approve'?(active.quantity_only?'Approve the quantities in this order? Prices are unconfirmed. This does not approve final spending.':'Approve this supplier, quantity, price, total and delivery terms?'):'Confirm that this purchase order was actually sent to the supplier?'
-  if(!await confirmAction(message))return
+  if(!await confirmAction(tr(message)))return
   setBusy(true)
   const r=type==='approve'?await supabase.rpc('proc_approve_po_v2',{p_po_id:active.id}):await supabase.rpc('proc_mark_po_sent_v2',{p_po_id:active.id})
   setBusy(false)
@@ -217,8 +219,8 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
    <SupplierDocumentEditor kind="po" value={documentTemplate} onChange={changeDocumentTemplate} company={company} lines={lines} po={active} disabled={busy||shareBusy}/>
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
    <div className="toolbar section no-print po-primary-action">
-    {active.quantity_only&&<p className="notice">Quantity approval only. Prices are unconfirmed; this approval does not authorize final spending.</p>}
-    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>{active.quantity_only?'Approve quantity only':'Approve order'}</button>}
+    {active.quantity_only&&<p className="notice">{tr('Quantity approval only. Prices are unconfirmed; this approval does not authorize final spending.')}</p>}
+    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>{tr(active.quantity_only?'Approve quantity only':'Approve order')}</button>}
     {canEdit&&active.status==='approved'&&<><button className="btn primary" disabled={busy||shareBusy||!linesReady||!shareReady} title="Choose the supplier in WhatsApp and review the PNG plus caption before sending" onClick={()=>exportPo('share')}>{shareBusy?'Preparing PO PNG…':'Share PO PNG + Caption'}</button><button className="btn" disabled={busy||shareBusy} onClick={()=>action('send')}>Confirm Sent</button></>}
     {can('receiving.view')&&active.status==='received'&&<button className="btn" onClick={()=>navigate('receiving','followup:'+active.po_no)}>Review follow-ups</button>}
     {canEdit&&canApprove&&active.status==='received'&&<button className="btn primary" disabled={busy||shareBusy||!linesReady} onClick={closeOrder}>Complete order →</button>}
@@ -394,6 +396,7 @@ export function Invoices({initialFilter='',profile,fields,features=[],flash,fail
 }
 
 export function Receiving({navigate=()=>{},onReceivingSelected=()=>{},activeView='receiving',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+ const tr=interfaceTranslator(language)
  const confirmAction=useActionConfirmation()
  const canReceive=can('receiving.manage')
  const[pos,setPos]=useState([]),[poId,setPoId]=useState(''),[lines,setLines]=useState([]),[vals,setVals]=useState({}),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[cases,setCases]=useState([])
@@ -477,7 +480,7 @@ export function Receiving({navigate=()=>{},onReceivingSelected=()=>{},activeView
    <div className="sectionhead"><div><h3>{t('receiving.title','Goods Receiving')} <InfoButton topic="receiving" language={language}/></h3><p>{t('receiving.hint','Choose an order, inspect quantities, then review and post.')}</p></div>{canReceive&&<div className="toolbar"><button className="btn" disabled={!visibleLines.length||busy||Boolean(attempt)} onClick={setAllFull}>Accept full remaining delivery</button><StockSubmitAction active={activeView==='receiving'}><button className="btn primary receive-post-dock" aria-label={busy?'Posting…':attempt?'Retry saved receipt':'Review receipt ('+enteredCount+') →'} disabled={busy||!draftReady||!enteredCount} onClick={post}><span className="receive-review-full">{busy?'Posting…':attempt?'Retry saved receipt':'Review receipt ('+enteredCount+') →'}</span><span className="receive-review-compact">{busy?'Posting…':attempt?'Retry receipt':'Review ('+enteredCount+') →'}</span></button></StockSubmitAction></div>}</div>
    <div className="formgrid"><div className="field"><label>{label('purchase_order','Purchase Order')}</label><ModernSelect aria-label="Purchase Order" className="select" value={poId} disabled={busy} onChange={e=>{setPoId(e.target.value);onReceivingSelected(e.target.value)}}><option value="">Select a sent PO…</option>{pos.map(p=><option key={p.id} value={p.id}>{p.po_no} · {p.supplier?.name}{['received','closed'].includes(p.status)?' · Confirm saved receipt':''}</option>)}</ModernSelect></div>{show('notes')&&<div className="field"><label>{label('notes','Receiving Notes')}</label><input className="input" disabled={busy||Boolean(attempt)} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></div>}</div>
    {canReceive&&poId&&draftReady&&<ReceiptOcr poId={poId} lines={lines} disabled={busy||Boolean(attempt)} fail={fail} onApply={async rows=>{if(!await confirmAction('Apply '+rows.length+' reviewed OCR row(s)? This replaces their draft quantities; accepted and rejected quantities must be entered after inspection.'))return false;setVals(v=>{const next={...v};for(const row of rows)next[row.lineId]={received:row.received,accepted:'',rejected:'0',reason:''};return next});flash('Reviewed received quantities applied. Inspect goods and enter accepted / rejected quantities before posting.')}}/>}
-   {lines.length>0&&<><DeliveryProgress lines={lines}/><div className="sticky-work-search receiving-search section"><input aria-label="Search receiving items" className="input" placeholder="Search item, size or code" value={search} onChange={e=>setSearch(e.target.value)}/><label className="checkline"><input type="checkbox" checked={showCompleted} onChange={e=>setShowCompleted(e.target.checked)}/>Show completed lines</label><p className="muted tiny">{visibleLines.length} shown · {lines.filter(l=>remaining(l)>0).length} awaiting delivery · {draftStatus}</p>{attempt&&<p role="status">A receipt attempt is saved. Retry saved receipt retries that exact receipt safely; quantities stay locked until its result is resolved.</p>}</div><div className="receiving-rows" role="region" aria-label="Receiving item rows">{visibleLines.map(l=><ReceiptLine key={l.id} line={l} value={vals[l.id]||{}} disabled={!canReceive||busy||Boolean(attempt)} show={show} full={isFull(l)} onFull={on=>setFull(l,on)} onChange={value=>setVals(previous=>({...previous,[l.id]:value}))}/>)}</div></>}
+   {lines.length>0&&<><DeliveryProgress lines={lines}/><div className="sticky-work-search receiving-search section"><input aria-label="Search receiving items" className="input" placeholder="Search item, size or code" value={search} onChange={e=>setSearch(e.target.value)}/><label className="checkline"><input type="checkbox" checked={showCompleted} onChange={e=>setShowCompleted(e.target.checked)}/>Show completed lines</label><p className="muted tiny">{visibleLines.length} shown · {lines.filter(l=>remaining(l)>0).length} awaiting delivery · {draftStatus}</p>{attempt&&<p role="status">A receipt attempt is saved. Retry saved receipt retries that exact receipt safely; quantities stay locked until its result is resolved.</p>}</div><div className="receiving-rows" role="region" aria-label="Receiving item rows">{visibleLines.map(l=><ReceiptLine language={language} key={l.id} line={l} value={vals[l.id]||{}} disabled={!canReceive||busy||Boolean(attempt)} show={show} full={isFull(l)} onFull={on=>setFull(l,on)} onChange={value=>setVals(previous=>({...previous,[l.id]:value}))}/>)}</div></>}
   </div>
 
   </>}

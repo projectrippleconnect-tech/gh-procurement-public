@@ -7,6 +7,7 @@ import React from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
 import ts from 'typescript'
 import * as flow from '../lib/procurement-flow.js'
+import * as copy from '../lib/interface-copy.mjs'
 import * as inspection from '../lib/receipt-inspection.mjs'
 const require=createRequire(import.meta.url)
 function compile(path,resolve){
@@ -14,9 +15,9 @@ function compile(path,resolve){
  const module={exports:{}};vm.runInNewContext(code,{exports:module.exports,module,require:resolve});return module.exports
 }
 const helpers=compile('../lib/helpers.ts',require)
-const {ReceiptLine}=compile('../components/receipt-line.jsx',name=>name==='@/lib/helpers'?helpers:name==='@/lib/procurement-flow'?flow:name==='@/lib/receipt-inspection.mjs'?inspection:require(name))
+const {ReceiptLine}=compile('../components/receipt-line.jsx',name=>name==='@/lib/interface-copy.mjs'?copy:name==='@/lib/helpers'?helpers:name==='@/lib/procurement-flow'?flow:name==='@/lib/receipt-inspection.mjs'?inspection:require(name))
 const line={id:'line',qty:20,cancelled_qty:0,item:{description:'BRASS ELBOW',size:'2 INCH',uom:'PCS'},grn:[]}
-const render=value=>renderToStaticMarkup(React.createElement(ReceiptLine,{line,value,show:()=>true,onChange:()=>{},onFull:()=>{},full:false,disabled:false}))
+const render=(value,language='en')=>renderToStaticMarkup(React.createElement(ReceiptLine,{line,value,language,show:()=>true,onChange:()=>{},onFull:()=>{},full:false,disabled:false}))
 test('responsive receiving has one input per quantity and explicitly labels acceptance',()=>{
  const html=render({received:'8',accepted:'',rejected:'0',reason:''})
  assert.equal((html.match(/aria-label="Received /g)||[]).length,1)
@@ -31,4 +32,10 @@ test('all-accepted goods collapse detail but rejected goods keep inspection visi
  assert.match(accepted,/aria-label="All accepted [^"]+"[^>]*checked=""/)
  const rejected=render({received:'8',accepted:'6',rejected:'2',reason:'Damaged'})
  assert.match(rejected,/<details[^>]*open=""/);assert.match(rejected,/2 rejected/);assert.match(rejected,/value="Damaged"/)
+})
+
+test('Tamil receiving keeps quantities intact and translates acceptance controls',()=>{
+ const html=render({received:'8',accepted:'8',rejected:'0'},'ta')
+ assert.match(html,/அனைத்தும் ஏற்றுக்கொள்ளப்பட்டது/);assert.match(html,/இப்போது பெற்றது/)
+ assert.match(html,/value="8"/);assert.match(html,/BRASS ELBOW/)
 })

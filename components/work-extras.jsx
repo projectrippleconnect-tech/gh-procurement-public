@@ -1,10 +1,12 @@
 'use client'
 import {useEffect,useState} from 'react'
+import {interfaceTranslator} from '@/lib/interface-copy.mjs'
 import {supabase} from '@/lib/supabase'
 
 // These tasks do not have a connected purchasing case. Purchasing documents
 // remain directly accessible for roles without requirement-screen access.
-export function WorkExtras({activeView,canNavigate,can=()=>false,navigate,revision=0,includePurchasing=false}){
+export function WorkExtras({activeView,canNavigate,can=()=>false,navigate,revision=0,includePurchasing=false,language='en'}){
+ const tr=interfaceTranslator(language)
  const[items,setItems]=useState([]),[error,setError]=useState(false)
  const stock=canNavigate('stock'),urgent=canNavigate('urgent_actions'),automation=urgent&&['procurement.requirements.manage','procurement.rfq.manage','procurement.orders.edit','admin.audit.view'].some(can)
  useEffect(()=>{
@@ -21,8 +23,8 @@ export function WorkExtras({activeView,canNavigate,can=()=>false,navigate,revisi
  const shown=items.filter(x=>x.error||x.count>0)
  if(!shown.length&&!error&&!includePurchasing)return null
  return <section className="section" aria-label="Other tasks">
-  {error&&<p role="alert">Some additional tasks could not load. Refresh work to retry.</p>}
-  <div className="toolbar">{shown.map(x=><button className="btn small" key={x.label} onClick={()=>navigate(x.view,x.filter)}>{x.label}{x.error?' · Unavailable':` · ${x.count}`}</button>)}
-  {includePurchasing&&[['requirements','Review quantities'],['rfq','Quotations'],['po','Orders'],['receiving','Deliveries']].filter(([view])=>canNavigate(view)).map(([view,label])=><button key={view} className="btn" onClick={()=>navigate(view,'')}>{label}</button>)}</div>
+  {error&&<p role="alert">{tr('Some additional tasks could not load. Refresh work to retry.')}</p>}
+  <div className="toolbar">{shown.map(x=><button className="btn small" key={x.label} onClick={()=>navigate(x.view,x.filter)}>{tr(x.label)}{x.error?' · '+tr('Unavailable'):` · ${x.count}`}</button>)}
+  {includePurchasing&&[['requirements','Review quantities'],['rfq','Quotations'],['po','Orders'],['receiving','Deliveries']].filter(([view])=>canNavigate(view)).map(([view,label])=><button key={view} className="btn" onClick={()=>navigate(view,'')}>{tr(label)}</button>)}</div>
  </section>
 }

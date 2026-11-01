@@ -6,6 +6,7 @@ import {supabase} from '@/lib/supabase'
 import {interfaceVariables} from '@/lib/procurement-journey.mjs'
 import {stepForView,viewForStep} from '@/lib/workflow-guide.mjs'
 import {NAV,Err,WorkflowNavigation} from './ui'
+import {interfaceTranslator} from '@/lib/interface-copy.mjs'
 import {PURCHASING_VIEWS,purchasingDestination} from '@/lib/purchasing-workspace.mjs'
 import {LoginScreen,ChangePassword} from './auth-screen'
 import {createTranslator,navText} from '@/lib/i18n'
@@ -315,7 +316,7 @@ function ProcurementApp(){
   if(['admin','procurement'].includes(roleKey))return ['dashboard','stock','receiving']
   return ['dashboard']
  },[roleKey])
- const primaryNav=useMemo(()=>primaryKeys.map(k=>k==='purchasing'?(visibleNav.some(n=>PURCHASING_VIEWS.includes(n[0]))?['purchasing','▤',t('purchasing.title','Purchasing')]:null):k==='dashboard'?(visibleNav.some(n=>n[0]===k)?['dashboard','⌂','Work']:null):visibleNav.find(n=>n[0]===k)).filter(Boolean),[primaryKeys,visibleNav,t])
+ const primaryNav=useMemo(()=>primaryKeys.map(k=>k==='purchasing'?(visibleNav.some(n=>PURCHASING_VIEWS.includes(n[0]))?['purchasing','▤',t('purchasing.title','Purchasing')]:null):k==='dashboard'?(visibleNav.some(n=>n[0]===k)?['dashboard','⌂',interfaceTranslator(language)('Work')]:null):visibleNav.find(n=>n[0]===k)).filter(Boolean),[primaryKeys,visibleNav,t])
  const secondaryNav=useMemo(()=>visibleNav.filter(n=>!primaryKeys.includes(n[0])),[visibleNav,primaryKeys])
  const mobileQuickNav=useMemo(()=>{
   if(['admin','procurement'].includes(roleKey))return primaryNav
@@ -397,10 +398,10 @@ function ProcurementApp(){
    <div className="brand"><div className="brandmark">GH</div><div><h1>{appName}</h1><small>{isolatedStockRole?'Stock workspace':t('app.purchase_control','Purchase Control')}</small></div></div>
    <div className="nav">
     <div className="nav-section-label">WORK</div>
-    {primaryNav.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{n[2]}</button>)}
+    {primaryNav.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{interfaceTranslator(language)(n[2])}</button>)}
     {secondaryNav.length>0&&<details className="nav-more" open={secondaryNav.some(n=>n[0]===view)}>
      <summary><b>•••</b><span>More / Admin</span></summary>
-     <div className="nav-more-items"><button onClick={()=>setMobileMenu(true)}>Settings &amp; help</button>{secondaryNav.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{n[2]}</button>)}</div>
+     <div className="nav-more-items"><button onClick={()=>setMobileMenu(true)}>Settings &amp; help</button>{secondaryNav.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><b>{n[1]}</b>{interfaceTranslator(language)(n[2])}</button>)}</div>
     </details>}
     {!secondaryNav.length&&<button onClick={()=>setMobileMenu(true)}>Settings &amp; help</button>}
    </div>
@@ -409,7 +410,7 @@ function ProcurementApp(){
 
   <main className="main">
    <AdminNotifications profile={profile} navigate={go} flash={flash}/>
-   <header className="topbar"><div className="topbar-left"><div><h2>{title}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div id="stock-header-action" className="stock-header-action"/><div className="top-actions"></div></header>
+   <header className="topbar"><div className="topbar-left"><div><h2>{interfaceTranslator(language)(title)}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div id="stock-header-action" className="stock-header-action"/><div className="top-actions"></div></header>
    {['requirements','rfq','po','receiving'].includes(view)&&historyTarget(-1)>=0&&<nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" onClick={()=>moveHistory(-1)}>← Back</button></nav>}
    <div className="content" ref={workContent}>
     <WorkflowNavigation view={view} navigate={go} canNavigate={p.canNavigate} t={t}/>
@@ -432,11 +433,11 @@ function ProcurementApp(){
   </main>
 
   <nav className="mobile-bottom-nav" aria-label="Main navigation" style={{gridTemplateColumns:`repeat(${mobileQuickNav.length+1},minmax(0,1fr))`}}>
-   {mobileQuickNav.map(n=><button key={n[0]} aria-current={navActive(n[0])?'page':undefined} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><span aria-hidden="true">{n[1]}</span>{n[2].split(' ')[0]}</button>)}
+   {mobileQuickNav.map(n=><button key={n[0]} aria-current={navActive(n[0])?'page':undefined} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><span aria-hidden="true">{n[1]}</span>{language==='ta'?interfaceTranslator(language)(n[0]==='stock'?'Stock':n[0]==='receiving'?'Receive':n[2]):n[2].split(' ')[0]}</button>)}
    <button className={mobileMenu?'active':''} onClick={()=>setMobileMenu(true)}><span aria-hidden="true">☰</span>{t('app.more','More')}</button>
   </nav>
 
-  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">{appName}</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><AppearanceControls/>{[['Purchasing documents',['requirements','rfq','po']],['Other tasks',['urgent_actions']],['Directory',['company_lists','suppliers','items','price_lists']],['Business & settings',['invoices','reports','admin']]].map(([label,keys])=>{const links=keys.map(key=>key==='purchasing'?(purchasingDestination(target=>visibleNav.some(n=>n[0]===target))?['purchasing','▤',t('purchasing.title','Purchasing')]:null):key==='dashboard'?(visibleNav.some(n=>n[0]===key)?['dashboard','⌂','Work']:null):visibleNav.find(n=>n[0]===key)).filter(Boolean);return links.length>0&&<div key={label}><div className="drawer-section-title">{label}</div><div className="mobile-drawer-grid">{links.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></div>})}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
+  {mobileMenu&&<div className="mobile-drawer-backdrop" onClick={()=>setMobileMenu(false)}><div className="mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" onClick={e=>e.stopPropagation()}><div className="mobile-drawer-head"><div><strong id="mobile-menu-title">{appName}</strong><div className="muted tiny">{String(profile.role_key||profile.role).replaceAll('_',' ')}</div></div><button className="btn small" onClick={()=>setMobileMenu(false)}>{t('common.close','Close')}</button></div><AppearanceControls/>{[['Purchasing documents',['requirements','rfq','po']],['Other tasks',['urgent_actions']],['Directory',['company_lists','suppliers','items','price_lists']],['Business & settings',['invoices','reports','admin']]].map(([label,keys])=>{const links=keys.map(key=>key==='purchasing'?(purchasingDestination(target=>visibleNav.some(n=>n[0]===target))?['purchasing','▤',t('purchasing.title','Purchasing')]:null):key==='dashboard'?(visibleNav.some(n=>n[0]===key)?['dashboard','⌂',interfaceTranslator(language)('Work')]:null):visibleNav.find(n=>n[0]===key)).filter(Boolean);return links.length>0&&<div key={label}><div className="drawer-section-title">{label}</div><div className="mobile-drawer-grid">{links.map(n=><button key={n[0]} className={navActive(n[0])?'active':''} onClick={()=>go(n[0])}><span>{n[1]}</span><b>{n[2]}</b></button>)}</div></div>})}<div className="drawer-language"><span>{t('common.settings','Settings')}</span><div className="language-switch"><button className={language==='en'?'active':''} onClick={()=>setAppLanguage('en')}>EN</button><button className={language==='ta'?'active':''} onClick={()=>setAppLanguage('ta')}>TA</button></div></div><div className="drawer-actions"><button className="btn" onClick={()=>{setMobileMenu(false);setHelpOpen(true)}}>{t('common.help','Help')}</button><button className="btn" onClick={()=>{setMobileMenu(false);setSecurityOpen(true)}}>{t('common.security','Security')}</button><button className="btn bad" onClick={()=>supabase.auth.signOut()}>{t('common.sign_out','Sign out')}</button></div></div></div>}
 
   <div className="app-toast-stack" aria-live="polite">
    {notice&&<div className="app-toast success-toast"><b>✓</b><span>{notice}</span><button aria-label="Dismiss notification" onClick={()=>setNotice('')}>×</button></div>}

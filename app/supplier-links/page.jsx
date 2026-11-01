@@ -118,7 +118,7 @@ export default function SupplierLinks(){
  const selectedRfq=requests.find(x=>x.id===selected)
  return <main style={{background:'#0a1423',color:'#f8fafc',minHeight:'100vh',fontFamily:'system-ui, sans-serif',padding:'18px 12px'}}>
  <div style={{maxWidth:850,margin:'0 auto'}}>
-  <p style={{fontSize:12,letterSpacing:2,color:'#fbbf24'}}>GENERAL HARDWARE · PROCUREMENT</p>
+  <p style={{fontSize:12,letterSpacing:2,color:'#fbbf24'}}>GEN · PROCUREMENT</p>
   <h1>Supplier quotation links</h1>
   <p style={{color:'#cbd5e1'}}>Each supplier receives a private link. They can save drafts, mark no stock, attach photos, and confirm. Confirmed exact-item prices appear in GH Prices. Drafts and alternative variations remain separate.</p>
   <p><a style={{color:'#fbbf24'}} href="/">← Back to Procurement</a></p>
@@ -145,7 +145,7 @@ export default function SupplierLinks(){
   {supplierFilter&&<p>Showing the selected supplier. <button style={btn} onClick={()=>setSupplierFilter('')}>Show all RFQ suppliers</button></p>}
   {(invitations||[]).filter(x=>!supplierFilter||x.supplier_id===supplierFilter).filter(x=>lower(x.supplier?.name).includes(lower(query))).map(inv=>{
    const record=identified.get(inv.id),canImport=record?.status==='confirmed'&&!record?.revoked_at&&record?.revision!==record?.imported_revision
-   return <section style={box} key={inv.id}>
+   return <section className="supplier-link-row" style={{borderBottom:'1px solid #334155',padding:'10px 0'}} key={inv.id}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
      <div><strong>{inv.supplier?.name||'Unknown supplier'}</strong><div style={{fontSize:12,color:'#cbd5e1'}}>RFQ status: {inv.status} · Portal: {record?.revoked_at?'Revoked':record?.status||'Not invited by link'}</div>
       {record&&<div style={{fontSize:12,color:'#cbd5e1'}}>Window closes {new Date(record.closes_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})} · Revision {record.revision}</div>}
@@ -161,6 +161,7 @@ export default function SupplierLinks(){
       const item=items.find(x=>x.id===line.id),name=item?.requirement?.item?.description||'Item'
       return <div key={line.id} style={{borderTop:'1px solid #334155',padding:'8px 0',fontSize:14}}>
        <strong>{name}</strong> · {line.status==='in_stock'?'Rs. '+line.price+' · Qty '+line.quantity:line.status}
+       {line.status==='in_stock'&&!line.terms_confirmed&&<p role="status" style={{color:'#fbbf24',margin:'4px 0'}}>Price and availability only; commercial terms need staff review.</p>}
        {line.image&&<img src={line.image} alt="Supplier supplied product" style={{display:'block',maxHeight:120,maxWidth:180,margin:8}}/>}
        {(line.variations||[]).map((v,i)=><div key={i} style={{paddingLeft:14,color:'#cbd5e1'}}>Alternative: {v.name} · Rs. {v.price} · {v.quantity}{v.image&&<img src={v.image} alt="Supplier alternative" style={{display:'block',maxHeight:110,maxWidth:180}}/>}</div>)}
       </div>
