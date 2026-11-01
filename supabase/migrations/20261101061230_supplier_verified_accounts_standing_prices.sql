@@ -203,7 +203,9 @@ BEGIN
  IF NOT FOUND THEN RAISE EXCEPTION 'Supplier invitation unavailable' USING ERRCODE='42501'; END IF;
  IF lid IS NULL THEN
   SELECT created_by INTO actor FROM private.proc_supplier_accounts WHERE id=(p_ident->>'account_id')::uuid;
-  IF NOT EXISTS(SELECT 1 FROM public.proc_rfqs r JOIN public.proc_rfq_suppliers rs ON rs.rfq_id=r.id WHERE rs.id=p_invitation AND r.status IN ('draft','prepared','sent','partially_quoted','quoted')) THEN RAISE EXCEPTION 'RFQ closed'; END IF;
+  -- RFQ precedes portal-link locks throughout intake and award processing.
+  PERFORM 1 FROM public.proc_rfqs r JOIN public.proc_rfq_suppliers rs ON rs.rfq_id=r.id WHERE rs.id=p_invitation AND r.status IN ('draft','prepared','sent','partially_quoted','quoted') FOR UPDATE OF r;
+  IF NOT FOUND THEN RAISE EXCEPTION 'RFQ closed'; END IF;
   INSERT INTO public.proc_supplier_portal_links(rfq_supplier_id,token_hash,closes_at,created_by,verification_required)
   VALUES(p_invitation,encode(extensions.digest(extensions.gen_random_bytes(32),'sha256'),'hex'),clock_timestamp()+interval '6 hours',actor,true)
   ON CONFLICT(rfq_supplier_id) DO NOTHING;
@@ -287,6 +289,7 @@ BEGIN
  IF auth.uid() IS NULL OR NOT private.proc_has_permission('procurement.rfq.manage') THEN RAISE EXCEPTION 'Not authorized' USING ERRCODE='42501'; END IF;
  SELECT * INTO saved FROM private.proc_supplier_standing_prices WHERE id=p_id AND state='approved' AND valid_until>clock_timestamp() FOR SHARE;
  SELECT * INTO rs FROM public.proc_rfq_suppliers WHERE id=p_invitation;
+ PERFORM 1 FROM public.proc_rfqs WHERE id=rs.rfq_id FOR UPDATE;
  SELECT * INTO link FROM public.proc_supplier_portal_links WHERE rfq_supplier_id=p_invitation FOR UPDATE;
  IF saved.id IS NULL OR rs.id IS NULL OR rs.supplier_id<>saved.supplier_id OR link.id IS NULL OR link.revoked_at IS NOT NULL OR link.closes_at<=clock_timestamp() OR link.status<>'draft' OR link.revision IS DISTINCT FROM p_expected_revision OR link.response<>'[]'::jsonb THEN RAISE EXCEPTION 'Use an empty, current supplier draft and an approved unexpired matching version'; END IF;
  IF EXISTS(SELECT 1 FROM jsonb_array_elements(saved.snapshots) snap JOIN public.proc_items i ON i.id=(snap->>'item_id')::uuid WHERE NOT i.active OR snap->>'description' IS DISTINCT FROM i.description OR snap->>'size' IS DISTINCT FROM i.size OR snap->>'uom' IS DISTINCT FROM i.uom) THEN RAISE EXCEPTION 'Item specifications changed; supplier reconfirmation required'; END IF;

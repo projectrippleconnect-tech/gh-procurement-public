@@ -67,7 +67,7 @@ try{
  await page.getByRole('button',{name:'I sent this code to the directory number',exact:true}).click();await page.getByRole('status').getByText(/Delivery recorded/).waitFor()
  await page.getByRole('button',{name:'Generate reusable link',exact:true}).click();await page.getByLabel('New reusable supplier link',{exact:true}).waitFor()
  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Approve version',exact:true}).click();await page.getByRole('button',{name:'Choose for draft reuse',exact:true}).click()
- await page.getByLabel('Choose an open, empty request for this supplier',{exact:true}).selectOption(inv)
+ await page.getByRole('combobox',{name:'Choose supplier request for draft reuse',exact:true}).selectOption(inv)
  await page.getByRole('button',{name:'Copy into empty supplier draft',exact:true}).click();await page.getByRole('status').getByText(/Standing prices copied/).waitFor()
  await page.screenshot({path:'test-results/verified-supplier-staff.png',fullPage:true})
  assert.deepEqual(errors,[])
