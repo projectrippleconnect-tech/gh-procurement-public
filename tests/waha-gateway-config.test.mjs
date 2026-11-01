@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {gatewayConfig} from '../lib/waha-gateway-config.js'
 
 const base={WAHA_API_KEY:'secret',WAHA_SESSION:'default',NODE_ENV:'production'}
@@ -40,4 +41,19 @@ test('rejects malformed, unconfigured, or unsafe gateway settings',()=>{
 test('allows localhost only outside production for local integration tests',()=>{
  const local={WAHA_BASE_URL:'http://127.0.0.1:3000',NODE_ENV:'test'}
  assert.equal(config(local)?.base,'http://127.0.0.1:3000')
+})
+
+
+test('pairing and supplier dispatch routes reject untrusted WAHA redirects',()=>{
+ for(const path of [
+  'app/api/integrations/whatsapp/pair/route.ts',
+  'app/api/integrations/whatsapp/rfq/route.ts',
+  'app/api/integrations/whatsapp/po/route.ts'
+ ]){
+  const source=readFileSync(new URL('../'+path,import.meta.url),'utf8')
+  const calls=(source.match(/await fetch\\(/g)||[]).length
+  const guards=(source.match(/redirect:'error'/g)||[]).length
+  assert.ok(calls>0,path+' must call the gateway')
+  assert.equal(guards,calls,path+' must reject redirects for every WAHA request')
+ }
 })
