@@ -60,7 +60,9 @@ try{
   await page.screenshot({path:'test-results/verified-supplier-portal-'+width+'.png',fullPage:true})
  }
  await page.getByRole('button',{name:'தமிழ்',exact:true}).click();await page.getByRole('heading',{name:'சப்ளையர் தளம்',exact:true}).waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))
+ await page.setViewportSize({width:320,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Tamil reusable portal fits 320px')
  await page.screenshot({path:'test-results/verified-supplier-portal-tamil.png',fullPage:true})
+ await page.setViewportSize({width:390,height:844})
  await page.getByRole('link',{name:'விலைகளை உள்ளிடுக',exact:true}).click();await page.getByLabel('Price for BRASS ELBOW',{exact:true}).waitFor()
  await page.goto(root+'/supplier-access');await page.getByRole('heading',{name:'Supplier access',exact:true}).waitFor()
  await page.getByRole('button',{name:'Generate code',exact:true}).click();await page.getByText('123456',{exact:true}).waitFor()
