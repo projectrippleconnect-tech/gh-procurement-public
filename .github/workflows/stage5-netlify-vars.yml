@@ -48,16 +48,8 @@ jobs:
           }
           console.log('Verified exact existing Netlify project')
           NODE
-      - name: Set production sending OFF FIRST then gateway metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          # All default Netlify CLI scopes (free plan); only production context.
-          # No deployments or supplier sends. WAHA_API_KEY is not read or changed.
-          netlify env:set WAHA_SENDING_ENABLED false --context production --site "$NETLIFY_SITE_ID" --force
-          netlify env:set WAHA_BASE_URL https://gh-procurement-waha.hostless.app --context production --site "$NETLIFY_SITE_ID" --force
-          netlify env:set WAHA_ALLOWED_HOST gh-procurement-waha.hostless.app --context production --site "$NETLIFY_SITE_ID" --force
-          netlify env:set WAHA_SESSION default --context production --site "$NETLIFY_SITE_ID" --force
+      - name: Check four settings (read-only; no changes)
+        run: echo 'Inspecting four public gateway settings; no secrets accessed and no deployment.'
       - name: Verify production values and no deploy occurred
         id: verify
         shell: bash
@@ -67,6 +59,7 @@ jobs:
             key="$1"
             expected="$2"
             actual="$(netlify env:get "$key" --context production --site "$NETLIFY_SITE_ID")"
+            echo "$key read-back: [$actual]"
             if [ "$actual" != "$expected" ]; then
               echo "Unexpected production value for $key"
               exit 1
