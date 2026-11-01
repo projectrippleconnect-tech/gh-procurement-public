@@ -542,7 +542,7 @@ try{
    await page.locator('.company-stock-tools>summary').filter({visible:true}).first().click()
    await page.getByRole('button',{name:'Customize & Print Stock PDF',exact:true}).filter({visible:true}).first().click()
    const print=page.getByRole('dialog',{name:'Stock PDF setup',exact:true});await print.waitFor()
-   assert.equal(await print.getByLabel('Maximum tables per page',{exact:true}).getAttribute('data-value'),'3')
+   assert.equal(await print.getByLabel('Required tables per page',{exact:true}).getAttribute('data-value'),'3')
    assert.equal(await print.getByLabel('Print movement',{exact:true}).count(),0,'Company lists have no movement filtering')
    const download=page.waitForEvent('download');await print.getByRole('button',{name:'Download Printable PDF',exact:true}).click()
    const pdf=await download,bytes=await readFile(await pdf.path());const pdfText=b=>[...b.toString('latin1').matchAll(/\(([^()]*)\)\s*Tj/g)].map(m=>m[1]).join(' ');assert.ok(pdfText(bytes).includes('Fixture switch'));assert.ok(bytes.includes(Buffer.from('Stocks Checked By')))
