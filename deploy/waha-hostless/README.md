@@ -6,6 +6,7 @@ This repository directory is a **proposed configuration**, not a direct represen
 
 ## Recovery patch (not yet deployed)
 
+- Hostless documented ingress requirement: WAHA must listen on `0.0.0.0` at the configured port. The previous Dockerfile did not explicitly set `WHATSAPP_API_HOSTNAME`, and from GitHub's network, `/ping`, `/health`, and `/api/sessions/default` all returned **HTTP 404** on the existing Hostless domain. The change pins the API listener to `0.0.0.0:3000`, matching the currently intended container port. **Routing as the actual cause is a hypothesis, not confirmed**, until a fresh live deployment is verified.
 - Single GOWS worker, one replica, `0.2 vCPU` maximum.
 - Proposed app ceiling: `512 MB`, up from the checked-in previous `384 MB`. Keep the existing PostgreSQL service and its data. **Before applying this limit, confirm the exact current Hostless free entitlement and running resource allocation for this account.** Shared free plan documentation includes `0.5 vCPU / 1 GiB RAM / 512 MiB database storage`, but older accounts and billing cycles can have different limits. Do not incur charges, add a card, enable paid resources, or upgrade.
 - Set `WHATSAPP_RESTART_ALL_SESSIONS=False`, `WHATSAPP_START_SESSION=default` so restarting the container does not revive unrelated stored STOPPED sessions. These variables must not be used to destroy or re-pair the existing authorized device.
