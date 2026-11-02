@@ -1,0 +1,58 @@
+# Read-only Stage 5 post-release probe. No secrets, deployments or WhatsApp sends.
+name: GH Procurement Stage 5 public health and security probe
+on:
+  push:
+    branches: [audit/stage5-public-probe-20261102]
+    paths: [.github/workflows/stage5-public-probe.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify deployed health and deny anonymous gateway and procurement access
+        id: probe
+        env:
+          EXPECTED_SHA: 8df2c86a35897ec85e6c1708118eba9c6803ccc1
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          const checks = [
+            {url:'https://gh-procurement.netlify.app/api/health', expected:200, name:'GH production health'},
+            {url:'https://gh-procurement.netlify.app/api/integrations/whatsapp/pair',expected:401,name:'GH admin pairing anonymous denial'},
+            {url:'https://gh-procurement.netlify.app/api/integrations/whatsapp/rfq',expected:401,name:'GH RFQ anonymous denial'},
+            {url:'https://gh-procurement.netlify.app/api/integrations/whatsapp/po',expected:401,name:'GH PO anonymous denial'},
+            {url:'https://gh-procurement-waha.hostless.app/api/sessions',expected:401,name:'WAHA public session anonymous denial'},
+            {url:'https://gh-procurement-waha.hostless.app/health',expected:200,name:'WAHA public health'}
+          ]
+          let fail=false
+          for(const {url,expected,name} of checks){
+            try{
+              const resp=await fetch(url,{signal:AbortSignal.timeout(12000),redirect:'manual'})
+              console.log(name+': '+resp.status+' (expected '+expected+')')
+              if(resp.status!==expected){fail=true; continue}
+              if(url.endsWith('/api/health')){
+                const data=await resp.json()
+                assert.equal(data.version,process.env.EXPECTED_SHA)
+                assert.equal(data.database,'connected')
+                assert.equal(data.schema_ready,true)
+                console.log('GH release revision/database/schema verified.')
+              }
+            }catch(e){fail=true;console.error(name+': PROBE FAILED ('+String(e.message||e).slice(0,160)+')')}
+          }
+          if(fail)process.exitCode=1
+          NODE
+      - name: Record outcome in Stage 5 acceptance issue
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = '${{ steps.probe.outcome }}' === 'success';
+            await github.rest.issues.createComment({
+              owner:context.repo.owner,repo:context.repo.repo,issue_number:158,
+              body:(passed ? 'PASS' : 'INCOMPLETE/FAIL') + ' — Stage 5 read-only external probe of Netlify health/revision, unauthorized Pair/RFQ/PO routes, public WAHA unauthorized sessions, and WAHA health. This does NOT verify Netlify authenticated WAHA key or send supplier WhatsApp messages. Workflow: '+context.serverUrl+'/'+context.repo.owner+'/'+context.repo.repo+'/actions/runs/'+context.runId
+            })
