@@ -36,6 +36,12 @@ jobs:
           const account=site.account_id?await get('/accounts/'+encodeURIComponent(site.account_id)):null
           if(account){
             const credit=account.credits||account.credit_usage||account.billing?.credits||{}
+            const flags=['configurable_limits_exceeded','ai_usage_limit_enforced','blocked_by_orb_migration']
+            for(const flag of flags){console.log(flag+':',typeof account[flag]==='boolean'?account[flag]:JSON.stringify(account[flag]??null).slice(0,200))}
+            const planCredits=account.plan_credits
+            console.log('Plan credits:',planCredits&&typeof planCredits==='object'?JSON.stringify(Object.fromEntries(Object.entries(planCredits).filter(([k,v])=>typeof v==='number'||typeof v==='boolean'))).slice(0,400):typeof planCredits==='number'?planCredits:'not reported')
+            console.log('Billing cycle start:',String(account.current_billing_period_start||'unreported'))
+            console.log('Next billing cycle:',String(account.next_billing_period_start||'unreported'))
             console.log('Account type:',String(account.type||'unreported'))
             console.log('Account credits structure:',Object.keys(credit).sort().join(',')||'not reported')
             console.log('Account credit used:',typeof credit.used==='number'?credit.used:'not reported')
