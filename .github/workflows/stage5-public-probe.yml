@@ -66,13 +66,36 @@ jobs:
           sending="$(netlify env:get WAHA_SENDING_ENABLED --context production --site "$NETLIFY_SITE_ID")"
           test "$sending" = "false" || { echo "BLOCK: supplier sending is not disabled"; exit 1; }
           echo "Supplier sending remains explicitly disabled."
+      - name: Verify production auto-dispatch gates remain off and audit readiness
+        id: safety_gates
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in GH_AUTO_DISPATCH_ENABLED GH_AUTO_DELIVERY_TEST_VERIFIED GH_WA_AUDIT_ENABLED GH_PORTAL_PROCESSING_ENABLED GH_PORTAL_DISPATCH_ENABLED GH_PORTAL_DELIVERY_VERIFIED; do
+            value="$(netlify env:get "$key" --context production --site "$NETLIFY_SITE_ID" 2>/dev/null || true)"
+            if [ "$value" = "true" ]; then
+              echo "UNSAFE: $key unexpectedly enabled in production"; exit 1
+            fi
+            echo "$key safely disabled / absent"
+          done
+          for key in GH_WA_AUDIT_RFQ_GROUP_ID GH_WA_AUDIT_PO_GROUP_ID GH_AUTO_DISPATCH_SECRET GH_AUTO_ACCOUNT_EMAIL GH_AUTO_ACCOUNT_PASSWORD; do
+            value="$(netlify env:get "$key" --context production --site "$NETLIFY_SITE_ID" 2>/dev/null || true)"
+            if [ -z "$value" ] || [ "$value" = "undefined" ] || [ "$value" = "null" ]; then
+              echo "$key: not present (do not enable unattended dispatch)"
+            else
+              echo "$key: present (value not disclosed, membership/validity not yet verified)"
+            fi
+          done
       - name: Record outcome in Stage 5 acceptance issue
         if: always()
         continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
-            const passed = '${{ steps.probe.outcome }}' === 'success' && '${{ steps.netlify_key.outcome }}' === 'success';
+            const passed = '${{ steps.probe.outcome }}' === 'success' && '${{ steps.netlify_key.outcome }}' === 'success' && '${{ steps.safety_gates.outcome }}' === 'success';
             await github.rest.issues.createComment({
               owner:context.repo.owner,repo:context.repo.repo,issue_number:158,
               body:(passed ? 'PASS' : 'INCOMPLETE/FAIL') + ' — Stage 5 read-only external probe of Netlify health/revision, unauthorized Pair/RFQ/PO routes, public WAHA unauthorized sessions, and WAHA health. This does NOT verify Netlify authenticated WAHA key or send supplier WhatsApp messages. Workflow: '+context.serverUrl+'/'+context.repo.owner+'/'+context.repo.repo+'/actions/runs/'+context.runId
