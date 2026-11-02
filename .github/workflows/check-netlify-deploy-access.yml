@@ -56,5 +56,10 @@ jobs:
             console.log('Account status:',String(account.status||'not reported'))
             console.log('Account keys:',Object.keys(account).filter(x=>/credit|billing|limit|suspend|block|status/i.test(x)).join(',')||'none')
           }
-          console.log('READ ONLY: no deploy, no credit purchase, no API secrets printed.')
+          const live=await fetch('https://gh-procurement.netlify.app/api/health',{signal:AbortSignal.timeout(10000)})
+          const health=live.ok?await live.json().catch(()=>({})):{}
+          console.log('Live production health HTTP:',live.status)
+          console.log('Live release revision:',String(health.version||'unreported').slice(0,45))
+          console.log('Live database/schema ready:',health.database==='connected'&&health.schema_ready===true)
+                    console.log('READ ONLY: no deploy, no credit purchase, no API secrets printed.')
           NODE
