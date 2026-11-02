@@ -14,7 +14,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           const base='https://gh-procurement-waha.hostless.app'
-          const urls=['/','/api/health','/supplier/quote','/ping','/api/sessions/default']
+          const urls=['/','/api/health','/supplier/quote','/ping','/health','/api/sessions/default']
           for(const path of urls){
             try{
               const r=await fetch(base+path,{redirect:'manual',signal:AbortSignal.timeout(9000)})
