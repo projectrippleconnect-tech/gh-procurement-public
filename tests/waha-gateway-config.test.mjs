@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {gatewayConfig} from '../lib/waha-gateway-config.js'
+import {gatewayConfig,gatewayConfigIssue} from '../lib/waha-gateway-config.js'
 
 const base={WAHA_API_KEY:'secret',WAHA_SESSION:'default',NODE_ENV:'production'}
 const config=overrides=>gatewayConfig({...base,...overrides})
@@ -56,4 +56,16 @@ test('pairing and supplier dispatch routes reject untrusted WAHA redirects',()=>
   assert.ok(calls>0,path+' must call the gateway')
   assert.equal(guards,calls,path+' must reject redirects for every WAHA request')
  }
+})
+
+test('administrator-only diagnostic identifies missing or unsafe gateway configuration',()=>{
+ assert.equal(gatewayConfigIssue({...base}),'WAHA_BASE_URL_MISSING')
+ assert.equal(gatewayConfigIssue({...base,WAHA_BASE_URL:'https://gateway.example.org',WAHA_ALLOWED_HOST:'gateway.example.org',WAHA_API_KEY:''}),'WAHA_API_KEY_MISSING')
+ assert.equal(gatewayConfigIssue({...base,WAHA_BASE_URL:'https://gateway.example.org',WAHA_ALLOWED_HOST:'other.example.org'}),'WAHA_ALLOWED_HOST_MISMATCH')
+ assert.equal(gatewayConfigIssue({...base,WAHA_BASE_URL:'https://gateway.example.org',WAHA_ALLOWED_HOST:'gateway.example.org'}),null)
+})
+test('pairing diagnostics retain administrator access and expose only safe reason codes',()=>{
+ const source=readFileSync(new URL('../app/api/integrations/whatsapp/pair/route.ts',import.meta.url),'utf8')
+ assert.match(source,/const access=await adminAccess\(request\)/)
+ assert.match(source,/reason:gatewayConfigIssue\(\)/)
 })
