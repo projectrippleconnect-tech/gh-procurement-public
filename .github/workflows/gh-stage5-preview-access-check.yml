@@ -1,0 +1,41 @@
+name: Inspect Stage 5 draft access (read-only)
+on:
+  push:
+    branches: [ops/stage5-safe-preview-retry-20261102]
+    paths: [.github/workflows/gh-stage5-preview-access-check.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+    steps:
+      - name: Inspect preview response and Netlify deployment status with NO credentials disclosed
+        run: |
+          node --input-type=module <<'NODE'
+          const preview='https://6ae879e85bc8b5bd4bf09464--gh-procurement.netlify.app'
+          const paths=['/','/api/health','/whatsapp-connection-check','/api/integrations/whatsapp/pair']
+          for(const path of paths){
+            try{
+              const r=await fetch(preview+path,{redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(12000)})
+              console.log(path+': HTTP '+r.status+'; content-type='+String(r.headers.get('content-type')||'n/a').slice(0,75))
+              console.log('  auth-header-type='+String(r.headers.get('www-authenticate')||'none').slice(0,65))
+              console.log('  provider='+String(r.headers.get('server')||r.headers.get('x-powered-by')||'unreported').slice(0,65))
+              if(r.status===401){const t=(await r.text()).slice(0,350);console.log('  body-category='+(/netlify/i.test(t)?'netlify-protection':/unauthorized/i.test(t)?'generic-unauthorized':'other'))}
+            }catch(e){console.log(path+': '+String(e.name||'FETCH_FAILED'))}
+          }
+          const r=await fetch('https://api.netlify.com/api/v1/deploys/6ae879e85bc8b5bd4bf09464',{
+            headers:{Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN},
+            signal:AbortSignal.timeout(12000)
+          })
+          console.log('Netlify deploy detail HTTP '+r.status)
+          if(r.ok){
+            const d=await r.json()
+            console.log('Deploy state='+String(d.state||'unreported'))
+            console.log('Production deploy='+Boolean(d.published_at))
+            console.log('Deploy branch='+String(d.branch||'none'))
+            console.log('Deploy error='+Boolean(d.error_message))
+            console.log('Deploy preview URL='+String(d.deploy_ssl_url||d.deploy_url||'unreported'))
+          }
+          NODE
