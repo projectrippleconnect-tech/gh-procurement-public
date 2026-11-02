@@ -14,5 +14,6 @@ scaling:
   min_memory: 256
   max_memory: 384
 health_check:
-  type: tcp
+  type: http
+  http_path: "/ping"
   interval_in_seconds: 30
