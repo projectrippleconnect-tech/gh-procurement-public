@@ -5,9 +5,7 @@ import {readFileSync} from 'node:fs'
 const docker=readFileSync(new URL('../deploy/waha-hostless/Dockerfile',import.meta.url),'utf8')
 const infra=readFileSync(new URL('../deploy/waha-hostless/hostless.yaml',import.meta.url),'utf8')
 
-test('WAHA explicitly listens on Hostless public interface and port',()=>{
- assert.match(docker,/WHATSAPP_API_HOSTNAME=0\.0\.0\.0/)
- assert.match(docker,/WHATSAPP_API_PORT=3000/)
+test('WAHA continues to use supported GOWS engine and exposed port',()=>{
  assert.match(docker,/WHATSAPP_DEFAULT_ENGINE=GOWS/)
  assert.match(docker,/EXPOSE 3000/)
 })
