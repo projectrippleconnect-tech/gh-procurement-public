@@ -1,0 +1,39 @@
+name: GH WAHA read-only environment context audit
+on:
+  push:
+    branches: [ops/stage5-safe-preview-retry-20261102]
+    paths: [.github/workflows/wa-env-context-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --global netlify-cli@27.13.0 --silent
+      - name: Compare presence in production vs deploy-preview (do not print values)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for context in production deploy-preview dev; do
+            echo "CONTEXT=$context"
+            for key in WAHA_BASE_URL WAHA_ALLOWED_HOST WAHA_SESSION WAHA_SENDING_ENABLED WAHA_API_KEY; do
+              result="$(netlify env:get "$key" --site "$NETLIFY_SITE_ID" --scope functions --context "$context" 2>/dev/null || true)"
+              if [[ -z "$result" || "$result" == "undefined" || "$result" == "null" ]]; then
+                echo "$key=MISSING"
+              elif [[ "$result" == *"*"* ]]; then
+                echo "$key=MASKED"
+              elif [[ "$key" == "WAHA_SENDING_ENABLED" ]]; then
+                if [[ "$result" == "false" ]]; then echo "$key=OFF"; else echo "$key=UNEXPECTED_VALUE"; fi
+              else
+                echo "$key=PRESENT"
+              fi
+            done
+          done
+          echo "Read-only: No secret values printed, no deployment or WhatsApp sends."
