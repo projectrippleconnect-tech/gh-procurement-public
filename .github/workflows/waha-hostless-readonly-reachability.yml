@@ -9,16 +9,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Probe official WAHA health routes with no messages or secrets
+      - name: Compare safe 404 response fingerprints, never show bodies
         shell: bash
         run: |
-          set -u
-          for path in /ping /health /api/sessions/default; do
-            # Never follow redirects or print the response body; public status only.
-            result="$(curl -sS --noproxy '*' --max-redirs 0 --connect-timeout 8 --max-time 20 -o /dev/null -w '%{http_code}' "https://gh-procurement-waha.hostless.app$path" 2>/dev/null)" || result=000
-            echo "WAHA endpoint $path status: HTTP $result"
-          done
-          echo '200 on /health shows HTTP endpoint healthy only; WhatsApp WORKING is NOT established.'
-          echo '401/403 on /api/sessions/default suggests access is protected.'
-          echo '404 on all endpoints suggests Hostless routing/release mismatch; do not change secrets or session DB.'
-          # Only GET, no API key, no sessions mutated, no recipient messages.
+          node --input-type=module <<'NODE'
+          import {createHash} from 'node:crypto'
+          const host='https://gh-procurement-waha.hostless.app'
+          const paths=['/ping','/health','/api/sessions/default','/__gh_probe_path_that_does_not_exist__']
+          const output=[]
+          for(const path of paths){
+            try{
+              const resp=await fetch(host+path,{redirect:'manual',signal:AbortSignal.timeout(12000)})
+              const body=(await resp.text()).slice(0,16384)
+              const fingerprint=createHash('sha256').update(body).digest('hex')
+              output.push({path,status:resp.status,contentType:resp.headers.get('content-type')?.split(';')[0]||'unknown',fingerprint})
+            }catch{output.push({path,status:'NETWORK_ERROR',contentType:'none',fingerprint:''})}
+          }
+          // Never print the response body, hash, remote account data, or any secret.
+          for(const v of output)console.log(v.path+' HTTP '+v.status+' content-type '+v.contentType)
+          const baseline=output[3]
+          for(const v of output.slice(0,3))
+            console.log(v.path+' matches random missing-route response: '+String(v.status===baseline.status&&v.fingerprint===baseline.fingerprint))
+          console.log('No authenticated WAHA call or session state confirmed. No WhatsApp messages sent.')
+          NODE
