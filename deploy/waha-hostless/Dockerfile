@@ -4,7 +4,9 @@
 FROM devlikeapro/waha:gows
 ## One approved session only: all stored STOPPED sessions must not restart together.
 ## This preserves existing PostgreSQL credentials; it does not log out a session.
-ENV WHATSAPP_DEFAULT_ENGINE=GOWS \
+ENV WHATSAPP_API_HOSTNAME=0.0.0.0 \
+    WHATSAPP_API_PORT=3000 \
+    WHATSAPP_DEFAULT_ENGINE=GOWS \
     WAHA_DASHBOARD_ENABLED=false \
     WHATSAPP_SWAGGER_ENABLED=false \
     WAHA_PRINT_QR=False \
