@@ -1,36 +1,28 @@
-# GH Procurement — experimental always-on WAHA GOWS gateway
+# GH Procurement — current WAHA GOWS gateway recovery (2026-11-02)
 
-**NOT DEPLOYED. No WhatsApp number paired. Live sending must remain OFF.**
+**A Hostless service already exists at `https://gh-procurement-waha.hostless.app`.** The `default` WhatsApp session was previously linked, and a separate `gh-waha-sessions` PostgreSQL resource was configured. Hostless has since reported repeated OOM, CPU, and database-storage alerts. **The connection is not verified stable or currently WORKING.** No supplier sending should be enabled.
 
-This directory is an independently deployable Hostless **candidate**, separate from the GH Procurement Next.js app on the manually deployed Netlify site. Hostless can build a Dockerfile. It advertises a no-card shared free allowance of 0.5 vCPU, 1 GiB RAM and 512 MiB database storage; real account capacity, pricing policy and permission checks MUST be verified before provisioning.
+This repository directory is a **proposed configuration**, not a direct representation of the live settings. Updating it or merging a PR does not prove that Hostless deployed it. Never create another service or change the existing session namespace or PostgreSQL connection as part of recovery.
 
-## Candidate topology and cost ceiling
+## Recovery patch (not yet deployed)
 
-- One WAHA GOWS web app: 1 replica, at most **0.2 vCPU / 384 MiB**.
-- One separate Hostless managed PostgreSQL instance, initially **0.25 vCPU / 512 MiB / 512 MiB storage**, only if those defaults fit the account's free ceiling.
-- Combined configured maximum: **0.45 vCPU / 896 MiB RAM / 512 MiB persistent database storage**. Build resources and platform accounting can differ; confirm the final configuration screens show **zero** spend and **no payment method**.
-- **Never create an additional paid volume**. Hostless persistent volumes are separately billed and are not needed if the PostgreSQL session path works.
-- WhatsApp session persistence requires PostgreSQL because container filesystem is ephemeral. WAHA creates multiple databases: the connected DB account **must** have `CREATEDB` / create-drop permissions. Managed PostgreSQL user permissions are presently unverified. If it lacks those permissions, stop; do not use the GH NEXUS production database or work around permissions.
-- WAHA's 200 MB GOWS per-session memory estimate is an **estimate**, not an SLA. If it exceeds the free limit, stop without upgrading.
+- Single GOWS worker, one replica, `0.2 vCPU` maximum.
+- Proposed app ceiling: `512 MB`, up from the checked-in previous `384 MB`. Keep the existing PostgreSQL service and its data. **Before applying this limit, confirm the exact current Hostless free entitlement and running resource allocation for this account.** Shared free plan documentation includes `0.5 vCPU / 1 GiB RAM / 512 MiB database storage`, but older accounts and billing cycles can have different limits. Do not incur charges, add a card, enable paid resources, or upgrade.
+- Set `WHATSAPP_RESTART_ALL_SESSIONS=False`, `WHATSAPP_START_SESSION=default` so restarting the container does not revive unrelated stored STOPPED sessions. These variables must not be used to destroy or re-pair the existing authorized device.
+- Keep `WHATSAPP_SESSIONS_POSTGRESQL_URL` and `WAHA_API_KEY` server-only; keep Swagger and dashboard disabled.
+- **Do not enable `WAHA_SENDING_ENABLED`, `GH_AUTO_DISPATCH_ENABLED`, portal processing, or supplier sends.** A `200` API acceptance is not delivery proof.
 
-## Hostless setup — only after eligibility is verified
+## Before live rollout
 
-1. Create a Hostless account with the **free / no-card** option; do not accept a paid upgrade. Do not connect this until Hostless confirms the free resources and no payment obligation.
-2. Create a dedicated free PostgreSQL database. Check that a new dedicated connection can run `SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user;` and that the session user is allowed to create/drop databases. *Do not run a destructive test against GH NEXUS.*
-3. Create the WAHA web app from this repository; set **Working Directory** to `deploy/waha-hostless`, **Build Context** to that same directory, and **Hostless File Path** to `deploy/waha-hostless/hostless.yaml`. Set Docker build and one replica. Confirm the provider routes `PORT=3000` to HTTPS.
-4. Set these **server-side-only** variables in Hostless: `PORT=3000`, `WHATSAPP_DEFAULT_ENGINE=GOWS`, `WAHA_API_KEY=<long-random-secret>`, `WHATSAPP_SESSIONS_POSTGRESQL_URL=<dedicated-Hostless-Postgres-URL>`. Use the Postgres *direct* endpoint if the platform's pooler blocks database-creation commands. Do not expose secrets in Git or logs. Keep dashboard and Swagger disabled.
-5. Check private HTTPS gateway reachability, health, session creation, QR or code linking as an authorized admin, restart persistence, and TLS. WAHA uses an unofficial bridge that can lead to account restrictions. A visible running container alone does **not** prove reliable WhatsApp delivery.
-6. Only after gateway acceptance, configure Netlify server-only variables: `WAHA_BASE_URL=https://<the-provider-hostname>`, `WAHA_ALLOWED_HOST=<the-exact-provider-hostname>`, `WAHA_API_KEY=<same-secret>`, `WAHA_SESSION=default`. **Keep `WAHA_SENDING_ENABLED=false`** throughout integration checks.
-7. Use a controlled authorized recipient to check **one** supplier PNG+caption, followed by an approved PO and exactly one owner-private audit-group copy each. Inspect WhatsApp chats, not just API response status. Unknown responses are never retried automatically.
-8. Only after the complete acceptance gate and a manually approved pinned Netlify release should sending and any unattended queue processing be enabled. Do not bulk-send old `needs_action` jobs without reviewing previous unknown/accepted attempts.
+1. Confirm zero-cost eligibility for the existing app and database together from the Hostless account Usage/Billing screen or a written support reply. If it cannot be proven, do not change the memory limit.
+2. Inspect the app's actual live environment and log memory/CPU cause, current `default` session count and status, and `gh-waha-sessions` storage. Keep database snapshots/backups in a free, authorized location; **never truncate, reset, or delete WhatsApp session databases**.
+3. Confirm the existing Hostless app is attached to this exact directory/branch and that a deployment would modify **only** the existing app; no additional services, secret rotation or automatic supplier sends. If the Hostless settings differ from these source files, reconcile the changes rather than assuming a merge automatically fixes production.
+4. Deploy the verified change to **one** existing Hostless replica only after all prerequisites pass. Check app startup, memory, session `WORKING`, persistence across a controlled restart, and at least 24 hours of stable provider alerts.
+5. Check Netlify's administrator-only `/whatsapp-connection-check` on a verified release when Netlify production deployment is allowed. **Do not copy protected WAHA secrets through CLI or into GitHub.** Verify authentication from the server runtime, not a masked CLI value.
+6. With an authorized test recipient and owner-only audit group, verify actual RFQ and approved PO PNG + caption delivery, message IDs, no duplicate sends on unknown attempts, and audit receipt. Only after these acceptance checks, decide whether to enable the unattended dispatch gate for newly created jobs. Do not mass-retry the 11 historical `needs_action` jobs.
 
-## Verified documentation
+### Why not force history synchronization changes?
 
-- [WAHA storage and PostgreSQL privileges](https://waha.devlike.pro/docs/how-to/storages/)
-- [WAHA GOWS engine](https://waha.devlike.pro/docs/engines/gows/)
-- [WAHA API configuration](https://waha.devlike.pro/docs/how-to/config/)
-- [Hostless free shared allowance](https://docs.hostless.cloud/plans/limits)
-- [Hostless managed database](https://docs.hostless.cloud/databases/create)
-- [Hostless Docker app settings](https://docs.hostless.cloud/app/configurations)
+WAHA documents experimental GOWS history-sync limits, but applying some flags may require WhatsApp re-pairing. They are **not** part of this safe recovery patch. Evaluate only if the memory/storage fault persists and the owner explicitly authorizes a controlled re-pair.
 
-**Blocking acceptance facts:** Hostless account not provisioned; database `CREATEDB` not proven; service/GOWS stability and free cost not proven; WhatsApp not paired, recipient delivery not verified. 
+Documentation: [WAHA configuration](https://waha.devlike.pro/docs/how-to/config/), [WAHA storages](https://waha.devlike.pro/docs/how-to/storages/), [Hostless free entitlement](https://docs.hostless.cloud/plans/limits), [Hostless legacy-vs-shared tier](https://docs.hostless.cloud/plans/free-tier).
