@@ -1,0 +1,163 @@
+# Only execute after the owner securely provisions GH_WAHA_DEPLOY_KEY in GitHub Actions.
+# This workflow has NO production deployment, supplier sending or WhatsApp state changes.
+name: GH Procurement - secure WAHA-key-backed draft (sends OFF)
+on:
+  workflow_dispatch:
+  push:
+    branches: [ops/stage5-safe-preview-retry-20261102]
+    paths: [.github/trigger-wa-key-backed-preview.txt]
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: gh-procurement-secure-waha-preview
+  cancel-in-progress: false
+jobs:
+  safe-draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SITE: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      RELEASE_SHA: 435ce4004489916821ab5c4d781784e6035deb0b
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      NEXT_TELEMETRY_DISABLED: '1'
+      WAHA_BASE_URL: https://gh-procurement-waha.hostless.app
+      WAHA_ALLOWED_HOST: gh-procurement-waha.hostless.app
+      WAHA_SESSION: default
+      WAHA_SENDING_ENABLED: 'false'
+      GH_AUTO_DISPATCH_ENABLED: 'false'
+      GH_AUTO_DELIVERY_TEST_VERIFIED: 'false'
+      GH_WA_AUDIT_ENABLED: 'false'
+      GH_PORTAL_PROCESSING_ENABLED: 'false'
+      GH_PORTAL_DISPATCH_ENABLED: 'false'
+      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+    steps:
+      - name: Fail closed if owner has not provisioned protected key
+        env:
+          GH_WAHA_DEPLOY_KEY: ${{ secrets.GH_WAHA_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_WAHA_DEPLOY_KEY:-}" ]; then
+            echo "BLOCKED: GH_WAHA_DEPLOY_KEY not installed in GitHub Actions. No changes made."
+            exit 1
+          fi
+          test "${#GH_WAHA_DEPLOY_KEY}" -ge 24 || { echo "Gateway credential unexpectedly short; abort"; exit 1; }
+          echo "Owner-provisioned private deployment key exists; not disclosed."
+      - name: Check WAHA authentication read-only before creating draft
+        env:
+          GH_WAHA_DEPLOY_KEY: ${{ secrets.GH_WAHA_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --connect-timeout 8 --max-time 15 \
+            -H "X-Api-Key: $GH_WAHA_DEPLOY_KEY" \
+            -o "$RUNNER_TEMP/wa-status.json" \
+            -w '%{http_code}' 'https://gh-procurement-waha.hostless.app/api/sessions/default')"
+          if [ "$code" != 200 ]; then echo "WAHA authentication failed HTTP $code. No deploy."; exit 1; fi
+          node - <<'NODE'
+          const fs=require('fs')
+          const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/wa-status.json','utf8'))
+          const status=String(data.status||'')
+          if(status!=='WORKING')throw Error('WAHA session is not WORKING. No deploy.')
+          console.log('PASS: authenticated WAHA session WORKING (no messages sent).')
+          NODE
+      - uses: actions/checkout@v4
+        with:
+          ref: 435ce4004489916821ab5c4d781784e6035deb0b
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Build and test reviewed source without exposing WAHA key to dependencies
+        shell: bash
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+      - name: Install pinned CLI and verify existing site
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}"
+          npm i -g netlify-cli@27.13.0 --silent
+          netlify sites:list --json > "$RUNNER_TEMP/sites.json"
+          node - <<'NODE'
+          const fs=require('fs')
+          const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sites.json','utf8'))
+          const site=(Array.isArray(r)?r:(r.sites||[])).find(x=>x.id===process.env.SITE)
+          if(!site||site.name!=='gh-procurement')throw Error('Target Netlify site mismatch.')
+          console.log('Target verified: GH Procurement existing project.')
+          NODE
+      - name: Publish protected DRAFT with key as encrypted function secret, never --prod
+        id: deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+          GH_WAHA_DEPLOY_KEY: ${{ secrets.GH_WAHA_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          netlify deploy --build --context production --site "$SITE" \
+            --message "Protected WAHA-key-backed GH Procurement draft (no supplier sends)" \
+            --env "WAHA_BASE_URL=$WAHA_BASE_URL" \
+            --env "WAHA_ALLOWED_HOST=$WAHA_ALLOWED_HOST" \
+            --env "WAHA_SESSION=$WAHA_SESSION" \
+            --secret-env "WAHA_API_KEY=$GH_WAHA_DEPLOY_KEY" \
+            --secret-env "GH_MANUAL_RELEASE_REV=$RELEASE_SHA" \
+            --secret-env 'WAHA_SENDING_ENABLED=false' \
+            --secret-env 'GH_AUTO_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_AUTO_DELIVERY_TEST_VERIFIED=false' \
+            --secret-env 'GH_WA_AUDIT_ENABLED=false' \
+            --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DELIVERY_VERIFIED=false' \
+            --json > "$RUNNER_TEMP/draft.json"
+          node - <<'NODE'
+          const fs=require('fs')
+          const d=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/draft.json','utf8'))
+          const url=d.deploy_url||d.deployUrl||d.url||''
+          const id=d.deploy_id||d.deployId||d.id||''
+          if(!/^https:\/\/[a-z0-9-]+--gh-procurement\.netlify\.app$/i.test(url))throw Error('Not a protected draft URL')
+          console.log('SECURE_DRAFT_URL='+url)
+          console.log('SECURE_DRAFT_ID='+id)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'url='+url+'\n')
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'id='+id+'\n')
+          NODE
+      - name: Confirm deploy ready and production unchanged (read-only)
+        id: verify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+          DRAFT_ID: ${{ steps.deploy.outputs.id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          const result=await fetch('https://api.netlify.com/api/v1/deploys/'+process.env.DRAFT_ID,{
+            headers:{Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN},signal:AbortSignal.timeout(12000)})
+          assert.equal(result.status,200)
+          const deploy=await result.json()
+          assert.equal(deploy.state,'ready')
+          assert.ok(!deploy.published_at)
+          const resp=await fetch('https://gh-procurement.netlify.app/api/health',{signal:AbortSignal.timeout(12000)})
+          assert.equal(resp.status,200)
+          const health=await resp.json()
+          assert.equal(health.version,'8df2c86a35897ec85e6c1708118eba9c6803ccc1')
+          console.log('PASS: Secure draft ready, production unchanged, sends OFF. Protected admin check still required.')
+          NODE
+      - name: Record safe result
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed='${{ steps.verify.outcome }}'==='success'
+            const url='${{ steps.deploy.outputs.url }}'
+            await github.rest.issues.createComment({
+              owner:context.repo.owner,repo:context.repo.repo,issue_number:158,
+              body:(passed?'Protected draft ready using owner-provisioned GitHub secret: '+url+'.':'Key-backed diagnostic draft not verified; no production changes.')+
+               ' Exact reviewed source SHA '+process.env.RELEASE_SHA+'. No key disclosed; sending OFF, no messages sent. '+context.serverUrl+'/'+context.repo.owner+'/'+context.repo.repo+'/actions/runs/'+context.runId
+            })
