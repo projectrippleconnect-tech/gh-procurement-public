@@ -26,7 +26,7 @@ jobs:
             {url:'https://gh-procurement.netlify.app/api/integrations/whatsapp/rfq',expected:401,name:'GH RFQ anonymous denial'},
             {url:'https://gh-procurement.netlify.app/api/integrations/whatsapp/po',expected:401,name:'GH PO anonymous denial'},
             {url:'https://gh-procurement-waha.hostless.app/api/sessions',expected:401,name:'WAHA public session anonymous denial'},
-            {url:'https://gh-procurement-waha.hostless.app/health',expected:200,name:'WAHA public health'}
+            {url:'https://gh-procurement-waha.hostless.app/health',expected:401,name:'WAHA health requires authentication'}
           ]
           let fail=false
           for(const {url,expected,name} of checks){
