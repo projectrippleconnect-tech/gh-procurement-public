@@ -1,0 +1,131 @@
+# One-time manually initiated production release by explicit repository maintenance commit.
+# This workflow exists only on a disposable release branch, not main.
+# It uses the same reviewed main commit as the official manual-only release path.
+name: One-time GH Stage 5 WAHA diagnostics release (sends OFF)
+on:
+  push:
+    branches:
+      - release/diagnostics-435ce400-once
+    paths:
+      - .github/workflows/one-time-gh-waha-diagnostics.yml
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      GH_RELEASE_SHA: 435ce4004489916821ab5c4d781784e6035deb0b
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      NEXT_TELEMETRY_DISABLED: '1'
+      WAHA_SENDING_ENABLED: 'false'
+      GH_AUTO_DISPATCH_ENABLED: 'false'
+      GH_AUTO_DELIVERY_TEST_VERIFIED: 'false'
+      GH_WA_AUDIT_ENABLED: 'false'
+      GH_PORTAL_PROCESSING_ENABLED: 'false'
+      GH_PORTAL_DISPATCH_ENABLED: 'false'
+      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+    steps:
+      - name: Verify exact release and existing credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$NETLIFY_AUTH_TOKEN"
+          test "$GH_RELEASE_SHA" = 435ce4004489916821ab5c4d781784e6035deb0b
+      - uses: actions/checkout@v4
+        with:
+          ref: 435ce4004489916821ab5c4d781784e6035deb0b
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify reviewed merge commit belongs to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA"
+          git fetch origin main
+          git merge-base --is-ancestor "$GH_RELEASE_SHA" origin/main
+          test -z "$(git status --porcelain)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked application dependencies
+        run: npm ci
+      - name: Verify lint and contracts
+        run: |
+          npm run lint
+          npm test
+      - name: Build and mobile/desktop smoke tests
+        run: |
+          npm run build
+          npm run test:ui
+      - name: Pin Netlify CLI and verify exact unlinked manual site
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global netlify-cli@27.13.0
+          netlify sites:list --json > "$RUNNER_TEMP/site-list.json"
+          node - <<'NODE'
+          const fs=require('fs')
+          const raw=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/site-list.json','utf8'))
+          const sites=Array.isArray(raw)?raw:(raw.sites||[])
+          const target=sites.find(x=>x.id===process.env.NETLIFY_SITE_ID)
+          if(!target||target.name!=='gh-procurement')throw Error('Refusing unapproved site')
+          if(target.repo||target.repo_url||target.build_settings?.repo_url)throw Error('Refusing Git-linked auto deployment')
+          console.log('Verified manually deployed existing GH Procurement site')
+          NODE
+      - name: Force gateway endpoint metadata and all sends OFF (production only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          netlify env:set WAHA_SENDING_ENABLED false --context production --site "$NETLIFY_SITE_ID" --force
+          netlify env:set WAHA_BASE_URL https://gh-procurement-waha.hostless.app --context production --site "$NETLIFY_SITE_ID" --force
+          netlify env:set WAHA_ALLOWED_HOST gh-procurement-waha.hostless.app --context production --site "$NETLIFY_SITE_ID" --force
+          netlify env:set WAHA_SESSION default --context production --site "$NETLIFY_SITE_ID" --force
+          for k in GH_AUTO_DISPATCH_ENABLED GH_AUTO_DELIVERY_TEST_VERIFIED GH_WA_AUDIT_ENABLED GH_PORTAL_PROCESSING_ENABLED GH_PORTAL_DISPATCH_ENABLED GH_PORTAL_DELIVERY_VERIFIED; do
+            netlify env:set "$k" false --context production --site "$NETLIFY_SITE_ID" --force
+          done
+          # Do not read or change WAHA_API_KEY.
+          test "$(netlify env:get WAHA_SENDING_ENABLED --context production --site "$NETLIFY_SITE_ID")" = false
+      - name: One-time manual production code publish, all supplier sends OFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          netlify deploy --prod --build --site "$NETLIFY_SITE_ID" \
+            --message "Stage 5 administrator connection diagnostics $GH_RELEASE_SHA — sends OFF" \
+            --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
+            --secret-env 'WAHA_SENDING_ENABLED=false' \
+            --secret-env 'GH_AUTO_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_AUTO_DELIVERY_TEST_VERIFIED=false' \
+            --secret-env 'GH_WA_AUDIT_ENABLED=false' \
+            --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false' \
+            --secret-env 'GH_PORTAL_DELIVERY_VERIFIED=false'
+      - name: Verify production commit, DB, connection-check page, and 401 admin gate
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          async function hit(path){
+            const r=await fetch('https://gh-procurement.netlify.app'+path,{signal:AbortSignal.timeout(15000),cache:'no-store'})
+            return r
+          }
+          const health=await hit('/api/health')
+          assert.equal(health.status,200)
+          const h=await health.json()
+          assert.equal(h.version,process.env.GH_RELEASE_SHA)
+          assert.equal(h.database,'connected')
+          assert.equal(h.schema_ready,true)
+          const page=await hit('/whatsapp-connection-check')
+          assert.equal(page.status,200)
+          const admin=await hit('/api/integrations/whatsapp/pair')
+          assert.equal(admin.status,401)
+          console.log('PASS: expected version and database; read-only diagnosis page live; unauthenticated pairing rejected; supplier sends held OFF')
+          NODE
