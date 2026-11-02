@@ -30,3 +30,24 @@ jobs:
           echo "Host set: $([ -n "$host" ] && echo yes || echo no)"
           echo "Session default: $([ "$session" = default ] && echo yes || echo no)"
           echo "Sending disabled: $([ "$sending" = false ] && echo yes || echo no)"
+          key="$(netlify env:get WAHA_API_KEY --context production --scope functions --site "$SITE")"
+          if [ -n "$key" ] && [ "$key" != "undefined" ] && [ "$key" != "null" ]; then
+            echo "Server function WAHA_API_KEY: configured (value concealed)"
+          else
+            echo "Server function WAHA_API_KEY: MISSING"
+          fi
+          if [ "$host" = gh-procurement-waha.hostless.app ]; then
+            echo "Approved hostname exact match: yes"
+          elif [[ "$host" == *'*'* ]]; then
+            echo "Approved hostname exact match: masked by Netlify"
+          else
+            echo "Approved hostname exact match: NO"
+          fi
+          if [ "$base" = https://gh-procurement-waha.hostless.app ]; then
+            echo "Gateway URL exact match: yes"
+          elif [[ "$base" == *'*'* ]]; then
+            echo "Gateway URL exact match: masked by Netlify"
+          else
+            echo "Gateway URL exact match: NO"
+          fi
+
