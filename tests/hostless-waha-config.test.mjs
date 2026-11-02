@@ -6,7 +6,7 @@ const dockerfile=readFileSync(new URL('../deploy/waha-hostless/Dockerfile',impor
 const hostlessfile=readFileSync(new URL('../deploy/waha-hostless/hostless.yaml',import.meta.url),'utf8')
 
 test('WAHA recovery starts only the explicitly authorized default session',()=>{
- assert.match(dockerfile,/WHATSAPP_API_HOSTNAME=0\\.0\\.0\\.0/)
+ assert.match(dockerfile,/WHATSAPP_API_HOSTNAME=0\.0\.0\.0/)
  assert.match(dockerfile,/WHATSAPP_API_PORT=3000/)
  assert.match(dockerfile,/WHATSAPP_DEFAULT_ENGINE=GOWS/)
  assert.match(dockerfile,/WHATSAPP_RESTART_ALL_SESSIONS=False/)
