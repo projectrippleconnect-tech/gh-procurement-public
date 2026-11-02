@@ -1,0 +1,37 @@
+name: GH Procurement Netlify build-only access check (no deploy)
+on:
+  push:
+    branches: [ops/netlify-readonly-build-diag-20261102]
+    paths: [.github/workflows/netlify-build-only-check.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 435ce4004489916821ab5c4d781784e6035deb0b
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked app dependencies
+        run: npm ci
+      - name: Install pinned Netlify CLI
+        run: npm install -g netlify-cli@27.13.0
+      - name: Test production Netlify build only (NO deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Starting build-only test, no deployment will be requested"
+          netlify build --context production --site "$NETLIFY_SITE_ID"
+          echo "Netlify production-context build succeeded; deployment API restriction is separate"
