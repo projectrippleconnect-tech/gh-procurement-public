@@ -48,6 +48,12 @@ jobs:
           }))
           await inspect('accounts/6ad8bf0af4dd1ca33e371739','Account restrictions and free limits',d=>({
             blocked_by_orb_migration:d.blocked_by_orb_migration??null,
+            in_operational_mode:d.in_operational_mode??null,
+            current_billing_period_start:d.current_billing_period_start??null,
+            next_billing_period_start:d.next_billing_period_start??null,
+            usages_exceeded:d.usages_exceeded??null,
+            sites_with_usage_exceeded:d.sites_with_usage_exceeded??null,
+            capabilities_credits:d.capabilities?.credits??null,
             configurable_limits_exceeded:d.configurable_limits_exceeded??null,
             plan_credits:d.plan_credits??null,
             ai_usage_limit_enforced:d.ai_usage_limit_enforced??null,
