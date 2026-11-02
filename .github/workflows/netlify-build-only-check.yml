@@ -33,5 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Starting build-only test, no deployment will be requested"
-          netlify build --context production --site "$NETLIFY_SITE_ID"
+          mkdir -p .netlify
+          printf '{"siteId":"%s"}' "$NETLIFY_SITE_ID" > .netlify/state.json
+          netlify build --context production
           echo "Netlify production-context build succeeded; deployment API restriction is separate"
