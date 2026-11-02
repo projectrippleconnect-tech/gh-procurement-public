@@ -9,19 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Read-only HTTPS and authorization boundary probe
+      - name: Probe official WAHA health routes with no messages or secrets
         shell: bash
         run: |
           set -u
-          url="https://gh-procurement-waha.hostless.app/api/sessions/default"
-          result="$(curl -sS --noproxy '*' --max-redirs 0 --connect-timeout 8 --max-time 20 -o /dev/null -w '%{http_code} %{time_total}' "$url" 2>/dev/null)" || result="000 request-failed"
-          code="${result%% *}"
-          echo "WAHA unauthenticated session status HTTP: $code (response body suppressed)"
-          case "$code" in
-            401|403) echo 'REACHABLE: API requires authentication. Session WORKING is NOT proven.' ;;
-            200) echo 'SECURITY REVIEW NEEDED: session endpoint responded without an API key. No response was retained.' ;;
-            502|503|504) echo 'BLOCKED: upstream/service unavailable at check time.' ;;
-            000) echo 'BLOCKED: DNS, TLS, network or timeout. Hostless remains unverified.' ;;
-            *) echo 'INCONCLUSIVE: inspect provider logs, do not infer session state.' ;;
-          esac
-          # Intentionally no WAHA key, POST, persisted response, or delivery attempt.
+          for path in /ping /health /api/sessions/default; do
+            # Never follow redirects or print the response body; public status only.
+            result="$(curl -sS --noproxy '*' --max-redirs 0 --connect-timeout 8 --max-time 20 -o /dev/null -w '%{http_code}' "https://gh-procurement-waha.hostless.app$path" 2>/dev/null)" || result=000
+            echo "WAHA endpoint $path status: HTTP $result"
+          done
+          echo '200 on /health shows HTTP endpoint healthy only; WhatsApp WORKING is NOT established.'
+          echo '401/403 on /api/sessions/default suggests access is protected.'
+          echo '404 on all endpoints suggests Hostless routing/release mismatch; do not change secrets or session DB.'
+          # Only GET, no API key, no sessions mutated, no recipient messages.
