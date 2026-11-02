@@ -1,0 +1,105 @@
+# One-off intentional manual action on a disposable branch. No ordinary Git push deploys.
+name: GH Procurement - One-time prebuilt Netlify release (sends OFF)
+on:
+  push:
+    branches: [ops/one-time-netlify-prebuilt-release-20261102]
+    paths: [.github/workflows/one-time-prebuilt-release.yml]
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      GH_RELEASE_SHA: 435ce4004489916821ab5c4d781784e6035deb0b
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      GH_UI_BROWSER_CHANNEL: chrome
+      NEXT_TELEMETRY_DISABLED: '1'
+      WAHA_SENDING_ENABLED: 'false'
+      GH_AUTO_DISPATCH_ENABLED: 'false'
+      GH_AUTO_DELIVERY_TEST_VERIFIED: 'false'
+      GH_WA_AUDIT_ENABLED: 'false'
+      GH_PORTAL_PROCESSING_ENABLED: 'false'
+      GH_PORTAL_DISPATCH_ENABLED: 'false'
+      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 435ce4004489916821ab5c4d781784e6035deb0b
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check reviewed SHA and linked manual-only project
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA"
+          git fetch origin main
+          git merge-base --is-ancestor "$GH_RELEASE_SHA" origin/main
+          test -n "$NETLIFY_AUTH_TOKEN"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install code and pinned CLI
+        run: |
+          npm ci
+          npm install -g netlify-cli@27.13.0
+      - name: Confirm exact existing Netlify site without Git auto-deploy
+        run: |
+          set -euo pipefail
+          netlify sites:list --json > "$RUNNER_TEMP/sites.json"
+          node - <<'NODE'
+          const fs=require('fs')
+          const raw=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sites.json','utf8'))
+          const sites=Array.isArray(raw)?raw:(raw.sites||[])
+          const site=sites.find(s=>s.id===process.env.NETLIFY_SITE_ID)
+          if(!site||site.name!=='gh-procurement'||site.repo||site.repo_url||site.build_settings?.repo_url)throw Error('Wrong or Git-linked site')
+          console.log('Target site verified')
+          NODE
+      - name: Link local temporary build context, no site mutation
+        run: |
+          mkdir -p .netlify
+          printf '{"siteId":"%s"}' "$NETLIFY_SITE_ID" > .netlify/state.json
+      - name: Build locally for production context
+        run: netlify build --context production
+      - name: Safe explicit sending-state gate
+        run: |
+          set -euo pipefail
+          test "$(netlify env:get WAHA_SENDING_ENABLED --context production --scope functions --site "$NETLIFY_SITE_ID")" = false
+          for k in GH_AUTO_DISPATCH_ENABLED GH_AUTO_DELIVERY_TEST_VERIFIED GH_WA_AUDIT_ENABLED GH_PORTAL_PROCESSING_ENABLED GH_PORTAL_DISPATCH_ENABLED GH_PORTAL_DELIVERY_VERIFIED; do
+            test "$(netlify env:get "$k" --context production --scope functions --site "$NETLIFY_SITE_ID")" = false
+          done
+      - name: Publish prebuilt output once using nonsecret safe overrides (no secret env mutation)
+        run: |
+          netlify deploy --prod --no-build --site "$NETLIFY_SITE_ID" \
+            --message "One-time manually approved prebuilt WAHA diagnosis $GH_RELEASE_SHA (all sends OFF)" \
+            --env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA" \
+            --env 'WAHA_SENDING_ENABLED=false' \
+            --env 'GH_AUTO_DISPATCH_ENABLED=false' \
+            --env 'GH_AUTO_DELIVERY_TEST_VERIFIED=false' \
+            --env 'GH_WA_AUDIT_ENABLED=false' \
+            --env 'GH_PORTAL_PROCESSING_ENABLED=false' \
+            --env 'GH_PORTAL_DISPATCH_ENABLED=false' \
+            --env 'GH_PORTAL_DELIVERY_VERIFIED=false'
+      - name: Verify release and admin access gate
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          const base='https://gh-procurement.netlify.app'
+          const h=await fetch(base+'/api/health',{signal:AbortSignal.timeout(15000)})
+          assert.equal(h.status,200)
+          const health=await h.json()
+          assert.equal(health.version,process.env.GH_RELEASE_SHA)
+          assert.equal(health.database,'connected')
+          assert.equal(health.schema_ready,true)
+          const page=await fetch(base+'/whatsapp-connection-check',{signal:AbortSignal.timeout(15000)})
+          assert.equal(page.status,200)
+          const pair=await fetch(base+'/api/integrations/whatsapp/pair',{signal:AbortSignal.timeout(15000)})
+          assert.equal(pair.status,401)
+          console.log('Success: reviewed diagnostics live and protected; auto-sending remains OFF')
+          NODE
