@@ -1,5 +1,5 @@
 import {createClient} from '@supabase/supabase-js'
-import {gatewayConfig} from '@/lib/waha-gateway-config'
+import {gatewayConfig,gatewayConfigIssue} from '@/lib/waha-gateway-config'
 
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -38,7 +38,7 @@ export async function GET(request:Request){
  const access=await adminAccess(request)
  if(access.error)return access.error
  const config=gatewayConfig()
- if(!config)return json({ok:false,configured:false,status:'NOT_CONFIGURED'},503)
+ if(!config)return json({ok:false,configured:false,status:'NOT_CONFIGURED',reason:gatewayConfigIssue()},503)
  try{
   const status=await sessionStatus(config)
   let qr:string|null=null
