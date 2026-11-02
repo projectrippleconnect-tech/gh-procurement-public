@@ -1,0 +1,47 @@
+name: Diagnose Netlify 403 without deployment
+on:
+  push:
+    branches: [release/diagnostics-435ce400-once]
+    paths: [.github/workflows/check-netlify-deploy-access.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+    steps:
+      - name: Read-only Netlify account and site access review
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://api.netlify.com/api/v1'
+          const headers={Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN,Accept:'application/json'}
+          async function get(path){
+            const r=await fetch(base+path,{headers,signal:AbortSignal.timeout(10000)})
+            const body=await r.json().catch(()=>({}))
+            console.log('GET '+path.split('?')[0]+' HTTP '+r.status)
+            if(!r.ok){
+              const msg=String(body?.error||body?.message||'')
+              console.log('Error category:',/credit|billing|usage|limit/i.test(msg)?'CREDIT_OR_BILLING':/permission|access|forbidden|authorization/i.test(msg)?'PERMISSION':'OTHER')
+            }
+            return r.ok?body:null
+          }
+          const site=await get('/sites/b36357ec-4dda-4373-a3d7-95f9c8f3ad9e')
+          if(!site){console.log('Cannot inspect site.');process.exit(1)}
+          console.log('Site name correct:',site.name==='gh-procurement')
+          console.log('Site state:',String(site.state||'unreported'))
+          console.log('Site locked:',Boolean(site.locked))
+          console.log('Current published deploy status:',String(site.published_deploy?.state||'unreported'))
+          await get('/sites/b36357ec-4dda-4373-a3d7-95f9c8f3ad9e/deploys?per_page=1')
+          const account=site.account_id?await get('/accounts/'+encodeURIComponent(site.account_id)):null
+          if(account){
+            const credit=account.credits||account.credit_usage||account.billing?.credits||{}
+            console.log('Account type:',String(account.type||'unreported'))
+            console.log('Account credits structure:',Object.keys(credit).sort().join(',')||'not reported')
+            console.log('Account credit used:',typeof credit.used==='number'?credit.used:'not reported')
+            console.log('Account credit included:',typeof credit.included==='number'?credit.included:'not reported')
+            console.log('Account status:',String(account.status||'not reported'))
+            console.log('Account keys:',Object.keys(account).filter(x=>/credit|billing|limit|suspend|block|status/i.test(x)).join(',')||'none')
+          }
+          console.log('READ ONLY: no deploy, no credit purchase, no API secrets printed.')
+          NODE
