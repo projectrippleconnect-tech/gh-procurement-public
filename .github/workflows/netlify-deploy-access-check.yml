@@ -46,6 +46,15 @@ jobs:
             published_deploy_state:d.published_deploy?.state||null,
             repo_linked:!!d.repo_url||!!d.build_settings?.repo_url
           }))
+          await inspect('accounts/6ad8bf0af4dd1ca33e371739','Account restrictions and free limits',d=>({
+            blocked_by_orb_migration:d.blocked_by_orb_migration??null,
+            configurable_limits_exceeded:d.configurable_limits_exceeded??null,
+            plan_credits:d.plan_credits??null,
+            ai_usage_limit_enforced:d.ai_usage_limit_enforced??null,
+            block_site_transfers:d.block_site_transfers??null,
+            billing_details_present:!!d.billing_details,
+            account_name_present:!!d.name
+          }))
           await inspect('sites/'+site+'/deploys?per_page=5','Recent deploys',d=>Array.isArray(d)?d.slice(0,5).map(x=>({
             id:x.id,created_at:x.created_at,state:x.state,
             error_message:x.error_message||null,
