@@ -1,0 +1,34 @@
+name: GH WAHA Hostless reachability (no credentials)
+on:
+  push:
+    branches: [fix/waha-hostless-memory-budget-20261102]
+    paths: [.github/workflows/waha-hostless-readonly-reachability.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Compare safe 404 response fingerprints, never show bodies
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import {createHash} from 'node:crypto'
+          const host='https://gh-procurement-waha.hostless.app'
+          const paths=['/ping','/health','/api/sessions/default','/__gh_probe_path_that_does_not_exist__']
+          const output=[]
+          for(const path of paths){
+            try{
+              const resp=await fetch(host+path,{redirect:'manual',signal:AbortSignal.timeout(12000)})
+              const body=(await resp.text()).slice(0,16384)
+              const fingerprint=createHash('sha256').update(body).digest('hex')
+              output.push({path,status:resp.status,contentType:resp.headers.get('content-type')?.split(';')[0]||'unknown',fingerprint})
+            }catch{output.push({path,status:'NETWORK_ERROR',contentType:'none',fingerprint:''})}
+          }
+          // Never print the response body, hash, remote account data, or any secret.
+          for(const v of output)console.log(v.path+' HTTP '+v.status+' content-type '+v.contentType)
+          const baseline=output[3]
+          for(const v of output.slice(0,3))
+            console.log(v.path+' matches random missing-route response: '+String(v.status===baseline.status&&v.fingerprint===baseline.fingerprint))
+          console.log('No authenticated WAHA call or session state confirmed. No WhatsApp messages sent.')
+          NODE
