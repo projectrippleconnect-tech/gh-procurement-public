@@ -13,11 +13,12 @@ jobs:
         shell: bash
         run: |
           node --input-type=module <<'NODE'
+          console.log('Post-merge read-only ingress check: GitHub main ff4ddd0 (does not establish deployed commit)')
           const base='https://gh-procurement-waha.hostless.app'
           const urls=['/','/api/health','/supplier/quote','/ping','/health','/api/sessions/default']
           for(const path of urls){
             try{
-              const r=await fetch(base+path,{redirect:'manual',signal:AbortSignal.timeout(9000)})
+              const r=await fetch(base+path,{redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(9000)})
               await r.arrayBuffer()
               const mime=(r.headers.get('content-type')||'none').split(';')[0]
               console.log(path+' HTTP '+r.status+' type='+mime)
