@@ -1,0 +1,55 @@
+# One-time READ-ONLY investigation; no deployments or environment writes.
+name: Inspect Netlify 403 production deployment denial (read only)
+on:
+  push:
+    branches: [ops/netlify-deploy-denial-readonly-20261102]
+    paths: [.github/workflows/netlify-deploy-access-check.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+    steps:
+      - name: Inspect account/site/deploy metadata with no mutation
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.NETLIFY_AUTH_TOKEN
+          if(!token){console.log('Netlify access credential missing');process.exitCode=1;process.exit()}
+          async function inspect(path,label,extract){
+            try {
+              const resp=await fetch('https://api.netlify.com/api/v1/'+path,{
+                headers:{Authorization:'Bearer '+token,Accept:'application/json'},
+                signal:AbortSignal.timeout(12000)
+              })
+              const data=await resp.json().catch(()=>({}))
+              console.log(label+' HTTP '+resp.status)
+              if(!resp.ok){
+                // Print only service error reason, never response headers or credentials.
+                console.log('Error category: '+String(data.code||data.error||data.message||'not provided').slice(0,160))
+                return
+              }
+              console.log(JSON.stringify(extract(data)))
+            }catch(e){console.log(label+' request error '+String(e.message||e).slice(0,180))}
+          }
+          const site=process.env.NETLIFY_SITE_ID
+          await inspect('user','Current token user',d=>({id_present:!!d.id,full_name_present:!!d.full_name,role:d.role||null}))
+          await inspect('sites/'+site,'Target production site',d=>({
+            id_matches:d.id===site,name:d.name,state:d.state||null,
+            locked:d.locked??null,
+            account_slug:d.account_slug||null,
+            updated_at:d.updated_at||null,
+            published_deploy_id:d.published_deploy?.id||d.published_deploy_id||null,
+            published_deploy_state:d.published_deploy?.state||null,
+            repo_linked:!!d.repo_url||!!d.build_settings?.repo_url
+          }))
+          await inspect('sites/'+site+'/deploys?per_page=5','Recent deploys',d=>Array.isArray(d)?d.slice(0,5).map(x=>({
+            id:x.id,created_at:x.created_at,state:x.state,
+            error_message:x.error_message||null,
+            locked:x.locked??null,
+            branch:x.branch||null
+          })):{response_type:typeof d})
+          NODE
