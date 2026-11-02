@@ -1,8 +1,11 @@
-# Free-budget experiment; not an authorized production deployment.
-# One replica is essential: never start parallel WAHA workers for one session.
+# Legacy Hostless File Path alternative: use when the app explicitly selects
+# deploy/waha-hostless/hostless.yaml instead of the root hostless.yaml.
+# The same no-charge limits and Dockerfile apply to both paths.
+working_directory: "/"
+build_context_directory: "/"
+dockerfile_path: "deploy/waha-hostless/Dockerfile"
 build:
   system: docker
-dockerfile_path: ./Dockerfile
 scaling:
   min_replicas: 1
   max_replicas: 1
