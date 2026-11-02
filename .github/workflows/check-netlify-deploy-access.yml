@@ -46,6 +46,13 @@ jobs:
             console.log('Account credits structure:',Object.keys(credit).sort().join(',')||'not reported')
             console.log('Account credit used:',typeof credit.used==='number'?credit.used:'not reported')
             console.log('Account credit included:',typeof credit.included==='number'?credit.included:'not reported')
+            const capabilities=account.capabilities||{}
+            console.log('Capability names:',Object.keys(capabilities).filter(k=>/credit|deploy|limit|usage|build|site/i.test(k)).join(',')||'none')
+            for(const [key,val] of Object.entries(capabilities)){
+              if(!/credit|deploy|limit|usage|build/i.test(key))continue
+              if(typeof val==='number'||typeof val==='boolean')console.log('Capability '+key+':',val)
+              else if(val&&typeof val==='object')console.log('Capability '+key+':',JSON.stringify(Object.fromEntries(Object.entries(val).filter(([k,v])=>typeof v==='number'||typeof v==='boolean'))).slice(0,250))
+            }
             console.log('Account status:',String(account.status||'not reported'))
             console.log('Account keys:',Object.keys(account).filter(x=>/credit|billing|limit|suspend|block|status/i.test(x)).join(',')||'none')
           }
