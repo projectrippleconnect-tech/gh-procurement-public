@@ -1,0 +1,27 @@
+name: Identify Hostless deployed app without credentials
+on:
+  push:
+    branches: [fix/hostless-waha-ingress-20261102]
+    paths: [.github/workflows/hostless-runtime-fingerprint.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read-only route fingerprint (no bodies or secrets)
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://gh-procurement-waha.hostless.app'
+          const urls=['/','/api/health','/supplier/quote','/ping','/api/sessions/default']
+          for(const path of urls){
+            try{
+              const r=await fetch(base+path,{redirect:'manual',signal:AbortSignal.timeout(9000)})
+              await r.arrayBuffer()
+              const mime=(r.headers.get('content-type')||'none').split(';')[0]
+              console.log(path+' HTTP '+r.status+' type='+mime)
+            }catch{console.log(path+' NETWORK_ERROR')}
+          }
+          console.log('GET-only; no authentication credentials or message sends; no bodies recorded.')
+          NODE

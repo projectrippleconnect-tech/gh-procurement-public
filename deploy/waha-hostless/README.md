@@ -1,8 +1,8 @@
 # GH Procurement — experimental always-on WAHA GOWS gateway
 
-**NOT DEPLOYED. No WhatsApp number paired. Live sending must remain OFF.**
+**Recovery status (2026-11-02): Hostless app `gh-procurement-waha` was deployed and the `default` WhatsApp session was previously paired. It is NOT currently verified working: read-only requests to `/ping`, `/health` and `/api/sessions/default` all returned 404 from the existing public gateway URL. Supplier sending must remain OFF. Do not erase the separate `gh-waha-sessions` PostgreSQL storage.**
 
-This directory is an independently deployable Hostless **candidate**, separate from the GH Procurement Next.js app on the manually deployed Netlify site. Hostless can build a Dockerfile. It advertises a no-card shared free allowance of 0.5 vCPU, 1 GiB RAM and 512 MiB database storage; real account capacity, pricing policy and permission checks MUST be verified before provisioning.
+This directory is the checked-in Hostless **configuration candidate** for the already existing WAHA app, separate from the GH Procurement Next.js app on Netlify. A repository change alone does not prove the live Hostless app used the file. The 404 responses suggest an active-release or Hostless routing issue. Official upstream WAHA listens using its configured port; changing the hostname environment variable is not the network bind fix. The remaining patch starts only the existing default session after restart and does not by itself fix HTTP 404. It preserves the existing 384 MB resource cap pending verification of the active free tier. Hostless can build a Dockerfile. It advertises a no-card shared free allowance of 0.5 vCPU, 1 GiB RAM and 512 MiB database storage; real account capacity, pricing policy and permission checks MUST be verified before provisioning.
 
 ## Candidate topology and cost ceiling
 

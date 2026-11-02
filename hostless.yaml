@@ -1,0 +1,19 @@
+# GH Procurement WAHA deployment: Hostless reads this at repository root by default.
+# Build the existing WAHA GOWS Dockerfile, NOT the Next.js procurement frontend.
+# Keep the existing free allocation; no additional app/database, paid resource, or secret.
+working_directory: "/"
+build_context_directory: "/"
+dockerfile_path: "deploy/waha-hostless/Dockerfile"
+build:
+  system: docker
+scaling:
+  min_replicas: 1
+  max_replicas: 1
+  min_cpu: 0.1
+  max_cpu: 0.2
+  min_memory: 256
+  max_memory: 384
+health_check:
+  type: http
+  http_path: "/ping"
+  interval_in_seconds: 30
