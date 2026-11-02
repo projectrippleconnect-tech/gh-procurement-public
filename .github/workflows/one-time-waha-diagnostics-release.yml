@@ -1,6 +1,6 @@
-# One-shot operator-initiated release. Only fires on deliberate addition to its
-# dedicated ops branch, never on changes to main or normal app commits.
-name: GH Procurement - One-time WAHA diagnosis manual release (sends OFF)
+# Coordination-only run: same release SHA is already being deployed by run 41396056700.
+# This intentionally supersedes the duplicate queued run in the same concurrency group.
+name: GH Procurement - Avoid duplicate one-time release
 on:
   push:
     branches: [ops/one-time-stage5-waha-diagnostics-release-20261102]
@@ -11,95 +11,11 @@ concurrency:
   group: gh-procurement-manual-netlify-production
   cancel-in-progress: false
 jobs:
-  release:
+  no_duplicate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
-      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
-      GH_RELEASE_SHA: 435ce4004489916821ab5c4d781784e6035deb0b
-      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
-      GH_UI_BROWSER_CHANNEL: chrome
-      NEXT_TELEMETRY_DISABLED: '1'
-      WAHA_SENDING_ENABLED: 'false'
-      GH_AUTO_DISPATCH_ENABLED: 'false'
-      GH_AUTO_DELIVERY_TEST_VERIFIED: 'false'
-      GH_WA_AUDIT_ENABLED: 'false'
-      GH_PORTAL_PROCESSING_ENABLED: 'false'
-      GH_PORTAL_DISPATCH_ENABLED: 'false'
-      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+    timeout-minutes: 3
     steps:
-      - name: Guard exact approved main SHA and existing Netlify token
+      - name: Avoid second Netlify deployment
         run: |
-          set -euo pipefail
-          test -n "$NETLIFY_AUTH_TOKEN"
-          test "$GH_RELEASE_SHA" = '435ce4004489916821ab5c4d781784e6035deb0b'
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.GH_RELEASE_SHA }}
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Confirm exact commit from main and clean checkout
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA"
-          git fetch origin main
-          git merge-base --is-ancestor "$GH_RELEASE_SHA" origin/main
-          test -z "$(git status --porcelain)"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Dependency security, TypeScript and unit tests
-        run: |
-          npm audit --audit-level=high
-          npm run lint
-          npm test
-      - name: Production build and mobile desktop smoke checks
-        run: |
-          npm run build
-          npm run test:ui
-      - name: Verify exact Netlify site and manual deploy mode
-        run: |
-          set -euo pipefail
-          npm install --global netlify-cli@27.13.0
-          netlify sites:list --json > "$RUNNER_TEMP/sites.json"
-          node - <<'NODE'
-          const fs=require('fs')
-          const raw=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/sites.json','utf8'))
-          const sites=Array.isArray(raw)?raw:(raw.sites||[])
-          const site=sites.find(x=>x.id===process.env.NETLIFY_SITE_ID)
-          if(!site||site.name!=='gh-procurement')throw Error('Wrong Netlify site')
-          if(site.repo||site.repo_url||site.build_settings?.repo_url)throw Error('Auto Git deploy forbidden')
-          console.log('Exact existing manual-deploy Netlify site verified')
-          NODE
-      - name: Ensure nonsecret production gateway values and all sends OFF
-        run: |
-          set -euo pipefail
-          SITE="$NETLIFY_SITE_ID"
-          netlify env:set WAHA_SENDING_ENABLED false --context production --site "$SITE" --force
-          netlify env:set WAHA_BASE_URL https://gh-procurement-waha.hostless.app --context production --site "$SITE" --force
-          netlify env:set WAHA_ALLOWED_HOST gh-procurement-waha.hostless.app --context production --site "$SITE" --force
-          netlify env:set WAHA_SESSION default --context production --site "$SITE" --force
-          # API key is intentionally not changed or displayed.
-      - name: Deliberate single production deployment with all sending disabled
-        run: |
-          set -euo pipefail
-          netlify deploy --prod --build --site "$NETLIFY_SITE_ID"             --message "One-time WAHA diagnostic release $GH_RELEASE_SHA (sends OFF)"             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA"             --secret-env 'WAHA_SENDING_ENABLED=false'             --secret-env 'GH_AUTO_DISPATCH_ENABLED=false'             --secret-env 'GH_AUTO_DELIVERY_TEST_VERIFIED=false'             --secret-env 'GH_WA_AUDIT_ENABLED=false'             --secret-env 'GH_PORTAL_PROCESSING_ENABLED=false'             --secret-env 'GH_PORTAL_DISPATCH_ENABLED=false'             --secret-env 'GH_PORTAL_DELIVERY_VERIFIED=false'
-      - name: Read-only check deployed revision and anonymous gateway protection
-        run: |
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict'
-          const health=await fetch('https://gh-procurement.netlify.app/api/health',{signal:AbortSignal.timeout(15000)})
-          assert.equal(health.status,200)
-          const obj=await health.json()
-          assert.equal(obj.version,process.env.GH_RELEASE_SHA)
-          assert.equal(obj.database,'connected')
-          assert.equal(obj.schema_ready,true)
-          const pair=await fetch('https://gh-procurement.netlify.app/api/integrations/whatsapp/pair',{signal:AbortSignal.timeout(15000)})
-          assert.equal(pair.status,401)
-          console.log('PASS exact GH release/DB/schema/anonymous access checks; supplier sends remain OFF')
-          NODE
+          echo "No duplicate deploy: identical Stage 5 diagnostic commit is releasing in workflow 41396056700."
+          echo "No Netlify settings changed and no supplier messages sent."
