@@ -1,0 +1,27 @@
+name: GH WAHA Hostless reachability (no credentials)
+on:
+  push:
+    branches: [fix/waha-hostless-memory-budget-20261102]
+    paths: [.github/workflows/waha-hostless-readonly-reachability.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read-only HTTPS and authorization boundary probe
+        shell: bash
+        run: |
+          set -u
+          url="https://gh-procurement-waha.hostless.app/api/sessions/default"
+          result="$(curl -sS --noproxy '*' --max-redirs 0 --connect-timeout 8 --max-time 20 -o /dev/null -w '%{http_code} %{time_total}' "$url" 2>/dev/null)" || result="000 request-failed"
+          code="${result%% *}"
+          echo "WAHA unauthenticated session status HTTP: $code (response body suppressed)"
+          case "$code" in
+            401|403) echo 'REACHABLE: API requires authentication. Session WORKING is NOT proven.' ;;
+            200) echo 'SECURITY REVIEW NEEDED: session endpoint responded without an API key. No response was retained.' ;;
+            502|503|504) echo 'BLOCKED: upstream/service unavailable at check time.' ;;
+            000) echo 'BLOCKED: DNS, TLS, network or timeout. Hostless remains unverified.' ;;
+            *) echo 'INCONCLUSIVE: inspect provider logs, do not infer session state.' ;;
+          esac
+          # Intentionally no WAHA key, POST, persisted response, or delivery attempt.
