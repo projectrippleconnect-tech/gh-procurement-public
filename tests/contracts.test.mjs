@@ -16,7 +16,7 @@ test('stock entry is atomic, user-scoped, review-first and not capped at 500 ite
   assert.match(stock,/startPromise=useRef\(null\)/)
   assert.doesNotMatch(stock,/proc_submit_stock_and_continue_v2/)
   assert.doesNotMatch(stock,/range\(0,dueOnly\?Math\.max\(dailyTarget-1,0\):499\)/)
-  assert.match(stock,/Shortages will go to Procurement Review/)
+  assert.match(stock,/stockSubmissionOutcome\(r\.data/)
   assert.match(stock,/Discard Draft/)
 })
 
@@ -53,11 +53,13 @@ test('routine shortages stop at buyer review instead of auto-awarding',()=>{
   assert.match(buying,/Prepare request · Choose suppliers/)
 })
 
-test('guided procurement groups tasks into three stages and offers receiving after orders',()=>{
- const ui=read('components/ui.jsx'),guide=read('lib/workflow-guide.mjs')
- assert.match(guide,/id:1,title:'Stock entry'/);assert.match(guide,/id:6,title:'Create & send orders'/)
- assert.match(ui,/Previous procurement step/);assert.match(ui,/STAGE.*OF 3/);assert.doesNotMatch(ui,/Next procurement step/)
- assert.match(ui,/Go to procurement section/);assert.match(ui,/Receive delivery/)
+test('guided procurement uses shared vocabulary and respects permitted document sections',()=>{
+ const ui=read('components/ui.jsx'),guide=read('lib/workflow-guide.mjs'),visibility=read('lib/workflow-visibility.mjs')
+ assert.match(guide,/PROCUREMENT_STEPS=WORKFLOW_ACTIONS/);assert.match(visibility,/PURCHASING_SECTIONS/)
+ assert.match(ui,/aria-label="Purchasing sections"/)
+ assert.doesNotMatch(ui,/Choose a step/);assert.doesNotMatch(ui,/Next procurement step/)
+ assert.match(ui,/workflow-step-tabs/);assert.doesNotMatch(visibility,/\['Receive','receiving'/)
+ assert.match(visibility,/permitted\.length>1/)
 })
 
 test('RFQs are prepared until actual transmission is confirmed',()=>{
@@ -168,7 +170,7 @@ test('dependency install scripts are explicitly denied and unreviewed scripts fa
   assert.equal(pkg.allowScripts?.['tesseract.js'],false)
   assert.equal(pkg.allowScripts?.['core-js'],false)
   assert.match(npmrc,/^ignore-scripts=true\s*$/)
-  assert.match(pkg.scripts.build,/^node scripts\/copy-pdf-worker\.mjs && next build$/)
+  assert.match(pkg.scripts.build,/^node scripts\/copy-pdf-worker\.mjs && node scripts\/verify-release-source\.mjs && next build && node scripts\/verify-release-routes\.mjs$/)
 })
 
 
@@ -351,12 +353,11 @@ test('private WAHA route is authenticated, supplier-scoped, audited, and fails c
  assert.match(route,/gatewaySession\(config\)/)
  assert.match(route,/config\.base\+'\/api\/sendImage'/)
  assert.match(route,/status='unknown'/)
- assert.match(route,/status='accepted'/)
+ assert.match(route,/status=messageId\?'accepted':'unknown'/)
  assert.doesNotMatch(route,/proc_mark_rfq_supplier_sent_v1/)
  assert.match(route,/WAHA_SENDING_ENABLED/)
  assert.doesNotMatch(route,/SUPABASE_SERVICE_ROLE_KEY/)
- assert.match(route,/gatewayConfig\(\)/)
- assert.match(read('lib/waha-gateway-config.js'),/railway\.internal/)
+ assert.match(route,/wahaGatewayConfig/)
  assert.match(migration,/unique \(rfq_id,supplier_id\)/)
  assert.match(migration,/enable row level security/)
  assert.match(migration,/revoke insert,update,delete/)
@@ -375,8 +376,7 @@ test('WAHA session pairing uses a private admin-only proxy and leaves sending di
  const buying=read('components/modules-buying.jsx')
  assert.match(pairing,/auth\.getUser\(match\[1\]\)/)
  assert.match(pairing,/profile\?\.role!=='admin'/)
- assert.match(pairing,/gatewayConfig\(\)/)
- assert.match(read('lib/waha-gateway-config.js'),/WAHA_ALLOWED_HOST/)
+ assert.match(pairing,/wahaGatewayConfig/)
  assert.match(pairing,/\/api\/sessions/)
  assert.match(pairing,/\/auth\/request-code/)
  assert.match(pairing,/\/auth\/qr\?format=image/)

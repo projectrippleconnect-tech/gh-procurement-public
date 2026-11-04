@@ -1,4 +1,6 @@
 'use client'
+import {AuditHistory} from './audit-history'
+import {BusinessOverview} from './business-overview'
 import {RecordDeletion} from './delete-record'
 import {AccessSettings} from './access-settings'
 import {SettingsSearch} from './settings-search'
@@ -6,17 +8,19 @@ import {CaptureSettings} from './capture-settings'
 
 import {ModernSelect} from './modern-select'
 
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {allRows} from '@/lib/query-pages'
+import {completeReport} from '@/lib/report-export.mjs'
 import {useDangerConfirmation} from './danger-confirmation'
 import {downloadCsv,money,qty} from '@/lib/helpers'
-import {exportTablePdf} from '@/lib/pdf'
+import {exportTablePdf} from '@/lib/lazy-pdf.mjs'
 import {Badge,DataTable,Toggle,Empty,Err} from './ui'
 import {InterfaceSettings} from './interface-settings'
 import {InfoButton} from './help-ui'
 
 const REPORT_DEFS={
+ order_recency:{label:'Items Not Ordered Recently',source:'proc_v_item_order_recency',select:'*',order:'item_id',orderAscending:true,categoryField:'category',columns:[['item_code','Code'],['category','Category'],['description','Item'],['size','Size'],['uom','UOM'],['movement','Movement'],['last_ordered_at','Last Ordered'],['days_since_order','Days Since Order'],['never_ordered','Never Ordered']]},
  reconciliation:{label:'Procurement Reconciliation',source:'proc_v_requirements',select:'*',order:'created_at',dateField:'created_at',dateTime:true,statusField:'status',categoryField:'category',columns:[['requirement_no','Requirement'],['category','Category'],['description','Item'],['size','Size'],['uom','UOM'],['movement','Movement'],['required_qty','Required'],['adjusted_qty','Adjusted'],['ordered_qty','Ordered'],['received_qty','Received'],['remaining_to_order','Still To Order'],['ordered_not_received','Ordered Not Received'],['status','Status'],['created_at','Created']]},
  po:{label:'Purchase Order Register',source:'proc_purchase_orders',select:'*,supplier:proc_suppliers(name,supplier_code)',order:'po_date',dateField:'po_date',statusField:'status',columns:[['po_no','PO No'],['supplier_name','Supplier'],['po_date','PO Date'],['expected_date','Expected'],['subtotal','Subtotal'],['tax_total','Tax'],['freight_total','Freight'],['total','Total'],['status','Status'],['created_at','Created']]},
  invoices:{label:'Supplier Invoice Register',source:'proc_supplier_invoices',select:'*,supplier:proc_suppliers(name,supplier_code),po:proc_purchase_orders(po_no)',order:'invoice_date',dateField:'invoice_date',statusField:'status',columns:[['invoice_no','Invoice'],['supplier_name','Supplier'],['po_no','PO No'],['invoice_date','Invoice Date'],['total','Total'],['status','Status'],['variance_resolution_status','Variance Resolution'],['created_at','Created']]},
@@ -48,8 +52,9 @@ function flatten(type,r){
  return r
 }
 
-export function Reports({profile,company,footer,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
- const[type,setType]=useState('reconciliation'),[rows,setRows]=useState([]),[columns,setColumns]=useState([]),[selected,setSelected]=useState([]),[status,setStatus]=useState(''),[category,setCategory]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[presets,setPresets]=useState([]),[presetName,setPresetName]=useState(''),[loading,setLoading]=useState(false),[screenPage,setScreenPage]=useState(0)
+export function Reports({initialFilter='',profile,company,footer,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+ const[type,setType]=useState(initialFilter==='order_recency'?'order_recency':'reconciliation'),[rows,setRows]=useState([]),[columns,setColumns]=useState([]),[selected,setSelected]=useState([]),[status,setStatus]=useState(''),[category,setCategory]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[presets,setPresets]=useState([]),[presetName,setPresetName]=useState(''),[loading,setLoading]=useState(false),[screenPage,setScreenPage]=useState(0)
+ const[staleDays,setStaleDays]=useState(90)
  const def=REPORT_DEFS[type]
  const reportCfg=features.find(x=>x.feature_key==='reports.full_export')?.config||{}
  const screenPageSize=Math.max(25,Math.min(Number(reportCfg.screen_page_size||100),500))
@@ -59,39 +64,49 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
  const loadPresets=useCallback(async()=>{const r=await supabase.from('proc_report_presets').select('*').order('name');if(r.error)fail(r.error);else setPresets(r.data||[])},[fail])
  useEffect(()=>{loadPresets()},[loadPresets])
 
- const load=useCallback(async()=>{setLoading(true);try{
-  if(def.rpc){
-   const r=await supabase.rpc(def.rpc,{p_from:from||null,p_to:to||null})
+ const[totalRows,setTotalRows]=useState(0),[exportBusy,setExportBusy]=useState(false),[reportCategories,setReportCategories]=useState([])
+ const reportRevision=useRef(0),reportController=useRef(null)
+ const reportQuery=useCallback((offset,size,count=false,signal)=>{
+  let q=supabase.from(def.source).select(def.select,count?{count:'exact'}:{}).range(offset,offset+size-1)
+  if(def.order)q=q.order(def.order,{ascending:def.orderAscending===true})
+  if(type==='order_recency')q=q.or('last_ordered_at.is.null,days_since_order.gte.'+Math.max(1,Math.min(3650,Number(staleDays)||90)))
+  if(status&&def.statusField)q=q.eq(def.statusField,status)
+  if(category&&def.categoryField)q=q.eq(def.categoryField,category)
+  if(from&&def.dateField)q=q.gte(def.dateField,from)
+  if(to&&def.dateField)q=q.lte(def.dateField,def.dateTime?to+'T23:59:59.999':to)
+  return signal?q.abortSignal(signal):q
+ },[def,type,staleDays,status,category,from,to])
+ const load=useCallback(async()=>{
+  reportController.current?.abort();const controller=new AbortController();reportController.current=controller
+  const revision=++reportRevision.current;setLoading(true)
+  try{
+   const r=def.rpc?await supabase.rpc(def.rpc,{p_from:from||null,p_to:to||null}).abortSignal(controller.signal):await reportQuery(screenPage*screenPageSize,screenPageSize,true,controller.signal)
+   if(controller.signal.aborted||revision!==reportRevision.current)return
    if(r.error)throw r.error
-   setRows((r.data||[]).map(x=>flatten(type,x)));setScreenPage(0);return
-  }
-  const all=[]
-  let offset=0
-  while(true){
-   let q=supabase.from(def.source).select(def.select).range(offset,offset+fetchPageSize-1)
-   if(def.order)q=q.order(def.order,{ascending:def.orderAscending===true})
-   if(status&&def.statusField)q=q.eq(def.statusField,status)
-   if(category&&def.categoryField)q=q.eq(def.categoryField,category)
-   if(from&&def.dateField)q=q.gte(def.dateField,from)
-   if(to&&def.dateField)q=q.lte(def.dateField,def.dateTime?to+'T23:59:59.999':to)
-   const r=await q
-   if(r.error)throw r.error
-   all.push(...(r.data||[]).map(x=>flatten(type,x)))
-   if((r.data||[]).length<fetchPageSize)break
-   offset+=fetchPageSize
-   if(offset>=100000)throw new Error(t('validation.report_too_large','Report exceeds 100,000 rows. Narrow the date range before exporting.'))
-  }
-  setRows(all);setScreenPage(0)
- }catch(e){fail(e)}finally{setLoading(false)}},[def,type,status,category,from,to,fetchPageSize,fail])
- useEffect(()=>{load()},[load])
-
- const categories=useMemo(()=>[...new Set(rows.map(r=>r.category).filter(Boolean))].sort(),[rows])
+   setRows((r.data||[]).map(x=>flatten(type,x)));setTotalRows(r.count??r.data?.length??0)
+  }catch(e){if(!controller.signal.aborted&&revision===reportRevision.current){setRows([]);setTotalRows(0);fail(e)}}
+  finally{if(!controller.signal.aborted&&revision===reportRevision.current)setLoading(false)}
+ },[def,type,from,to,screenPage,screenPageSize,reportQuery,fail])
+ useEffect(()=>{load();return()=>{reportRevision.current++;reportController.current?.abort()}},[load])
+ useEffect(()=>{setScreenPage(0)},[type,status,category,from,to])
+ useEffect(()=>{let alive=true;supabase.rpc('proc_item_filter_options_v1').then(r=>{if(alive&&!r.error)setReportCategories(r.data?.categories||[])});return()=>{alive=false}},[])
+ const categories=useMemo(()=>[...new Set([...reportCategories,...rows.map(r=>r.category).filter(Boolean)])].sort(),[rows,reportCategories])
  const visibleCols=columns.filter(c=>selected.includes(c.key))
  const tableCols=visibleCols.map(c=>({key:c.key,label:c.label,render:r=>(c.key==='status'||c.key.endsWith('_status'))?<Badge>{r[c.key]}</Badge>:displayValue(c.key,r[c.key])}))
- const exportRows=rows.map(r=>Object.fromEntries(visibleCols.map(c=>[c.label,displayValue(c.key,r[c.key])])))
- const screenRows=rows.slice(screenPage*screenPageSize,(screenPage+1)*screenPageSize)
- const screenPages=Math.max(1,Math.ceil(rows.length/screenPageSize))
- function exportPdf(){exportTablePdf({filename:'GH-'+def.label.replace(/\s+/g,'-')+'.pdf',title:def.label,subtitle:`${rows.length} record(s)`,columns:visibleCols.map(c=>({key:c.key,label:c.label,value:r=>displayValue(c.key,r[c.key])})),rows,company,footer,orientation:visibleCols.length>6?'landscape':'portrait'})}
+ const screenRows=def.rpc?rows.slice(screenPage*screenPageSize,(screenPage+1)*screenPageSize):rows
+ const screenPages=Math.max(1,Math.ceil(totalRows/screenPageSize))
+ async function exportReport(format){
+  if(exportBusy)return
+  setExportBusy(true)
+  try{
+   const result=def.rpc?await supabase.rpc(def.rpc,{p_from:from||null,p_to:to||null}):null
+   if(result?.error)throw result.error
+   const data=(result?result.data||[]:await completeReport((offset,size)=>reportQuery(offset,size),fetchPageSize)).map(x=>flatten(type,x))
+   if(format==='csv')downloadCsv('GH-'+def.label+'.csv',data.map(r=>Object.fromEntries(visibleCols.map(c=>[c.label,displayValue(c.key,r[c.key])]))))
+   else await exportTablePdf({filename:'GH-'+def.label.replace(/\s+/g,'-')+'.pdf',title:def.label,subtitle:`${data.length} record(s)`,columns:visibleCols.map(c=>({key:c.key,label:c.label,value:r=>displayValue(c.key,r[c.key])})),rows:data,company,footer,orientation:visibleCols.length>6?'landscape':'portrait'})
+  }catch(e){fail(e)}finally{setExportBusy(false)}
+ }
+
  async function savePreset(){
   if(!presetName.trim())return fail(new Error(t('validation.preset_name','Enter a preset name.')))
   const r=await supabase.from('proc_report_presets').upsert({owner_id:profile.id,name:presetName.trim(),report_type:type,columns:selected,filters:{status,category,from,to}},{onConflict:'owner_id,name,report_type'})
@@ -102,8 +117,11 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
   setTimeout(()=>{setSelected(Array.isArray(p.columns)?p.columns:[]);setStatus(p.filters?.status||'');setCategory(p.filters?.category||'');setFrom(p.filters?.from||'');setTo(p.filters?.to||'')},0)
  }
  return <>
-  <div className="card pad"><div className="sectionhead"><div><h3>{t('reports.builder','Report Builder')}</h3><p>{t('reports.builder_hint','Exports page through the complete filtered dataset; screen rendering is paged separately for performance.')}</p></div><div className="toolbar">{can('reports.export_csv')&&<button className="btn" onClick={()=>downloadCsv('GH-'+def.label+'.csv',exportRows)}>CSV</button>}{can('reports.export_pdf')&&<button className="btn primary" onClick={exportPdf}>PDF</button>}</div></div>
+  {can('dashboard.view')&&<BusinessOverview/>}
+  <div className="card pad"><div className="sectionhead"><div><h3>{t('reports.builder','Report Builder')}</h3><p>{t('reports.builder_hint','Exports page through the complete filtered dataset; screen rendering is paged separately for performance.')}</p></div><div className="toolbar">{can('reports.export_csv')&&<button className="btn" disabled={loading||exportBusy} onClick={()=>exportReport('csv')}>CSV</button>}{can('reports.export_pdf')&&<button className="btn primary" disabled={loading||exportBusy} onClick={()=>exportReport('pdf')}>PDF</button>}</div></div>
+   {exportBusy&&<p role="status">Preparing the complete filtered export…</p>}
    <div className="report-controls">
+    {type==='order_recency'&&<label className="field">Days without an order<input className="input" type="number" min="1" max="3650" value={staleDays} onChange={e=>{setStaleDays(e.target.value);setScreenPage(0)}}/></label>}
     <div className="field"><label>{t('reports.report','Report')}</label><ModernSelect className="select" value={type} onChange={e=>setType(e.target.value)}>{Object.entries(REPORT_DEFS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</ModernSelect></div>
     {def.statusField&&<div className="field"><label>{t('reports.status','Status')}</label><input className="input" placeholder="Optional exact status" value={status} onChange={e=>setStatus(e.target.value)}/></div>}
     {def.categoryField&&<div className="field"><label>{t('reports.category','Category')}</label><ModernSelect className="select" value={category} onChange={e=>setCategory(e.target.value)}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</ModernSelect></div>}
@@ -113,7 +131,7 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
    <div className="section"><div className="field-title">{t('reports.columns','Columns')}</div><div className="column-picker">{columns.map(c=><label className={'choice-pill '+(selected.includes(c.key)?'selected-choice':'')} key={c.key}><input type="checkbox" checked={selected.includes(c.key)} onChange={e=>setSelected(v=>e.target.checked?[...v,c.key]:v.filter(x=>x!==c.key))}/>{c.label}</label>)}</div></div>
    <div className="preset-bar section"><input className="input" placeholder={t('reports.preset_name','Preset name')} value={presetName} onChange={e=>setPresetName(e.target.value)}/><button className="btn" onClick={savePreset}>{t('reports.save_layout','Save Layout')}</button><ModernSelect className="select" defaultValue="" onChange={e=>{const p=presets.find(x=>x.id===e.target.value);if(p)applyPreset(p)}}><option value="">{t('reports.load_layout','Load saved layout…')}</option>{presets.map(p=><option key={p.id} value={p.id}>{p.name} · {REPORT_DEFS[p.report_type]?.label||p.report_type}</option>)}</ModernSelect></div>
   </div>
-  <div className="card pad section"><div className="sectionhead"><div><h3>{def.label}</h3><p>{rows.length} filtered record(s) · showing {screenRows.length} on this screen page</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>{loading?<Empty>{t('reports.loading','Loading complete report…')}</Empty>:<><DataTable columns={tableCols} rows={screenRows} mobileCards/><div className="toolbar section"><button className="btn" disabled={screenPage<=0} onClick={()=>setScreenPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{t('common.page','Page')} {screenPage+1} {t('common.of','of')} {screenPages}</span><button className="btn" disabled={screenPage>=screenPages-1} onClick={()=>setScreenPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}</div>
+  <div className="card pad section"><div className="sectionhead"><div><h3>{def.label}</h3><p>{totalRows} filtered record(s) · showing {screenRows.length} on this screen page</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>{loading?<Empty>{t('reports.loading_page','Loading report page…')}</Empty>:<><DataTable columns={tableCols} rows={screenRows} mobileCards/><div className="toolbar section"><button className="btn" disabled={screenPage<=0} onClick={()=>setScreenPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{t('common.page','Page')} {screenPage+1} {t('common.of','of')} {screenPages}</span><button className="btn" disabled={screenPage>=screenPages-1} onClick={()=>setScreenPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}</div>
  </>
 }
 
@@ -126,7 +144,7 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
    supabase.from('proc_permissions').select('*').order('sort_order'),
    supabase.from('proc_role_permissions').select('*').eq('allowed',true)
   ])
-  if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error
+  if(a.error)throw a.error;if(c.error)throw c.error
   setRoles(a.data||[]);setPermissions(b.data||[]);setLinks(c.data||[])
   if((a.data||[]).length&&!a.data.some(x=>x.role_key===selected))setSelected(a.data[0].role_key)
  }catch(e){fail(e)}},[fail,selected])
@@ -183,7 +201,7 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
 function DataManagement({profile,flash,fail}){
  const confirmDanger=useDangerConfirmation()
  const[scope,setScope]=useState('full'),[preview,setPreview]=useState(null),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState(''),[busy,setBusy]=useState(false)
- const options={full:['Reset system to zero','Clears POs, RFQs, quotes, requests, invoices, receipts, stock history, drafts, current stock and company lists. Keeps items, suppliers, companies, users, roles, settings and audit logs.'],procurement:['Clear procurement records','Clears all POs, RFQs, quotes, requests, invoices, receipts and associated follow-ups. Current stock and stock history remain.'],stock:['Reset current stock to zero','Sets every current stock quantity to zero and clears stock-entry drafts. Keeps submitted counts and records the adjustment in stock history.'],lists:['Clear company lists','Clears company item lists, price lists and their document records. Items, companies and suppliers remain.']}
+ const options={full:['Reset system to zero','Clears POs, RFQs, quotes, requests, invoices, receipts, stock history, drafts and current stock. Keeps items, company item lists, price lists, suppliers, companies, supplier routes, users, roles, settings and audit logs.'],procurement:['Clear procurement records','Clears all POs, RFQs, quotes, requests, invoices, receipts and associated follow-ups. Current stock and stock history remain.'],stock:['Reset current stock to zero','Sets every current stock quantity to zero and clears stock-entry drafts. Keeps submitted counts and records the adjustment in stock history.'],lists:['Clear company lists','Clears company item lists, price lists and their document records. Items, companies and suppliers remain.']}
  async function review(){setBusy(true);setPreview(null);try{const r=await supabase.rpc('proc_admin_reset_preview_v1',{p_scope:scope});if(r.error)throw r.error;setPreview(r.data);setConfirmation('')}catch(e){fail(e)}finally{setBusy(false)}}
  async function clear(){
   if(!preview||confirmation!=='CLEAR '+scope.toUpperCase()||reason.trim().length<5)return
@@ -197,14 +215,14 @@ function DataManagement({profile,flash,fail}){
 
 export function Admin({profile,modules,fields,features=[],settings,onConfigChanged,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
- const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
+ const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
  const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false),[resetBusy,setResetBusy]=useState(null)
  const[setupLink,setSetupLink]=useState(null)
  const[deleteTarget,setDeleteTarget]=useState(null),[deleteConfirmation,setDeleteConfirmation]=useState(''),[deleteBusy,setDeleteBusy]=useState(false),[deleteError,setDeleteError]=useState('')
  const hasAdmin=can('admin.users.manage')||can('admin.roles.manage')||can('admin.configure_app')||can('admin.audit.view')
  const load=useCallback(async()=>{if(!hasAdmin)return;try{
-  const[a,b,d,e,r]=await Promise.all([allRows(()=>supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name').order('id')),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),allRows(()=>supabase.from('proc_user_directory').select('*').order('user_id')),supabase.from('proc_roles').select('*').order('name')])
-  if(a.error)throw a.error;if(b.error)throw b.error;if(d.error)throw d.error;if(e.error)throw e.error;if(r.error)throw r.error;setUsers(a.data||[]);setAudit(b.data||[]);setInvites(d.data||[]);setDirectory(e.data||[]);setRoles(r.data||[])
+  const[a,d,e,r]=await Promise.all([allRows(()=>supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name').order('id')),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),allRows(()=>supabase.from('proc_user_directory').select('*').order('user_id')),supabase.from('proc_roles').select('*').order('name')])
+  if(a.error)throw a.error;if(d.error)throw d.error;if(e.error)throw e.error;if(r.error)throw r.error;setUsers(a.data||[]);setInvites(d.data||[]);setDirectory(e.data||[]);setRoles(r.data||[])
  }catch(e){fail(e)}},[hasAdmin,fail])
  useEffect(()=>{load()},[load])
  useEffect(()=>{setCompany(settings.company_profile||{});setIdle(Number(settings.security_idle_minutes||60))},[settings])
@@ -321,7 +339,7 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
    </div>)}</div></div></details>
 <details name="gh-admin-section" className="admin-accordion"><summary>Fields</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.fields','Fields')}</h3><p>{t('admin.fields_hint','Hide fields or rename their labels without changing the database.')}</p></div></div><ModernSelect className="select" value={selectedModule} onChange={e=>setSelectedModule(e.target.value)}>{modules.filter(m=>fields.some(f=>f.module_key===m.module_key)).map(m=><option value={m.module_key} key={m.module_key}>{m.label}</option>)}</ModernSelect><div className="stack section">{selectedFields.map(f=><div className="field-setting" key={f.field_key}><Toggle label={f.required_core?f.field_key+' · required':f.field_key} checked={f.enabled} disabled={f.required_core} onChange={v=>fieldToggle(f,v)}/><input className="input" defaultValue={f.label} onBlur={e=>fieldLabelSave(f,e.target.value)}/><input className="input field-order-input" type="number" defaultValue={f.sort_order} title="Display order" onBlur={e=>fieldOrderSave(f,e.target.value)}/></div>)}</div></div></details>
 <details name="gh-admin-section" className="admin-accordion"><summary>Features & Dashboard</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.features_dashboard','Features & Dashboard')}</h3><p>{t('admin.features_dashboard_hint','Enable/disable features across the app, including individual dashboard cards and cycle-count rules.')}</p></div></div><div className="stack">{features.map(f=><div className="field-setting" key={f.feature_key}><Toggle label={f.label} checked={f.enabled} onChange={v=>featureSave(f,{enabled:v})}/>{f.feature_key==='stock.cycle_counting'&&<div className="formgrid section"><div className="field"><label>FAST days</label><input className="input" type="number" min="1" defaultValue={f.config?.fast_days??7} onBlur={e=>featureConfig(f,'fast_days',e.target.value)}/></div><div className="field"><label>NORMAL days</label><input className="input" type="number" min="1" defaultValue={f.config?.normal_days??14} onBlur={e=>featureConfig(f,'normal_days',e.target.value)}/></div><div className="field"><label>SLOW days</label><input className="input" type="number" min="1" defaultValue={f.config?.slow_days??28} onBlur={e=>featureConfig(f,'slow_days',e.target.value)}/></div><div className="field"><label>Daily batch target</label><input className="input" type="number" min="10" defaultValue={f.config?.daily_target??75} onBlur={e=>featureConfig(f,'daily_target',e.target.value)}/></div></div>}{f.feature_key==='quotes.minimum_quotes'&&<div className="formgrid section"><div className="field"><label>Reminder after hours</label><input className="input" type="number" min="1" defaultValue={f.config?.reminder_hours??24} onBlur={e=>featureConfig(f,'reminder_hours',e.target.value)}/></div></div>}{f.feature_key==='procurement.straight_through'&&<div className="section"><div className="notice"><b>Normal path becomes automatic.</b><p className="muted tiny">Physical stock count → shortage → supplier pricing → safe lowest-landed-cost award → PO. Manual review remains for exceptions.</p></div><div className="formgrid section"><div className="field"><label>Suppliers per automatic RFQ</label><input className="input" type="number" min="1" max="10" defaultValue={f.config?.supplier_limit??3} onBlur={e=>featureConfig(f,'supplier_limit',e.target.value)}/></div><div className="field"><label>RFQ due in days</label><input className="input" type="number" min="0" max="30" defaultValue={f.config?.rfq_due_days??2} onBlur={e=>featureConfig(f,'rfq_due_days',e.target.value)}/></div><div className="field"><label>Auto-approve each PO up to LKR</label><input className="input" type="number" min="0" step="1000" defaultValue={f.config?.po_auto_approval_limit??100000} onBlur={e=>featureConfig(f,'po_auto_approval_limit',e.target.value)}/></div><div className="field"><label>Daily automatic approval cap LKR</label><input className="input" type="number" min="0" step="1000" defaultValue={f.config?.daily_auto_approval_limit??f.config?.po_auto_approval_limit??100000} onBlur={e=>featureConfig(f,'daily_auto_approval_limit',e.target.value)}/><small className="muted">0 = no daily cap. Only Admin-triggered awards can auto-approve.</small></div><div className="field"><label>Supplier history needed (POs)</label><input className="input" type="number" min="1" max="50" defaultValue={f.config?.supplier_history_min_pos??3} onBlur={e=>featureConfig(f,'supplier_history_min_pos',e.target.value)}/></div><div className="field"><label>Minimum supplier fill rate %</label><input className="input" type="number" min="0" max="100" defaultValue={f.config?.supplier_min_fill_rate_pct??90} onBlur={e=>featureConfig(f,'supplier_min_fill_rate_pct',e.target.value)}/></div><div className="field"><label>Maximum invoice variance %</label><input className="input" type="number" min="0" max="100" defaultValue={f.config?.supplier_max_invoice_variance_pct??25} onBlur={e=>featureConfig(f,'supplier_max_invoice_variance_pct',e.target.value)}/></div><div className="field"><label>Urgent auto-award max lead days</label><input className="input" type="number" min="0" max="90" defaultValue={f.config?.urgent_max_lead_days??7} onBlur={e=>featureConfig(f,'urgent_max_lead_days',e.target.value)}/></div><div className="field"><label>Remind if approved PO unsent after hours</label><input className="input" type="number" min="1" max="168" defaultValue={f.config?.po_send_reminder_hours??4} onBlur={e=>featureConfig(f,'po_send_reminder_hours',e.target.value)}/></div></div><div className="notice section"><b>Automatic supplier safety</b><p className="muted tiny">Routine awards stop for review when the cheapest supplier has poor historical fill rate, excessive invoice variances, or an unsafe lead time for an urgent requirement.</p></div><div className="stock-row-settings section"><Toggle label="Automatically finalize safe landed-cost winners" checked={f.config?.auto_award!==false} onChange={v=>featureFlag(f,'auto_award',v)}/><Toggle label="Automatically approve routine POs within the limit" checked={f.config?.auto_approve_po!==false} onChange={v=>featureFlag(f,'auto_approve_po',v)}/></div></div>}</div>)}</div></div></details>
-<details name="gh-admin-section" className="admin-accordion"><summary>Company & Security</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.company_security','Company & Security')}</h3><p>{t('admin.company_security_hint','PDF identity and automatic session timeout.')}</p></div></div><div className="formgrid">{[['name','Company name'],['town','Town'],['country','Country'],['phone','Phone'],['email','Email']].map(([k,l])=><div className="field" key={k}><label>{l}</label><input className="input" value={company[k]||''} onChange={e=>setCompany(x=>({...x,[k]:e.target.value}))}/></div>)}<div className="field"><label>Auto sign-out after inactivity (minutes)</label><input className="input" type="number" min="10" max="720" value={idle} onChange={e=>setIdle(Number(e.target.value))}/></div></div><button className="btn primary section" disabled={busy} onClick={saveSettings}>{busy?t('common.saving','Saving…'):t('admin.save_settings','Save Settings')}</button></div></details>
+<details name="gh-admin-section" className="admin-accordion"><summary>Company & Security</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.company_security','Company & Security')}</h3><p>{t('admin.company_security_hint','PDF identity and automatic session timeout.')}</p></div></div><div className="formgrid">{[['name','Company name'],['document_name','Document header (GEN by default)'],['town','Town'],['country','Country'],['phone','Phone'],['email','Email']].map(([k,l])=><div className="field" key={k}><label>{l}</label><input className="input" value={company[k]||''} onChange={e=>setCompany(x=>({...x,[k]:e.target.value}))}/></div>)}<div className="field"><label>Auto sign-out after inactivity (minutes)</label><input className="input" type="number" min="10" max="720" value={idle} onChange={e=>setIdle(Number(e.target.value))}/></div></div><button className="btn primary section" disabled={busy} onClick={saveSettings}>{busy?t('common.saving','Saving…'):t('admin.save_settings','Save Settings')}</button></div></details>
 <details name="gh-admin-section" className="admin-accordion"><summary>Security controls</summary><div className="card pad"><div className="sectionhead"><div><h3>{t('admin.security_controls','Security controls')}</h3><p>{t('admin.security_controls_hint','Built into this version.')}</p></div></div><div className="security-list"><div><b>Public registration</b><Badge>disabled</Badge></div><div><b>Anonymous procurement access</b><Badge>blocked</Badge></div><div><b>PO approval</b><span>Straight-through within configured limit; exceptions require review</span></div><div><b>Transactional records</b><span>Cancellation instead of deletion</span></div><div><b>Audit trail</b><span>System generated</span></div><div><b>Password recovery</b><span>Enabled</span></div></div></div></details>
 
   </div>}
@@ -364,8 +382,6 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
    </div></div></details>
   {deleteTarget&&<div className="modal-backdrop"><div className="modal card danger-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-title"><div className="modal-head"><h3 id="delete-user-title">Delete user · {deleteTarget.display_name}</h3><button className="btn small" disabled={deleteBusy} onClick={()=>setDeleteTarget(null)}>Cancel</button></div><div className="danger-warning"><b>⚠ Warning · delete user</b><p>Check the selected person carefully before confirming.</p></div><p>This removes the user from GH Procurement and immediately blocks procurement access. Past orders, stock entries and audit history remain. Access to other GH apps is retained.</p><p>Type <b>DELETE {deleteTarget.display_name}</b> to confirm.</p><label className="field">Delete user confirmation<input className="input" aria-label="Delete user confirmation" autoComplete="off" value={deleteConfirmation} disabled={deleteBusy} onChange={e=>setDeleteConfirmation(e.target.value)}/></label><Err v={deleteError}/><button className="btn bad section" disabled={deleteBusy||deleteConfirmation!=='DELETE '+deleteTarget.display_name} onClick={deleteUser}>{deleteBusy?'Deleting…':'Confirm delete user'}</button></div></div>}
   </>}
-  {can('admin.audit.view')&&<details name="gh-admin-section" className="admin-accordion"><summary>Audit Trail</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.audit','Audit Trail')}</h3><p>{t('admin.audit_hint','Last 100 server-generated changes.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
-   {key:'created_at',label:'Time',render:r=>new Date(r.created_at).toLocaleString()},{key:'table_name',label:'Area'},{key:'action',label:'Action'},{key:'user_id',label:'User ID',render:r=><span className="mono tiny">{r.user_id||'system'}</span>}
-  ]} rows={audit} mobileCards/></div></details>}
+  {can('admin.audit.view')&&<AuditHistory fail={fail} t={t}/>}
  </SettingsSearch>
 }

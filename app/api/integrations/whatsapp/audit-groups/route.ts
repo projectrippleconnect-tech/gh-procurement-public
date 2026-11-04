@@ -1,0 +1,151 @@
+import {wahaGatewayConfig} from '@/lib/waha-gateway.mjs'
+// Read-only administrator diagnostics. This route never joins groups, sends messages, or configures archive destinations.
+import {createClient} from '@supabase/supabase-js'
+import {parseWahaGroups,parseWahaChats,groupMatches,wahaResponseShape} from '@/lib/waha-group-discovery.mjs'
+import {inviteCodes,normalizeInviteInfo,preferredInviteRoles} from '@/lib/waha-invite-info.mjs'
+import {inspectPrivateGroup,resolveOwnerMemberAliases,wahaMemberId} from '@/lib/whatsapp-private-audit.mjs'
+export const runtime='nodejs'
+export const dynamic='force-dynamic'
+const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
+const desired=['RFQ','PO']
+const tidy=(data:any):any[]=>Array.isArray(data)?data:Array.isArray(data?.participants)?data.participants:Array.isArray(data?.items)?data.items:Array.isArray(data?.data)?data.data:[]
+const gateway=()=>wahaGatewayConfig(process.env)
+async function read(base:string,path:string,key:string){
+ const r=await fetch(base+path,{headers:{'X-Api-Key':key,Accept:'application/json'},signal:AbortSignal.timeout(7000),redirect:'error',cache:'no-store'})
+ if(!r.ok)throw new Error('WAHA response '+r.status)
+ return r.json()
+}
+export async function GET(request:Request){
+ const token=(request.headers.get('Authorization')||'').match(/^Bearer\s+(.+)$/i)?.[1]
+ if(!token)return reply({ok:false,error:'Sign in as administrator to inspect WhatsApp groups.'},401)
+ const url=process.env.NEXT_PUBLIC_SUPABASE_URL,anon=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+ if(!url||!anon)return reply({ok:false,error:'Procurement authentication is unavailable.'},503)
+ const auth=createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false}})
+ const {data:{user},error:userError}=await auth.auth.getUser(token)
+ if(userError||!user)return reply({ok:false,error:'Sign in again.'},401)
+ const db=createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:'Bearer '+token}}})
+ const {data:profile,error:profileError}=await db.from('proc_profiles').select('role,active').eq('id',user.id).maybeSingle()
+ if(profileError)return reply({ok:false,error:'Could not check administrator access.'},503)
+ if(profile?.role!=='admin'||!profile.active)return reply({ok:false,error:'Administrator access required.'},403)
+ const config=gateway()
+ if(!config)return reply({ok:false,error:'The private WAHA gateway is not configured.'},503)
+ try{
+  const state=await read(config.base+'/api/sessions/',encodeURIComponent(config.session),config.key)
+  if(state?.status!=='WORKING')return reply({ok:false,connected:false,error:'WAHA session is not connected.'},503)
+  const ownerSession=state.me?.id?state.me:await read(config.base,'/api/sessions/'+encodeURIComponent(config.session)+'/me',config.key).catch(()=>null)
+  let groupCount:number|null=null
+  try{
+   const count=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/count',config.key)
+   if(Number.isInteger(count?.count)&&count.count>=0)groupCount=count.count
+  }catch{}
+  const found=new Map<string,{id:string;name:string}>()
+  const configuredTargets=[
+   {name:'RFQ',id:process.env.GH_WA_AUDIT_RFQ_GROUP_ID},
+   {name:'PO',id:process.env.GH_WA_AUDIT_PO_GROUP_ID}
+  ]
+  const directChecks:Array<{name:string;ok:boolean;reason:string;shape?:ReturnType<typeof wahaResponseShape>}>=[]
+  const exactTarget=(item:{id:string;name:string})=>configuredTargets.some(t=>t.id===item.id&&t.name===item.name)
+  for(const candidate of configuredTargets){
+   const id=String(candidate.id||'')
+   if(!/^[0-9][0-9-]{5,48}@g\.us$/.test(id)){
+    directChecks.push({name:candidate.name,ok:false,reason:'missing_or_invalid_group_id'})
+    continue
+   }
+   try{
+    const meta=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(id),config.key)
+    const parsed=parseWahaGroups(meta).items
+    const verified=parsed.find(p=>p.id===id&&p.name.toUpperCase()===candidate.name)
+    if(verified){found.set(id,verified);directChecks.push({name:candidate.name,ok:true,reason:'direct_id_confirmed'})}
+    else directChecks.push({name:candidate.name,ok:false,reason:'direct_metadata_mismatch',shape:wahaResponseShape(meta)})
+   }catch{directChecks.push({name:candidate.name,ok:false,reason:'direct_lookup_unavailable'})}
+  }
+  const seen=new Set<string>()
+  let totalListed=0,nameless=0,recognized=false,source='groups'
+  let firstResponseShape:ReturnType<typeof wahaResponseShape>|null=null
+  // WAHA GOWS/NOWEB responses vary by engine: array, wrapped list, or a map keyed by group ID.
+  // Only interpret a response as genuinely empty after determining its shape.
+  for(let offset=0;found.size<2&&offset<800;offset+=50){
+   const raw=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups?limit=50&offset='+offset+'&sortBy=id&sortOrder=desc&exclude=participants',config.key)
+   if(offset===0)firstResponseShape=wahaResponseShape(raw)
+   const parsed=parseWahaGroups(raw)
+   if(!parsed.recognized)return reply({ok:false,error:'WAHA returned an unrecognized group-list format; no destination has been selected.'},502)
+   recognized=true
+   const fresh=parsed.items.filter(group=>!seen.has(group.id))
+   if(!fresh.length)break
+   for(const item of fresh){seen.add(item.id);totalListed++;if(!item.name)nameless++}
+   for(const item of groupMatches(fresh,desired))if(exactTarget(item)&&!found.has(item.id))found.set(item.id,item)
+   if(parsed.items.length<50)break
+  }
+  if(found.size<2&&nameless>0){
+   // WAHA may list newly-created community subgroups without subjects.
+   // Re-fetch only a small number of incomplete records; never mutate the group.
+   for(const id of [...seen].slice(0,20)){
+    try{
+     const metadata=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(id),config.key)
+     const named=groupMatches(parseWahaGroups({[id]:metadata}).items,desired)
+     if(named.length&&exactTarget(named[0])&&!found.has(id))found.set(id,named[0])
+    }catch{}
+   }
+  }
+  if(found.size<2){
+   // Chats can contain subgroup names after WhatsApp creation even before group
+   // metadata has synchronized. Inspect only read-only chat names, never messages.
+   try{
+    for(let offset=0;offset<200;offset+=50){
+     const chats=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/chats?limit=50&offset='+offset+'&sortBy=messageTimestamp&sortOrder=desc',config.key)
+     const list=parseWahaChats(chats)
+     for(const g of groupMatches(list,desired))if(exactTarget(g)&&!found.has(g.id))found.set(g.id,g)
+     if(tidy(chats).length<50)break
+    }
+    if(found.size)source='chats'
+   }catch{}
+  }
+  // Invite previews are read-only WAHA GETs. Codes are server-only temporary inputs;
+  // never reveal the links or make a join request.
+  const codes=inviteCodes(process.env.GH_WA_AUDIT_PENDING_INVITE_CODES||'')
+  const invitePreviews:Array<{slot:number;id:string|null;name:string|null;memberCount:number|null;isCommunity:boolean;status:string;responseShape?:ReturnType<typeof wahaResponseShape>}>=[]
+  for(const [i,code] of codes.entries()){
+   try{
+    const replyData=await read(config.base,
+     '/api/'+encodeURIComponent(config.session)+'/groups/join-info?code='+encodeURIComponent(code),config.key)
+    const info=normalizeInviteInfo(replyData)
+    if(info){
+     const role=preferredInviteRoles(info)
+     invitePreviews.push({slot:i+1,id:info.id,name:info.name||null,memberCount:info.memberCount,isCommunity:info.isCommunity,status:role?'recognized':'preview_only'})
+     if(role&&!info.isCommunity&&exactTarget({id:info.id,name:role})&&!found.has(info.id)){
+      found.set(info.id,{id:info.id,name:role==='GENERAL'?'General':role})
+      source=source==='groups'?'groups_and_invites':source+'_and_invites'
+     }
+    }else invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'unrecognized_reply',responseShape:wahaResponseShape(replyData)})
+   }catch{invitePreviews.push({slot:i+1,id:null,name:null,memberCount:null,isCommunity:false,status:'lookup_unavailable'})}
+  }
+  // Read-only migration status. This never creates a table or claims a dispatch.
+  const {error:auditSchemaError}=await db.from('proc_whatsapp_private_group_copies').select('id').limit(1)
+  const auditDatabaseReady=!auditSchemaError
+  const results:Array<{name:string;id:string;memberCount:number|null;memberIds:string[];reason:string;ownerVerified:boolean}>=[]
+  for(const item of found.values()){
+   if(item.name!=='RFQ'&&item.name!=='PO')continue
+   let count:number|null=null,memberIds:string[]=[],reason='not_verified',ownerVerified=false
+   try{
+    const p=await read(config.base,'/api/'+encodeURIComponent(config.session)+'/groups/'+encodeURIComponent(item.id)+'/participants/v2',config.key)
+    const members=tidy(p).filter(x=>!['left','removed'].includes(String(x?.role||'').toLowerCase()))
+    memberIds=members.map(x=>wahaMemberId(x?.id||x?.JID||x?.participant?.id)).filter((id):id is string=>Boolean(id))
+    count=members.length
+    const ownerCheck=inspectPrivateGroup({group:{id:item.id,subject:item.name},participants:p,config:{ready:true,groupId:item.id,groupName:item.name,ownerOnly:true,approved:[]},sessionMe:ownerSession})
+    ownerVerified=ownerCheck.ok
+    reason=ownerCheck.ok?'verified_owner_only':count===0?'no_members_returned':count===1?ownerCheck.reason:'check_each_member'
+    if(!ownerVerified&&count===1&&ownerCheck.reason==='not_exclusive_owner_group'){
+     const alias=await resolveOwnerMemberAliases({
+      base:config.base,session:config.session,key:config.key,sessionMe:ownerSession,memberIds
+     })
+     if(alias.ok){ownerVerified=true;reason='verified_owner_only'}
+     else reason=alias.reason
+    }
+   }catch{reason='participant_check_unavailable'}
+   results.push({name:item.name,id:item.id,memberCount:count,memberIds,reason,ownerVerified})
+  }
+  results.sort((a,b)=>['RFQ','PO','General'].indexOf(a.name)-['RFQ','PO','General'].indexOf(b.name))
+  return reply({ok:true,connected:true,readOnly:true,archiveEnabled:process.env.GH_WA_AUDIT_ENABLED==='true',groups:results,
+   missing:['RFQ','PO'].filter(name=>!results.some(group=>group.name.toUpperCase()===name)),auditDatabaseReady,directChecks,discovery:{source,listed:totalListed,nameless,recognized,groupCount,responseShape:firstResponseShape},invitePreviews,notice:'No group messages were sent. Check group membership manually before enabling copies.'})
+ }catch{return reply({ok:false,connected:false,error:'Unable to read WAHA groups. Try again after the WhatsApp session has synchronized.'},503)}
+}

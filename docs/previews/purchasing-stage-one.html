@@ -1,0 +1,74 @@
+<div id="gh-work-update">
+ <div class="text-small text-muted">Stage 1 · prepared update · not deployed</div>
+ <div class="nav nav-pills" role="tablist" aria-label="Purchasing structure">
+  <button class="nav-link active" id="gw-interface-tab" type="button" role="tab" aria-controls="gw-interface" aria-selected="true">Interface structure</button>
+  <button class="nav-link" id="gw-flow-tab" type="button" role="tab" aria-controls="gw-flow" aria-selected="false">Workflow</button>
+ </div>
+ <section id="gw-interface" role="tabpanel" aria-labelledby="gw-interface-tab">
+  <div class="viz-row gw-space" id="gw-nav" role="group" aria-label="Main navigation"></div>
+  <div id="gw-work-controls">
+   <div class="viz-controls"><label class="form-label">Work items<select class="form-select" id="gw-scope"><option value="all">All items</option><option value="general">General Items</option><option value="company">Company Items</option></select></label></div>
+   <div class="viz-row gw-space" id="gw-views" role="group" aria-label="Work views"></div>
+  </div>
+  <div id="gw-content" aria-live="polite"></div>
+ </section>
+ <section id="gw-flow" role="tabpanel" aria-labelledby="gw-flow-tab" hidden>
+  <div class="viz-controls gw-space"><label class="form-label">Stock outcome<select class="form-select" id="gw-outcome"><option value="shortage">Shortage</option><option value="sufficient">Stock sufficient</option><option value="reserved">Existing purchasing reserves the shortage</option></select></label><label class="form-label">Configured supplier route<select class="form-select" id="gw-route"><option value="quotes">Quotations</option><option value="direct">Direct PO</option></select></label></div>
+  <ol id="gw-steps" class="gw-list" aria-live="polite"></ol>
+ </section>
+</div>
+<style>
+#gh-work-update{min-width:0;width:100%;color:var(--foreground)}
+#gh-work-update [hidden]{display:none!important}
+#gh-work-update .gw-space{margin-block:16px}
+#gh-work-update .gw-list{padding-left:22px;display:grid;gap:12px}
+#gh-work-update .gw-values{display:flex;flex-wrap:wrap;gap:10px 24px;margin-block:16px}
+#gh-work-update .gw-detail{margin-block:14px}
+#gh-work-update h3{margin-block:14px}
+</style>
+<script>
+(()=>{
+ const root=document.getElementById('gh-work-update'),get=id=>root.querySelector('#'+id);
+ const state={screen:'Work',view:'Needs me',scope:'all',outcome:'shortage',route:'quotes'};
+ const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text)x.textContent=text;if(cls)x.className=cls;return x};
+ function buttons(host,labels,selected,onSelect){host.replaceChildren();labels.forEach(label=>{const b=el('button',label,'btn');b.type='button';b.setAttribute('aria-pressed',String(label===selected));b.addEventListener('click',()=>onSelect(label));host.append(b)})}
+ function screen(){
+  buttons(get('gw-nav'),['Work','Stock','Receive','More'],state.screen,label=>{state.screen=label;screen()});
+  get('gw-work-controls').hidden=state.screen!=='Work';
+  buttons(get('gw-views'),['Needs me','In progress','History'],state.view,label=>{state.view=label;screen()});
+  const host=get('gw-content');host.replaceChildren();
+  if(state.screen!=='Work')host.append(el('h3',state.screen));
+  if(state.screen!=='Work'){
+   const items={Stock:['Select General or Company stock','Enter quantities → review → submit','Saved count and recount history'],Receive:['Select a sent order','Enter received quantity → explicitly accept or record rejected goods','Follow the remaining delivery balance'],More:['Suppliers, item catalogue and documents','Business totals, reports and administration by permission','Help, language and account security']}[state.screen];
+   const list=el('ul',null,'gw-list');items.forEach(x=>list.append(el('li',x)));host.append(list);return;
+  }
+  const name=state.scope==='company'?'Company':'General';
+  host.append(el('div','Example case · '+name+' Items · REQ-020','text-small text-muted'));
+  if(state.view==='Needs me'){
+   host.append(el('h3','Hardware replenishment'));host.append(el('span','Supplier setup needed','text-small'));
+   const values=el('div',null,'gw-values');values.append(el('strong','Still to buy: 8'),el('strong','Still to receive: 4'));host.append(values);
+   const actions=el('div',null,'viz-row');
+   ['Assign supplier','Record delivery'].forEach(label=>{const b=el('button',label,label==='Assign supplier'?'btn btn-primary':'btn');b.type='button';b.addEventListener('click',()=>{detail.textContent=label==='Assign supplier'?'Review the remaining 8 units using the configured quotation or Direct PO route.':'Record delivery against the existing order; 4 units remain outstanding.'});actions.append(b)});host.append(actions);
+   const detail=el('p','','gw-detail');detail.setAttribute('aria-live','polite');host.append(detail);
+  }else host.append(el('p',state.view==='In progress'?'Waiting on supplier response, authorised approval or delivery.':'Completed, rejected and cancelled requirements retain their document links.'));
+  const details=el('details',null,'gw-detail');details.append(el('summary','Details & history','cursor-interaction'));
+  const list=el('ul',null,'gw-list');['Stable requirement reference','Every active quotation remains available','Draft exists / awaiting approval / approved but not sent / ordered','Posted accepted quantities reduce the delivery balance','Quantity-only approval leaves prices unconfirmed'].forEach(t=>list.append(el('li',t)));details.append(list);host.append(details);
+ }
+ function flow(){
+  let items=['Save the factual stock count'];
+  if(state.outcome==='sufficient')items.push('No new purchase needed → continue counting');
+  else if(state.outcome==='reserved')items.push('No duplicate purchase → open existing purchasing records','Draft: review · pending approval: approve · approved: send · sent: track delivery');
+  else{
+   items.push('Review and approve the required quantity');
+   if(state.route==='quotes')items.push('Assign suppliers → request and compare prices','Review supplier, quantity, price, total and delivery → approve order');
+   else items.push('Prepare Direct PO → apply the configured approval rule','Quantity-only order: approve quantity; prices remain unconfirmed');
+   items.push('Send approved order → verify sending outcome','Receive accepted goods → keep buying and delivery balances visible');
+  }
+  const host=get('gw-steps');host.replaceChildren();items.forEach(t=>host.append(el('li',t)));
+ }
+ get('gw-scope').addEventListener('change',e=>{state.scope=e.target.value;screen()});
+ get('gw-outcome').addEventListener('change',e=>{state.outcome=e.target.value;flow()});
+ get('gw-route').addEventListener('change',e=>{state.route=e.target.value;flow()});
+ screen();flow();
+})();
+</script>

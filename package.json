@@ -4,12 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/copy-pdf-worker.mjs && next build",
+    "build": "node scripts/copy-pdf-worker.mjs && node scripts/verify-release-source.mjs && next build && node scripts/verify-release-routes.mjs",
     "start": "next start",
     "lint": "tsc --noEmit",
     "postinstall": "node scripts/copy-pdf-worker.mjs",
     "test": "node --test tests/*.test.mjs",
-    "test:ui": "node tests/ui-smoke.mjs"
+    "test:ui": "node tests/ui-smoke.mjs",
+    "test:database": "node scripts/qa/full-database.mjs",
+    "test:portal:concurrency": "node scripts/qa/portal-native-concurrency.mjs",
+    "test:portal:scheduler": "node scripts/qa/portal-native-scheduler.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
@@ -20,12 +23,16 @@
     "pdfjs-dist": "6.3.289",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "sharp": "0.35.5",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
+    "@netlify/plugin-nextjs": "5.16.4",
     "@types/node": "22.10.2",
     "@types/react": "19.0.2",
     "@types/react-dom": "19.0.2",
+    "pg": "8.23.1",
     "playwright": "1.62.1",
     "typescript": "5.7.2"
   },

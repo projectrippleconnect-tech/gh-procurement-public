@@ -3,6 +3,7 @@ import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {ModernSelect} from './modern-select'
 import {qty} from '@/lib/helpers'
+import {uppercaseItemText} from '@/lib/item-text.mjs'
 import {companyCompactMeta,reorderFor} from '@/lib/company-items.mjs'
 import {COMPANY_ROW_POSITION_FIELDS,normalizeCompanyRowLayout,companyRowPosition,companyRowStyle} from '@/lib/company-row-layout.mjs'
 import {COMPANY_DISPLAY_KEY,COMPANY_DISPLAY_FIELDS,normalizeCompanyDisplay} from '@/lib/company-display.mjs'
@@ -19,7 +20,7 @@ export function CompanyItemDetails({row,visibleFields={},layout={},preview=false
  ]
  const at=place=>cells.filter(x=>companyRowPosition(p,x.position||x.key)===place)
  return <div className="company-item-presentation">
-  <div className="company-item-line company-first-line"><strong className={preview?'company-layout-sample-name':'company-item-name'}>{item.description}</strong>{at('first').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>
+  <div className="company-item-line company-first-line"><strong className={preview?'company-layout-sample-name':'company-item-name'}>{uppercaseItemText(item.description)}</strong>{at('first').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>
   {at('second').length>0&&<div className="company-item-line company-second-line">{at('second').map(x=><span className="company-item-field" key={x.key}>{x.node}</span>)}</div>}
  </div>
 }
@@ -45,7 +46,7 @@ export function CompanyRowLayoutControls({value,onSaved,flash,fail}){
  const preview={item:{description:'GI NUT',size:'1/2',uom:'KG',colour:'ZINC',brand:'SAMPLE'},target_stock:10,reorder_level:5,max_stock_review:false}
  const sliders=[['nameFont','Item & size font',11,22],['metaFont','Additional information font',9,19],['rowPadding','Row padding',2,14],['fieldGap','Horizontal field spacing',2,20],['lineGap','Spacing between first and second row',0,12],['sectionFont','Section heading font',10,20],['sectionPadding','Section heading padding',3,16],['sectionIndent','Nested section indentation',4,22]]
  return <details className="company-row-layout-settings section" data-global-company-settings="true">
-  <summary>Company Lists · Global display customization</summary>
+  <summary>Company Display Settings <small>· list appearance</small></summary>
   <div className="company-layout-settings-body">
    <p className="muted tiny">These settings apply to ALL company lists. Hiding Max or Reorder changes only the display; saved stock limits and order calculations remain unchanged.</p>
    <h4>Show / hide fields</h4>

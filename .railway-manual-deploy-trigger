@@ -47,4 +47,117 @@ Manual GH Procurement production deployment approved 2026-10-14: publish PR #78 
 
 Manual GH Procurement production deployment approved 2026-10-14: publish PR #79, merged as f2c2836853115d5593e493c93c8cbb6ce0fd2a2d. Add customizable two-line Company Items stock entry layout: item description and size side by side with matched font sizes; Max and Reorder beneath by default; per-company first/second row, typography and spacing settings. Both GitHub validation workflows passed. Preserve counts, stock balances, supplier information and other business records. Restrict deployment to this manual trigger, keep Railway source pinned to this release commit, and do not enable automatic deployments.
 
-Manual GH Procurement production release approved 2026-10-18: stock-print PDF fix. Allow wrapped descriptions in portrait side-by-side tables; add Split long stock tables preference and regression tests. Preserve all existing inventory/supplier/procurement records and manual-only watchPatterns. Source commit: eafb21faabe235854ac1399b6902f0d1e734be6c.
+Manual GH Procurement production deployment approved 2026-10-15: add per-company designated phone contact with name and number editing, phone picker where available, searchable vCard import, supplier link and unlink without deleting history. Ensure Railway performs npm audit, typecheck, tests, build and healthcheck. Keep the source commit pinned and do not enable automatic deployments.
+
+Manual GH Procurement production deployment approved 2026-10-15: release validated group-level direct PO/one supplier automatic sending and multiple-supplier RFQs, including latest reviewed company section hierarchy. Apply additive production database migration first, preserve existing data and user-approved manual-only deployments, run full build/audit/healthcheck. Existing auto-approve fallback settings must not be widened by newly created group routes.
+
+Manual GH Procurement deployment approved 2026-10-15 09:33 Asia/Colombo: deploy updated per-group supplier contact workflow, supporting explicit selection from compatible Android contact pickers, local vCard import, manual entry, name/number editing, duplicate-safe supplier reuse and multiple RFQ recipients. Build and health-check before declaring success. Pin this specific release commit; preserve existing supplier/PO records and keep automatic push deployments disabled.
+
+Manual GH Procurement release approved 2026-10-15: correct parent-level Company Lists RFQ/direct PO item counts to include nested child groups, verify BOARD ITEMS 67 active catalogue items and inheritance with child overrides, preserve previously released supplier contacts and ordering workflow. Run the build, tests, and Railway healthchecks. Pin the released SHA and continue manual-only deployment.
+
+Manually approved GH Procurement deployment 2026-10-15: Google Sheets service-account setup status, admin-only read-only connection test, clearer reviewed catalogue preview gating. Preserve all existing company stock and spreadsheets; missing GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON remains an explicit external prerequisite and must not be fabricated. Deploy this exact commit to Railway, run npm audit, TypeScript, tests, Next build and health checks. Keep watch trigger manual-only.
+
+Manually approved GH Procurement 2026-10-15 Android phone contact picker recovery release. Preserve company and group supplier draft when native picker closes or returns zero, add local vCard fallback with clear guidance, retain existing supplier and order records. Pin exact SHA on Railway, run audit, typecheck, tests, production build and healthchecks; maintain manual-only watch trigger. No new credentials, database changes, or external costs.
+
+Approved 2026-10-16: deploy Alkathine flat main category and Google Sheets normalization atop the current group-supplier-pool release. Preserve existing supplier routes and all 10 item IDs, current stock, history, source keys and manual-only watch policy. Supabase migration already applied and verified.
+
+Manual production deployment authorized 2026-10-17 Asia/Colombo: release guided mobile workspace, action-first dashboard, stock-list resume, atomic supplier routing, stock-to-order handoffs, receiving review, rejected-goods follow-ups, safe receipt recovery and guarded final order closure. Based on the currently deployed 67c3f22 certification release; implementation through a4011d3. Apply the two additive supplier-route and order-closure migrations first. Verified production build, TypeScript, 254 automated tests, 17 isolated database suites, receiving flows at 320/390/768/1366 px and stock/purchasing regression. Pin this release SHA, preserve existing business records and WhatsApp settings, and keep automatic deployments disabled.
+
+Manual release 2026-10-17: fix mobile Company Lists supplier setup overlap. Keep Back/Next/Reload in document flow and let the company header scroll during setup. CSS-only change; 254 tests and TypeScript passed locally. Browser download unavailable locally. Preserve pinned manual releases and existing data.
+
+Manual release 2026-10-17: replace redundant supplier suggestions and supplier chips in Procurement Review with one searchable alphabetically sorted scrollable checkbox list. Keep existing supplier IDs, multi-selection, coverage override validation, RFQ submission, and manual pinned Railway deployments. Run audit, lint, tests, build and healthcheck; no data migration or WhatsApp dispatch in this UI-only release.
+
+2026-10-17 company workflow directory release: nested categories; exclusive RFQ/PO settings; supplier readback; no send on config.
+
+Manually authorized GH Procurement company directory UI release, 2026-10-17: replace large Existing contacts and Already assigned to routing cards with compact single-line entries, showing the phone number and icon-only Edit/Delete actions. Preserve full names in accessible titles, existing confirmation flows, supplier records, RFQ/PO routing and dispatch settings. Run Railway audit, TypeScript, automated tests, production build and health check; pin this release commit without enabling auto deployments or sending messages.
+2026-10-17 hierarchical company workflow directory and parent RFQ/PO propagation; manual release; no outbound sends from setup.
+
+Manually authorized GH Procurement Company Supplier Directory release, 2026-10-17: add All Companies listing across the full paginated directory, group by company, search contacts by company/name/number, and keep add-only forms scoped to a chosen company. Fix truncated supplier names by wrapping to extra lines with auto-growing compact rows. Preserve contact edit/delete confirmation, supplier IDs, designated routing, existing RFQs/POs and WAHA sending settings. Pin release SHA; verify npm audit, typechecking, all tests, Next production build and Railway health; do not enable auto-deploy or send messages.
+2026-10-17: verify nested company RFQ/PO workflow plus all-company supplier search leading-zero regression.
+2026-10-17 compact GH Procurement company workflow checklist: one-line RFQ/PO selections, nested subcategories, supplier chooser, batch save, mobile spacing; manual release only; no sending on setup.
+2026-10-17 rerun full checklist release after precision fix in no-dispatch regression test.
+2026-10-17 isolated private staff WhatsApp audit integration: all four accepted supplier gateways, strict group member allowlist, unique per-document per-page one-attempt archive, disabled pending group and migration; no messages during release.
+2026-10-17 private WhatsApp owner-only Community routing RFQ->RFQ and PO->PO; independent audit; TypeScript declaration correction; no group ID configured and no archive sending.
+2026-10-17 read-only owner WAHA group discovery from Company Setup: verify RFQ PO group IDs and members, no sends or activation.
+2026-10-17 strict TypeScript correction for read-only WAHA community subgroup discovery; never send audit copies while disabled.
+2026-10-17 owner-only WhatsApp WAHA group discovery fix: object-keyed groups, group count diagnostic, partial metadata, safe chat-name fallback; read-only no sends; keep archive disabled.
+2026-10-18 read-only WAHA join-info preview for 3 privately configured owner invite codes; RFQ PO community identity check; no sends joins or archive activation.
+2026-10-18 NodeNext .mjs invite-info typing correction, read-only 3 private WhatsApp invite lookups; manual safe release.
+2026-10-18 verified safety-test correction: read-only WAHA join-info allowed, group joining/posting still prohibited; three invite codes server-only.
+2026-10-18 read-only WAHA group list 753/0 investigation: structured JID and wrapper parser, redacted diagnostics, no sends or joins, archive remains off.
+2026-10-18 verified staff audit group destination IDs and owner-only session JID safety; migration read-only check; forwarding OFF.
+2026-10-18 owner-only test isolation fix; group IDs set, owner JID verify and DB migration check, audit forwarding remains disabled.
+2026-10-18 verify direct configured RFQ/PO group IDs; secure LID owner mapping; GH NEXUS shared procurement audit database migration applied and verified; safe release with no group sends during deploy.
+2026-10-18 safe owner-only WAHA audit release: direct exact RFQ PO subgroup lookup, GOWS LID->PN verified owner match, GH NEXUS audit schema readback confirmed, audit remains disabled.
+2026-10-18 company and general supplier directory: detect repeated +94 phone/WhatsApp numbers, show other contact names/companies, require explicit review for name conflicts; read-only scan; preserve RFQ/PO routes and existing contacts.
+2026-10-18 retry: duplicate-number warnings JSX syntax closure corrected and original company save-guard preserved; run complete validation before rolling out.
+2026-10-18 manual release: role-scoped Stock Handler UI hides all unauthorized Review/Prices/Order/Receive workflow tabs and step counts; neutral count confirmations; permission-based screen guards unchanged; no database migrations, WhatsApp sends, supplier-routing changes or automated deployment.
+2026-10-18 retry stock-handler UI privacy release: update legacy five-step contract assertion for role-scoped navigation; 333 tests and Next production build gated before rollout. No data/schema changes or messages sent.
+
+2026-10-18 Company Lists UI deduplication release: merged PR #112, four section setup, preserves existing supplier contacts, routing, PDF templates, WhatsApp audit groups. Build gates apply; no database migrations or outbound orders/messages in this change.
+2026-10-18 manual GH Stock Handler confidentiality follow-up: isolated stock-only Home, role-scoped help topics, neutral urgent and stock-history labels, no buyer activity buttons; no schema modifications, no supplier/order sends; strict test, typecheck, audit, build and Railway health release gate.
+2026-10-18 final staff privacy update: customer stock role-specific movement help; stock-only urgent queue requests strictly stock fields, preventing workflow state fields reaching restricted mobile clients. Database stock results redaction already applied. Strict npm audit, lint, tests and build required; no automatic WhatsApp sends.
+
+2026-10-18 Supplier routing safety release PR #113: separate assigned supplier contacts from RFQ/PO delivery recipients; regression tests and non-destructive SQL validation migration. Build must pass before applying new RPC to live database.
+
+2026-10-18 Company Directory one-search UI cleanup PR #114: combine company, contact and phone search; no data or routing modification; build and test before release.
+
+2026-10-18 GH Procurement stock print PDF layout release: fix wrapped-description side-by-side A4 panel selection, add Split long stock tables toggle, and test two-column/no-split behavior. Approved production release; preserve all catalogue, transactions, roles, and supplier routing. Commit 6b8b49940409c042884e9642bd8fc377d0f911e9.
+
+2026-10-18 stock PDF follow-up release: preserve whole column headings when printable while retaining two side-by-side wrapped-description panels. Fix regression found by the full Railway test suite. Commit e5ead05ced7360a478e01c82a6ba0c2909b6db8f.
+
+2026-10-18 PR #115 supplier directory workflow readback sync and targeted review. No supplier writes/messages on navigation; run full validation and deploy.
+
+2026-10-18 Corrected company routing panels (PR #115 live refresh and #116 real recipient links only), consolidated contract test and hard build gate. No schema changes or auto WhatsApp sends.
+
+2026-10-18 Manual PR #117: supplier checklist and advanced routing editors synchronize only after verified save; non-destructive and does not send orders. Full npm security lint test build gate.
+
+2026-10-18 Manual production release: stock print appearance options (per-column bold and left/centre/right alignment); defaults description bold-left, reorder bold-centre, No./size/UOM centre. Remove repeated brand and colour suffixes from PDF only; preserve database catalog names and all procurement records. Full npm audit, lint, test and build required before live.
+
+2026-10-18 Advanced supplier tools UI single-editor release PR #118: standard routing edited only in workflow checklist, advanced template and approved send tools retained. Template-only RPC migration applied after successful validation; no data merges.
+
+2026-10-18 PR #119 final advanced dispatch safety: scoped newly created POs only; explicit category override reset with confirmation; no database migration or automatic sending during verification.
+
+2026-10-18 Manual release: remove stock PDF Choose individual items panel and per-item checkboxes; preserve category/subcategory/movement filters, printable rows, styling, and PDF. No database, WhatsApp or other feature changes. Run security audit, lint, tests and build.
+
+2026-10-18 Manual release: include PR #122 approved manual PO dispatch queue guard and safe override deletion on current stock PDF production branch; preserve stock-printing changes. Full npm audit, lint, test and build, no WhatsApp messages sent in deployment.
+
+2026-10-18 Manual approved GH Procurement release PR #124: admin queue send controls require explicit confirmation and explain all-category scope, WhatsApp gateway and uncertain delivery. Preserve stock PDF, supplier mappings, order history, routes, sending logic, and all other features. Security audit, lint, unit tests, production build, health check.
+
+2026-10-18 Manual GH Procurement PDF release PR #125: company lists print Company / Category / Subcategory as separate compact A4 tables, numbering resets per table, long tables continue with titles, all unassigned items appear under Other / Uncategorized; preserve all item data, procurement features, column styles, and existing three approval signoffs plus Date. Verified 382 Node tests, lint and security audit. Run Railway locked install, audit, TypeScript, tests, build, and health check.
+
+2026-10-18 GH Procurement isolated accessibility release: increase the Company Items 'Print & list tools' heading from 12px to 18px, stronger contrast and font weight. CSS-only; preserve all existing procurement features, records, and routing. Verify locked install, security audit, lint, tests, build, and health endpoint.
+
+2026-10-18 Post-build font heading release retry: queue commit after category-wise PDF production build completed successfully; CSS-only company print/list heading readability update.
+
+2026-10-18 GH Procurement UOM selector release: quick add item UOM now uses existing searchable dropdown with common units and a + Add custom UOM action inside the selector. Existing item UOM data and movement, supplier, PDF, stock flows, and all other functions unchanged. Run locked install, security audit, lint, tests, build and healthcheck; no WhatsApp dispatch.
+
+2026-10-18 GH Procurement manual release: long-press item name on Stock Entry to confirm and edit master item name, movement, UOM, categories, size and maximum stock. Permission guarded and count drafts/history unchanged. Based on successful 06b933 UOM dropdown release; run audit, lint, tests, build and healthcheck. No data reset or WhatsApp dispatch.
+
+2026-10-18 GH Procurement item form release: searchable Category/Main Group/Subcategory/UOM selectors in Quick Add and long-press Edit, custom values, Movement/Maximum Stock visible, optional remarks, hide brand without deleting saved values, matching Item Master inline pickers. Only UI/helper/tests changed; no data reset, migration, supplier routing or WhatsApp sends. Run locked install, audit, lint, full tests, production build and health check. Keep pinned SHA and manual-only watch pattern.
+
+2026-10-18 consolidated Quick Add release: merge concurrent Company Lists quick-create (existing/new company, direct catalogue link and 50% reorder preview) with general/long-press item dropdown changes. Re-run full audit, lint, tests, build and healthcheck. Preserve all existing rows; no WhatsApp dispatch; deployment remains SHA-pinned, no general auto deploy.
+
+2026-10-18 Manual GH Procurement release PR #126: safely group 81 legacy KEVILTON stock rows into 18 saved finish/product-type printable A4 tables plus 1 Uncategorized table. No stock/database writes, no WhatsApp sends. Preserve unrelated long-press item editing and active company workflow. Correct isolated supplier recipient-policy tests and update obsolete browser test selectors. 396 Node tests and isolated PostgreSQL checks passed; unrelated catalogue browser fixture remains pending repair.
+
+2026-10-18 Manual release: fix mobile General/Bathroom stock submission button contrast. A higher-specificity transparent dock rule hid its yellow surface, leaving dark text invisible. Restore brand-yellow primary styling in the mobile header, add contrast regression test; no stock data, database schema, supplier routing, WhatsApp, or stock submission logic changes. Run existing Railway audit, lint, tests, build and health check.
+
+2026-10-18 GH Procurement reviewed single-lot stock entry (General/Bathroom): keep all quantities in auto-saved draft, header opens Review Lot, inline edits and saved history, explicit final confirm one RPC, last finalized item markers and intentional recount verification, guard duplicate taps/oversize lots. Frontend and tests only; retain current databases, stock records, supplier routes and company procurement; do not send WhatsApp or run data reset. Production release validation: npm audit, tsc, unit tests, Next.js build, Railway healthcheck.
+
+2026-10-18 second manual validation release: update two existing contract assertions for the reviewed stock lot: procurement wording remains neutral for stock-only role, quantity uses the full unique lot count instead of the former immediate-submit batch count. No runtime logic/data/schema changed since previous failed build.
+
+2026-10-18 compact Stock Lot Review mobile controls: move Save draft, History, Finalize into a single 34px row below review heading; scroll stock rows independently so action controls never cover quantities with Android numeric keyboard open. Layout/CSS/test-only release. Preserve existing lot, stock draft, recount, history, permissions, supplier routes, WhatsApp and database; run existing audit/lint/automated tests/build/healthcheck.
+
+2026-10-18 Manual company stock review release: Company Items header Review replaces immediate Submit; save draft; compact single-row Save draft / History / Finalize controls; show owner-scoped company count history, last-finalized status and explicit recount; final confirmation still calls existing idempotent company submit API using supplier routes only once per company. No SQL migration/data reset/WhatsApp sending during release; preserve General stock, Company setup and current automation settings. Validate audit, lint, unit tests, production build and health check.
+
+2026-10-19 Manual GH Procurement item-level stock history release (PR #127): show clickable Submitted links with per-item count timeline (time, quantity, counter, batch number) for General/Bathroom and Company Items, retain all prior counts, and use the latest finalized stock recount for procurement. GH NEXUS read-only history migration applied and verified. 418 unit tests, typecheck, audit and build passed; older Company catalog smoke fixture expects outdated setup navigation and is unrelated to this feature. Preserve database records, all existing supplier routing, POs and RFQs. No WhatsApp messages sent. Deploy GH Procurement only; keep manual release trigger and use Railway healthcheck.
+
+Manual production release authorized 2026-10-19: deploy Smart Search PR #129 (merge f372b1a0fef1b97f01de2c95a9602067cb6a016b) onto latest stock-submission-timeline release. Enable typo-tolerant searches for General and Company Items while keeping existing company stock histories, recount flows, saved drafts, permissions, RFQ/PO workflows and data. Verified contract tests, TypeScript, audit and production build. Manual-only Railway watch pattern remains unchanged.
+
+# GH PROCUREMENT APPROVED MANUAL RELEASE 2026-10-19 — UPPERCASE ITEM DESCRIPTIONS (GENERAL + COMPANY)
+# Integrated atop live release cd3d3e508da2c47c8c5e4cc058ecc41b2173314f; preserve stock history, typo-tolerant search and manual deployment only.
+
+# GH PROCUREMENT MANUAL RETRY 2026-10-19 — uppercase item release after syntax and document test repairs.
+
+# GH PROCUREMENT MANUAL RELEASE 2026-10-21 — PADLOCK SEARCH EQUIVALENCE PR #134
+# Approved user-requested Railway release. Consistent Pad loc, Padloc, Pad lock, Padlock and pad lok results in both General and Company Items; preserve item codes, stock sizes, submitted count history, data, RFQ/PO routing, uppercase naming and manual-only deploy gate. No migrations or supplier messages.

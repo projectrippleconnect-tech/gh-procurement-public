@@ -8,4 +8,4 @@ The admin Notifications control enables each phone independently. The browser pe
 
 Delivery uses an atomic two-minute lease per notification/device, five attempts with exponential backoff, cleanup of expired subscriptions (404/410), a stable OS notification tag, and a maximum batch size of 100. It sends alerts created after device registration within the past 24 hours. Browser push acceptance is not proof of phone display. Device notification permissions, connectivity, battery restrictions and Do Not Disturb can delay or suppress pop-ups. No phone subscription existed during server verification; physical phone delivery needs the admin to enable and send a test.
 
-Validation: TypeScript, production build and the existing 163 tests passed; three worker behavior tests passed. Rollback-only database check verified draft suppression, admin fanout and duplicate prevention. Production data was preserved.
+Validation: TypeScript, production build and all 464 tests passed, including three worker behavior tests. Rollback-only database check verified draft suppression, admin fanout, duplicate prevention, submitted PO alerts and sent PO alerts. Production data was preserved.

@@ -1,0 +1,766 @@
+{
+  "expected_count": 27,
+  "actual_count": 27,
+  "differences": [
+    {
+      "function": "private.proc_portal_intake_v1",
+      "expected": {
+        "nspname": "private",
+        "proname": "proc_portal_intake_v1",
+        "args": "p_token text, p_response jsonb, p_expected_revision integer, p_confirm boolean",
+        "body_hash": "494ec58a3874dd23b13a304cfc030da5",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": false,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_token text, p_response jsonb, p_expected_revision integer, p_confirm boolean",
+        "nspname": "private",
+        "proname": "proc_portal_intake_v1",
+        "anon_exec": false,
+        "body_hash": "494ec58a3874dd23b13a304cfc030da5",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": false,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_allow_dispatch_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_allow_dispatch_v1",
+        "args": "p_po_id uuid",
+        "body_hash": "ce806acf022a8e796cddcb21da9dc44c",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_po_id uuid",
+        "nspname": "public",
+        "proname": "proc_portal_allow_dispatch_v1",
+        "anon_exec": false,
+        "body_hash": "ce806acf022a8e796cddcb21da9dc44c",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_company_history_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_company_history_v1",
+        "args": "",
+        "body_hash": "d620e57fcd93798fc76b4f1f37678683",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "",
+        "nspname": "public",
+        "proname": "proc_portal_company_history_v1",
+        "anon_exec": false,
+        "body_hash": "d620e57fcd93798fc76b4f1f37678683",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_confirm_delivery_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_confirm_delivery_v1",
+        "args": "p_po_id uuid, p_message_id text, p_evidence text",
+        "body_hash": "49733efc61876ad6de601ffff597d190",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_po_id uuid, p_message_id text, p_evidence text",
+        "nspname": "public",
+        "proname": "proc_portal_confirm_delivery_v1",
+        "anon_exec": false,
+        "body_hash": "49733efc61876ad6de601ffff597d190",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_import_confirmed_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_import_confirmed_v1",
+        "args": "p_link_id uuid, p_expected_revision integer",
+        "body_hash": "0d27a5111915993021c140f60ed4b8e4",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_link_id uuid, p_expected_revision integer",
+        "nspname": "public",
+        "proname": "proc_portal_import_confirmed_v1",
+        "anon_exec": false,
+        "body_hash": "0d27a5111915993021c140f60ed4b8e4",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_issue_link_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_issue_link_v1",
+        "args": "p_rfq_supplier_id uuid, p_token_hash text, p_hours integer",
+        "body_hash": "f75753e50437331289a8291f6a641d31",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_rfq_supplier_id uuid, p_token_hash text, p_hours integer",
+        "nspname": "public",
+        "proname": "proc_portal_issue_link_v1",
+        "anon_exec": false,
+        "body_hash": "f75753e50437331289a8291f6a641d31",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_read_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_read_v1",
+        "args": "p_token text",
+        "body_hash": "08f2a33dde2c2efe9cfc5857be20d158",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": true,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_token text",
+        "nspname": "public",
+        "proname": "proc_portal_read_v1",
+        "anon_exec": true,
+        "body_hash": "08f2a33dde2c2efe9cfc5857be20d158",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_reconcile_unknown_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_reconcile_unknown_v1",
+        "args": "p_po_id uuid, p_message_id text, p_evidence text",
+        "body_hash": "04822c2fd4afd7fff0798b2ede764167",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_po_id uuid, p_message_id text, p_evidence text",
+        "nspname": "public",
+        "proname": "proc_portal_reconcile_unknown_v1",
+        "anon_exec": false,
+        "body_hash": "04822c2fd4afd7fff0798b2ede764167",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_retry_round_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_retry_round_v1",
+        "args": "p_round_id uuid",
+        "body_hash": "0b125098eb8a3b08e8a701f5a0ed2035",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_round_id uuid",
+        "nspname": "public",
+        "proname": "proc_portal_retry_round_v1",
+        "anon_exec": false,
+        "body_hash": "0b125098eb8a3b08e8a701f5a0ed2035",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_review_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_review_v1",
+        "args": "p_rfq_id uuid",
+        "body_hash": "6775ec567bb1731c6ff1b4bfe7250774",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_rfq_id uuid",
+        "nspname": "public",
+        "proname": "proc_portal_review_v1",
+        "anon_exec": false,
+        "body_hash": "6775ec567bb1731c6ff1b4bfe7250774",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_revoke_link_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_revoke_link_v1",
+        "args": "p_link_id uuid",
+        "body_hash": "eacbf9b02a3f051421a578b54e175bda",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_link_id uuid",
+        "nspname": "public",
+        "proname": "proc_portal_revoke_link_v1",
+        "anon_exec": false,
+        "body_hash": "eacbf9b02a3f051421a578b54e175bda",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_staff_responses_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_staff_responses_v1",
+        "args": "p_rfq_id uuid",
+        "body_hash": "42ed3132f5dda3ef52f8caa441938fcf",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_rfq_id uuid",
+        "nspname": "public",
+        "proname": "proc_portal_staff_responses_v1",
+        "anon_exec": false,
+        "body_hash": "42ed3132f5dda3ef52f8caa441938fcf",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_start_round_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_start_round_v1",
+        "args": "p_rfq_id uuid, p_max_po numeric, p_max_daily numeric, p_max_unit numeric, p_max_lead integer",
+        "body_hash": "1da3f46223fc631ccf107fa9a97b6c54",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": false,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_rfq_id uuid, p_max_po numeric, p_max_daily numeric, p_max_unit numeric, p_max_lead integer",
+        "nspname": "public",
+        "proname": "proc_portal_start_round_v1",
+        "anon_exec": false,
+        "body_hash": "1da3f46223fc631ccf107fa9a97b6c54",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    },
+    {
+      "function": "public.proc_portal_submit_v1",
+      "expected": {
+        "nspname": "public",
+        "proname": "proc_portal_submit_v1",
+        "args": "p_token text, p_response jsonb, p_expected_revision integer, p_confirm boolean",
+        "body_hash": "9cb398575e441bf54d86f6b310039b99",
+        "prosecdef": true,
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "anon_exec": true,
+        "staff_exec": true,
+        "worker_exec": false
+      },
+      "actual": {
+        "args": "p_token text, p_response jsonb, p_expected_revision integer, p_confirm boolean",
+        "nspname": "public",
+        "proname": "proc_portal_submit_v1",
+        "anon_exec": true,
+        "body_hash": "9cb398575e441bf54d86f6b310039b99",
+        "proconfig": [
+          "search_path=\"\""
+        ],
+        "prosecdef": true,
+        "staff_exec": true,
+        "worker_exec": true
+      }
+    }
+  ],
+  "catalog": [
+    {
+      "args": "p_actor uuid",
+      "nspname": "private",
+      "proname": "proc_portal_begin_context",
+      "anon_exec": false,
+      "body_hash": "f08fb8713fd1a1e2bde56d707fca42db",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_token text, p_response jsonb, p_expected_revision integer, p_confirm boolean",
+      "nspname": "private",
+      "proname": "proc_portal_intake_v1",
+      "anon_exec": false,
+      "body_hash": "494ec58a3874dd23b13a304cfc030da5",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": true
+    },
+    {
+      "args": "",
+      "nspname": "private",
+      "proname": "proc_portal_link_deadline",
+      "anon_exec": false,
+      "body_hash": "056591d1649b28bab2b4f7a268946c7a",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": false,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_po_id uuid",
+      "nspname": "private",
+      "proname": "proc_portal_po_snapshot",
+      "anon_exec": false,
+      "body_hash": "87f411f964bb518615e2a24f674db043",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": false,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_round_id uuid",
+      "nspname": "private",
+      "proname": "proc_portal_process_round_core_v1",
+      "anon_exec": false,
+      "body_hash": "ecc992aa2ddf8f9716fefe3fc8194e55",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_permission text",
+      "nspname": "private",
+      "proname": "proc_portal_require_staff",
+      "anon_exec": false,
+      "body_hash": "29aa05ee0254e65a051b302ba485e6fa",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "",
+      "nspname": "private",
+      "proname": "proc_portal_run_due_rounds_v1",
+      "anon_exec": false,
+      "body_hash": "f75aac9917cb33f71baaba1234a8c644",
+      "proconfig": [
+        "search_path=\"\"",
+        "statement_timeout=45s"
+      ],
+      "prosecdef": false,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_link_id uuid",
+      "nspname": "private",
+      "proname": "proc_portal_sync",
+      "anon_exec": false,
+      "body_hash": "29be43f13cc4a3a613061736ade11cc4",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_line jsonb",
+      "nspname": "private",
+      "proname": "proc_portal_terms",
+      "anon_exec": false,
+      "body_hash": "0fd32ee3b82606070faf0e425568ee99",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": false,
+      "staff_exec": false,
+      "worker_exec": false
+    },
+    {
+      "args": "p_po_id uuid",
+      "nspname": "public",
+      "proname": "proc_portal_allow_dispatch_v1",
+      "anon_exec": false,
+      "body_hash": "ce806acf022a8e796cddcb21da9dc44c",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "",
+      "nspname": "public",
+      "proname": "proc_portal_claim_dispatch_v1",
+      "anon_exec": false,
+      "body_hash": "1eac975aa88b9f4478f5b36414771e50",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": true
+    },
+    {
+      "args": "",
+      "nspname": "public",
+      "proname": "proc_portal_company_history_v1",
+      "anon_exec": false,
+      "body_hash": "d620e57fcd93798fc76b4f1f37678683",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_po_id uuid, p_message_id text, p_evidence text",
+      "nspname": "public",
+      "proname": "proc_portal_confirm_delivery_v1",
+      "anon_exec": false,
+      "body_hash": "49733efc61876ad6de601ffff597d190",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "",
+      "nspname": "public",
+      "proname": "proc_portal_due_rounds_v1",
+      "anon_exec": false,
+      "body_hash": "2825ca857db35a757d2c1967ae28bc01",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": true
+    },
+    {
+      "args": "p_job_id uuid, p_status text, p_message_id text",
+      "nspname": "public",
+      "proname": "proc_portal_finish_dispatch_v1",
+      "anon_exec": false,
+      "body_hash": "8e66b3ac8707346e9310206eab4183ff",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": true
+    },
+    {
+      "args": "p_link_id uuid, p_expected_revision integer",
+      "nspname": "public",
+      "proname": "proc_portal_import_confirmed_v1",
+      "anon_exec": false,
+      "body_hash": "0d27a5111915993021c140f60ed4b8e4",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_rfq_supplier_id uuid, p_token_hash text, p_hours integer",
+      "nspname": "public",
+      "proname": "proc_portal_issue_link_v1",
+      "anon_exec": false,
+      "body_hash": "f75753e50437331289a8291f6a641d31",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_round_id uuid",
+      "nspname": "public",
+      "proname": "proc_portal_process_round_v1",
+      "anon_exec": false,
+      "body_hash": "ec152ff42dda8613051f9c983609b0bf",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_token text",
+      "nspname": "public",
+      "proname": "proc_portal_read_v1",
+      "anon_exec": true,
+      "body_hash": "08f2a33dde2c2efe9cfc5857be20d158",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_po_id uuid, p_message_id text, p_evidence text",
+      "nspname": "public",
+      "proname": "proc_portal_reconcile_unknown_v1",
+      "anon_exec": false,
+      "body_hash": "04822c2fd4afd7fff0798b2ede764167",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_round_id uuid, p_error text",
+      "nspname": "public",
+      "proname": "proc_portal_record_exception_v1",
+      "anon_exec": false,
+      "body_hash": "38e37295a6a45a52d3b70cd0e2ca54f9",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": false,
+      "worker_exec": true
+    },
+    {
+      "args": "p_round_id uuid",
+      "nspname": "public",
+      "proname": "proc_portal_retry_round_v1",
+      "anon_exec": false,
+      "body_hash": "0b125098eb8a3b08e8a701f5a0ed2035",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_rfq_id uuid",
+      "nspname": "public",
+      "proname": "proc_portal_review_v1",
+      "anon_exec": false,
+      "body_hash": "6775ec567bb1731c6ff1b4bfe7250774",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_link_id uuid",
+      "nspname": "public",
+      "proname": "proc_portal_revoke_link_v1",
+      "anon_exec": false,
+      "body_hash": "eacbf9b02a3f051421a578b54e175bda",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_rfq_id uuid",
+      "nspname": "public",
+      "proname": "proc_portal_staff_responses_v1",
+      "anon_exec": false,
+      "body_hash": "42ed3132f5dda3ef52f8caa441938fcf",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_rfq_id uuid, p_max_po numeric, p_max_daily numeric, p_max_unit numeric, p_max_lead integer",
+      "nspname": "public",
+      "proname": "proc_portal_start_round_v1",
+      "anon_exec": false,
+      "body_hash": "1da3f46223fc631ccf107fa9a97b6c54",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    },
+    {
+      "args": "p_token text, p_response jsonb, p_expected_revision integer, p_confirm boolean",
+      "nspname": "public",
+      "proname": "proc_portal_submit_v1",
+      "anon_exec": true,
+      "body_hash": "9cb398575e441bf54d86f6b310039b99",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "staff_exec": true,
+      "worker_exec": true
+    }
+  ]
+}

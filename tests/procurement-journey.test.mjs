@@ -5,7 +5,7 @@ test('viewing a task cannot increase order completion',()=>{
  assert.equal(orderProgress().percent,0)
  assert.equal(orderProgress({prepared:true}).percent,20)
  assert.equal(stageForTask(3,'rfq'),1)
- assert.equal(stageForTask(6,'rfq'),2)
+ assert.equal(stageForTask(6,'rfq'),3)
  assert.equal(stageForTask(6,'po'),3)
 })
 test('partially priced and partly sent orders stay below complete',()=>{

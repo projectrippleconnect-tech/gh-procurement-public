@@ -1,11 +1,33 @@
 import {companyAccess,companyBody,companyReply,sheetsToken,sheetsRequest} from '@/lib/company-server'
+// @ts-ignore Small safeguard with Node contract tests.
+import {companyImportCollisionGuard} from '@/lib/reviewed-company-import-guard.mjs'
 // @ts-ignore Shared worksheet parser is covered by node tests.
-import {parseCompanySheet,validateCompanyImport} from '@/lib/company-items.mjs'
+import {parseCompanySheet,validateCompanyImport,companyImportSubgroup,companyImportSectionPath} from '@/lib/company-items.mjs'
+// @ts-ignore Tested in the source-specific sheet parser and reconciliation tests.
+import {reconcilePanelCeilingSections,panelCeilingRowsFromDatabase} from '@/lib/company-ceiling-hierarchy.mjs'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 export async function POST(request:Request){
  try{
-  const {db}=await companyAccess(request,true),body=await companyBody(request),token=await sheetsToken()
+  const {db}=await companyAccess(request,true),body=await companyBody(request)
+  // Local database grouping works without optional Google Sheets credentials.
+  if(body.action==='sync_ceiling_sections'){
+   if(!body.companyId)throw new Error('Choose the Panel Sheets company.')
+   const {data:company,error}=await db.from('proc_companies')
+    .select('id,name,sheet_id').eq('id',body.companyId).single()
+   if(error)throw error
+   if(String(company.name||'').trim().toUpperCase()!=='PANEL SHEETS')
+    throw new Error('This action only applies to Panel Sheets.')
+   const {data:existing,error:itemsError}=await db.from('proc_company_list_items')
+    .select('source_key,item:proc_items(description,subgroup,colour,variation)')
+    .eq('company_id',company.id).eq('active',true).limit(250)
+   if(itemsError)throw itemsError
+   const rows=panelCeilingRowsFromDatabase(existing||[])
+   if(!rows.length)throw new Error('No existing Ceiling Fittings rows were found. Import the Panel Sheets catalogue first.')
+   const result=await reconcilePanelCeilingSections(db,company,rows)
+   return companyReply({ok:true,...result,message:'Ceiling Fittings grouped. Existing stock values and manually moved rows remain unchanged.'})
+  }
+  const token=await sheetsToken()
   const book=await sheetsRequest(token,'?fields=sheets(properties,developerMetadata)')
   if(body.action==='import'){
    let imported=0;const errors:string[]=[]
@@ -20,8 +42,21 @@ export async function POST(request:Request){
      else rows=parseCompanySheet({title,sheetId,values:values.values||[]})
      validateCompanyImport(rows)
      let importTitle=title.replace(/ · App$/,'');const owner=sheet.developerMetadata?.find((m:{metadataKey:string})=>m.metadataKey==='gh_company_id')?.metadataValue;if(owner){const found=await db.from('proc_companies').select('name').eq('id',owner).maybeSingle();if(found.error)throw found.error;if(found.data)importTitle=found.data.name}
+     const linked=await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()
+     if(linked.error)throw linked.error
+     const existingCompanyId=owner||linked.data?.id
+     if(existingCompanyId){
+      const old=await db.from('proc_company_list_items').select('source_key')
+       .eq('company_id',existingCompanyId).limit(1000)
+      if(old.error)throw old.error
+      if((old.data||[]).length>=1000)throw new Error('Existing company list exceeds the safe import limit.')
+      const guard=companyImportCollisionGuard((old.data||[]).map((x:{source_key:string|null})=>x.source_key),rows)
+      if(guard.blocked)throw new Error(
+       guard.unknownCount+' new or renamed source identities detected. Use Reviewed Google Sheet preview and match existing items before importing any additions.'
+      )
+     }
      const r=await db.rpc('proc_company_import_sheet',{p_title:importTitle,p_sheet_id:sheetId,p_rows:rows});if(r.error)throw r.error;imported+=r.data.imported
-     const targetCompany=owner||(await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()).data?.id
+     const targetCompany=existingCompanyId||(await db.from('proc_companies').select('id').eq('sheet_id',sheetId).maybeSingle()).data?.id
      if(targetCompany){
       if(owner&&rows.some((item:{section_path?:string})=>item.section_path)){
        const mapped=await db.rpc('proc_company_import_section_paths',{p_company_id:targetCompany,p_rows:rows.filter((item:{section_path?:string})=>item.section_path).map((item:{source_key:string;section_path:string})=>({source_key:item.source_key,section_path:item.section_path}))})
@@ -29,6 +64,12 @@ export async function POST(request:Request){
       }
       const seeded=await db.rpc('proc_company_seed_sections',{p_company_id:targetCompany})
       if(seeded.error)throw seeded.error
+      if(String(importTitle).trim().toUpperCase()==='PANEL SHEETS'){
+       const {data:sourceCompany,error:companyError}=await db.from('proc_companies')
+        .select('id,name,sheet_id').eq('id',targetCompany).single()
+       if(companyError)throw companyError
+       await reconcilePanelCeilingSections(db,sourceCompany,rows)
+      }
      }
     }catch(e){errors.push(title+': '+(e instanceof Error?e.message:'Import failed'))}
    }
@@ -68,4 +109,4 @@ export async function POST(request:Request){
  }catch(e){return companyReply({ok:false,error:e instanceof Error?e.message:'Company sheet sync failed.'},400)}
 }
 function columnLabel(n:number){let label='';while(n>0){n--;label=String.fromCharCode(65+n%26)+label;n=Math.floor(n/26)}return label}
-function normalizedRows(values:unknown[][],sheetId:number,title:string){return values.slice(1).filter(r=>r[1]).map((r,index)=>({source_key:String(r[0]||sheetId+':'+(index+2)),source_sheet_id:sheetId,source_tab:title,description:String(r[1]),category:String(r[2]||title),main_group:String(r[3]||''),subgroup:String(r[4]||''),brand:String(r[5]||''),size:String(r[6]||''),colour:String(r[7]||''),variation:String(r[8]||''),uom:String(r[9]||'PCS'),movement:String(r[10]||'NORMAL'),max_stock:r[11]===''||r[11]===undefined?null:Number(r[11]),remarks:String(r[13]||''),section_path:String(r[14]||'')}))}
+function normalizedRows(values:unknown[][],sheetId:number,title:string){return values.slice(1).filter(r=>r[1]).map((r,index)=>({source_key:String(r[0]||sheetId+':'+(index+2)),source_sheet_id:sheetId,source_tab:title,description:String(r[1]),category:String(r[2]||title),main_group:String(r[3]||''),subgroup:companyImportSubgroup(title,String(r[4]||'')),brand:String(r[5]||''),size:String(r[6]||''),colour:String(r[7]||''),variation:String(r[8]||''),uom:String(r[9]||'PCS'),movement:String(r[10]||'NORMAL'),max_stock:r[11]===''||r[11]===undefined?null:Number(r[11]),remarks:String(r[13]||''),section_path:companyImportSectionPath(title,String(r[14]||''))}))}

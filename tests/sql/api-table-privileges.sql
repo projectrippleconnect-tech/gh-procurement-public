@@ -17,6 +17,14 @@ begin
       end loop;
     end loop;
   end loop;
+  for t in select c.oid,c.relname,c.reloptions
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind='v' and left(c.relname,5)='proc_'
+  loop
+    if has_table_privilege('authenticated',t.oid,'SELECT') and not ('security_invoker=true'=any(coalesce(t.reloptions,'{}'::text[]))) then
+      raise exception 'Exposed procurement view bypasses caller RLS: %',t.relname;
+    end if;
+  end loop;
   if has_table_privilege('anon','public.proc_whatsapp_rfq_dispatches','SELECT') then
     raise exception 'Anonymous dispatch audit read granted';
   end if;

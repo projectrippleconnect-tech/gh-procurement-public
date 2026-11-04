@@ -35,8 +35,8 @@ export const downloadCsv = (filename: string, rows: Record<string, unknown>[]) =
 
 
 export const itemTitle = (item: {description?: string | null; size?: string | null}) => {
-  const description = String(item?.description || '').trim()
-  const size = String(item?.size || '').trim()
+  const description = String(item?.description || '').trim().toUpperCase()
+  const size = String(item?.size || '').trim().toUpperCase()
   if (!size) return description
   if (description.toLowerCase().includes(size.toLowerCase())) return description
   return description ? `${description} · ${size}` : size

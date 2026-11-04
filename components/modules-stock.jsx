@@ -1,93 +1,42 @@
 'use client'
 
+import {interfaceTranslator} from '@/lib/interface-copy.mjs'
 import {ModernSelect} from './modern-select'
+import {ItemListSelector,AttentionBadge} from './purchasing-workspace'
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {businessDate,qty,money,itemTitle} from '@/lib/helpers'
 import {allRows,containsAny} from '@/lib/query-pages'
-import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel} from '@/lib/stock-search.mjs'
+import {indexStockItems,searchStockItems,stockSearchColumns,stockItemLabel as originalStockItemLabel,isApproximateItemMatch} from '@/lib/stock-search.mjs'
+import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes,ITEM_TEXT_FIELDS} from '@/lib/item-text.mjs'
 import {loadStockCatalogue,isTransientStockQueryError,retryStockQuery} from '@/lib/stock-catalogue.mjs'
 import {stockCountBatch} from '@/lib/stock-batch.mjs'
+import {stockSubmissionOutcome,sufficientStockOverrides,sufficientOverrideNotes} from '@/lib/stock-submission-outcome.mjs'
+import {stockLotReview} from '@/lib/stock-lot.mjs'
+import {latestStockMarkers,generalStockHistoryRows} from '@/lib/stock-item-history.mjs'
+import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
-import {Badge,DataTable,configuredColumns,Empty} from './ui'
+import {StockSubmitAction,Badge,DataTable,configuredColumns,Empty} from './ui'
 import {InfoButton} from './help-ui'
 import {QuickAddItem} from './quick-add-item'
+import {StockItemEditor} from './stock-item-editor'
+import {ITEM_UOMS,itemOptionValues} from '@/lib/item-editor-options.mjs'
 import {StockPrintDialog} from './stock-print-dialog'
 import dynamic from 'next/dynamic'
 const CompanyLists=dynamic(()=>import('./modules-company').then(m=>m.CompanyLists),{loading:()=> <div className="card pad">Loading Company Items…</div>})
 
-export function Dashboard({lastWork,resumeWork=()=>{},activeView='dashboard',features=[],fail,navigate=()=>{},canNavigate=()=>false,t=(k,f)=>f||k}){
- const[d,setD]=useState({}),[req,setReq]=useState([]),[pos,setPos]=useState([]),[alerts,setAlerts]=useState({rfq:0,po:0,stockDue:0,receiptVariance:0,urgent:0})
- const[loadState,setLoadState]=useState({})
- const loadSerial=useRef(0)
- const[overdueOpen,setOverdueOpen]=useState(false)
- const destinations={active_items:['items',''],open_requirements:['requirements','all'],still_to_order:['requirements','to_order'],awaiting_receipt:['requirements','delivery'],open_pos:['po','open'],po_value:['po','non_cancelled'],invoice_variances:['invoices','variance'],stock_due:['stock','due'],urgent_actions:['urgent_actions','']}
- const load=useCallback(async()=>{try{
-  const serial=++loadSerial.current
-  setLoadState({summary:'loading',requirements:'loading',orders:'loading',rfq:'loading',po:'loading',stockDue:'loading',receiptVariance:'loading',urgent:'loading'})
-  const today=businessDate()
-  const tasks=[
-   supabase.from('proc_v_dashboard').select('*').single(),
-   supabase.from('proc_v_requirements').select('*').in('status',['open','quoting','partially_ordered','ordered','partially_received']).order('created_at',{ascending:false}).limit(8),
-   supabase.from('proc_purchase_orders').select('*,supplier:proc_suppliers(name)').in('status',['pending_approval','approved','sent','partially_received']).order('created_at',{ascending:false}).limit(6),
-   supabase.from('proc_rfqs').select('id',{count:'exact',head:true}).lt('due_date',today).in('status',['sent','partially_quoted']),
-   supabase.from('proc_purchase_orders').select('id',{count:'exact',head:true}).lt('expected_date',today).in('status',['sent','partially_received']),
-   supabase.from('proc_v_stock_check_due').select('item_id',{count:'exact',head:true}).eq('is_due',true),
-   supabase.from('proc_v_receipt_reconciliation').select('po_line_id',{count:'exact',head:true}).gt('over_received_qty',0),
-   supabase.from('proc_v_urgent_actions').select('action_id',{count:'exact',head:true})
-  ]
-  const names=['summary','requirements','orders','rfq','po','stockDue','receiptVariance','urgent']
-  await Promise.all(tasks.map(async(task,index)=>{const key=names[index];try{const result=await task;if(result.error)throw result.error;if(serial!==loadSerial.current)return;if(index===0)setD(result.data||{});else if(index===1)setReq(result.data||[]);else if(index===2)setPos(result.data||[]);else setAlerts(v=>({...v,[key]:result.count||0}));setLoadState(v=>({...v,[key]:'ready'}))}catch(e){if(serial===loadSerial.current)setLoadState(v=>({...v,[key]:'error'}))}}))
- }catch(e){fail(e)}},[fail])
- useEffect(()=>{if(activeView==='dashboard')load()},[load,activeView])
- const enabled=k=>features.find(x=>x.feature_key===k)?.enabled!==false
- const cards=[
-  ['dashboard.active_items','Active items',d.active_items,'Master catalogue'],
-  ['dashboard.open_requirements','Open requirements',d.open_requirements,'Need procurement action'],
-  ['dashboard.still_to_order','Still to order',d.still_to_order,'Not yet placed'],
-  ['dashboard.awaiting_receipt','Awaiting receipt',d.awaiting_receipt,'Ordered, not fully received'],
-  ['dashboard.open_pos','Open POs',d.open_pos,'Approval / delivery'],
-  ['dashboard.po_value','PO value',money(d.po_value),'Non-cancelled POs'],
-  ['dashboard.invoice_variances','Invoice variances',d.invoice_variances,'Mismatch alerts'],
-  ['dashboard.stock_due','Stock checks due',alerts.stockDue||0,'Based on cycle-count schedule'],
-  ['dashboard.urgent_actions','Urgent actions',alerts.urgent||0,'Zero stock, customer-paid and FAST-mover priority'],
-  ['dashboard.overdue_actions','Overdue actions',(alerts.rfq||0)+(alerts.po||0),`${alerts.rfq||0} supplier price request · ${alerts.po||0} PO`]
- ].filter(x=>enabled(x[0]))
- return <>
-  {lastWork&&canNavigate(lastWork.view)&&<button className="btn primary section" onClick={resumeWork}>Continue order / task →</button>}
-  <div className="card pad section"><h3>Today's work</h3><div className="toolbar section">{canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','pending_review',2)}>Review outstanding items</button>}{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq')}>Enter / compare prices</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','pending_approval')}>Approve orders</button>}{canNavigate('receiving')&&<button className="btn" onClick={()=>navigate('receiving')}>Receive deliveries</button>}<button className="btn small" onClick={load}>Refresh work queues</button></div></div>
-  <div className="grid metrics">{cards.map(x=>{
-   const key=x[0].slice('dashboard.'.length),target=destinations[key]
-   const actionable=key==='overdue_actions'?(canNavigate('rfq')||canNavigate('po')):target&&canNavigate(target[0])
-   const source=key==='stock_due'?'stockDue':key==='urgent_actions'?'urgent':key==='overdue_actions'?(loadState.rfq==='error'||loadState.po==='error'?'error':loadState.rfq==='ready'&&loadState.po==='ready'?'overdue':'loading'):'summary'
-   const state=source==='overdue'?'ready':source==='error'||source==='loading'?source:loadState[source]
-   const content=<><div className="kicker">{t(x[0],x[1])}</div><div className="value num" id={x[0]+'-value'}>{state==='ready'?(x[2]??0):state==='error'?'Unavailable':'…'}</div><div className="sub">{t(x[0]+'.sub',x[3])}</div></>
-   return actionable?<button type="button" className="card metric metric-link" key={x[0]} aria-label={t(x[0],x[1])} aria-describedby={x[0]+'-value'} aria-expanded={key==='overdue_actions'?overdueOpen:undefined} aria-controls={key==='overdue_actions'?'dashboard-overdue':undefined} onClick={()=>key==='overdue_actions'?setOverdueOpen(v=>!v):navigate(...target)}>{content}<span className="metric-action">{t('dashboard.view_details','View details')} →</span></button>:<div className="card metric" key={x[0]}>{content}</div>
-  })}</div>
-  {overdueOpen&&<div className="card pad section" id="dashboard-overdue"><h3>{t('dashboard.overdue_actions','Overdue actions')}</h3><div className="toolbar">{canNavigate('rfq')&&<button className="btn" onClick={()=>navigate('rfq','overdue')}>{t('dashboard.overdue_rfqs','Overdue supplier requests')} · {alerts.rfq||0}</button>}{canNavigate('po')&&<button className="btn" onClick={()=>navigate('po','overdue')}>{t('dashboard.overdue_pos','Overdue purchase orders')} · {alerts.po||0}</button>}</div></div>}
-  <div className="split section">
-   <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.procurement_attention','Procurement attention')}</h3><p>{t('dashboard.procurement_attention_hint','Newest unresolved requirements')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
-    {loadState.requirements==='error'?<p role="alert">Requirements unavailable. Tap Refresh to retry.</p>:loadState.requirements!=='ready'?<p role="status">Loading requirements…</p>:<DataTable columns={[
-     {key:'requirement_no',label:'Requirement'},
-     {key:'description',label:'Item'},
-     {key:'adjusted_qty',label:'Required',render:r=>qty(r.adjusted_qty)},
-     {key:'remaining_to_order',label:'Still To Order',render:r=><b className="warn-text">{qty(r.remaining_to_order)}</b>},
-     {key:'ordered_not_received',label:'Ordered Not Received',render:r=>qty(r.ordered_not_received)},
-     {key:'status',label:'Status'}
-    ]} rows={req} mobileCards/>}
-   </div>
-   <div className="card pad"><div className="sectionhead"><div><h3>{t('dashboard.po_pipeline','PO pipeline')}</h3><p>{t('dashboard.po_pipeline_hint','Approval and delivery status')}</p></div></div>
-    {loadState.orders==='error'?<p role="alert">Orders unavailable. Tap Refresh to retry.</p>:loadState.orders!=='ready'?<p role="status">Loading orders…</p>:pos.length?pos.map(x=><button className="btn record-button compact-record" key={x.id} disabled={!canNavigate('po')} onClick={()=>navigate('po',x.id)}><div><strong>{x.po_no}</strong><div className="muted tiny">{x.supplier?.name||'Supplier'}</div></div><div className="right"><Badge>{x.status}</Badge><div className="num record-value">{money(x.total)}</div></div></button>):<Empty/>}
-   </div>
-  </div>
- </>
-}
+const stockItemLabel=item=>uppercaseItemText(originalStockItemLabel(item))
 
-export function StockCheck({initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k}){
+export {Dashboard} from './work-dashboard'
+
+export function StockCheck({activeView='stock',initialFilter='',profile,fields,features=[],settings={},company,flash,fail,can=()=>false,navigate=()=>{},canNavigate=()=>false,isActiveView=()=>true,language='en',t=(k,f)=>f||k,historyRequest=0,onStockTabChange,itemListType,onItemListTypeChange}){
+ const tr=interfaceTranslator(language)
  const confirmAction=useActionConfirmation()
- const[stockTab,setStockTab]=useState('general')
+ const[stockTab,setStockTab]=useState(()=>{try{return can('company_lists.view')&&localStorage.getItem('gh-stock-list-tab:'+profile.id)==='company'?'company':'general'}catch{return 'general'}})
+ function changeStockTab(value){setStockTab(value);onItemListTypeChange?.(value);try{localStorage.setItem('gh-stock-list-tab:'+profile.id,value)}catch{}}
+
  const[submission,setSubmission]=useState(null)
  const resultRef=useRef(null)
  useEffect(()=>{if(submission)resultRef.current?.scrollIntoView({block:'start'})},[submission])
@@ -103,6 +52,7 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const serverDrafts=feature('stock.server_drafts')
 
  const[cats,setCats]=useState([]),[cat,setCat]=useState(initialFilter==='due'?'':'GENERAL'),[movement,setMovement]=useState(initialFilter==='due'?'':'FAST'),[mainGroup,setMainGroup]=useState(''),[groups,setGroups]=useState([]),[dueOnly,setDueOnly]=useState(feature('stock.cycle_counting'))
+ const[knownItems,setKnownItems]=useState([])
  const[loadedItems,setItems]=useState([]),[entry,setEntry]=useState({}),[sufficient,setSufficient]=useState({}),[skipped,setSkipped]=useState(new Set()),[cursor,setCursor]=useState(0)
  const[viewMode,setViewMode]=useState('browse'),[filtersOpen,setFiltersOpen]=useState(false),[browsePage,setBrowsePage]=useState(0),[browsePageSize,setBrowsePageSize]=useState(defaultPageSize)
  useEffect(()=>{if(!guidedCountEnabled)setViewMode('browse')},[guidedCountEnabled])
@@ -111,10 +61,66 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  const[draftSave,setDraftSave]=useState({local:false,server:'idle'}),[draftRetry,setDraftRetry]=useState(0)
  const draftWrites=useRef(Promise.resolve())
  const[historyOpen,setHistoryOpen]=useState(false),[historyRows,setHistoryRows]=useState([]),[historyDetail,setHistoryDetail]=useState(null),[historyLoading,setHistoryLoading]=useState(false)
+ const[historyError,setHistoryError]=useState(''),historyCloseRef=useRef(null)
+ const[itemHistory,setItemHistory]=useState(null)
+ const[lotReviewOpen,setLotReviewOpen]=useState(false),[finalizedMarkers,setFinalizedMarkers]=useState({}),[markersChecked,setMarkersReady]=useState(false),[explicitRecounts,setExplicitRecounts]=useState(new Set())
+ const submissionLock=useRef(false),finalizedRevision=useRef(0),skipEmptyDraft=useRef(false),markerController=useRef(null),verifiedMarkerScope=useRef(''),catalogueLoaded=useRef('')
  const[searchOpen,setSearchOpen]=useState(false),[searchTerm,setSearchTerm]=useState(''),[searchResults,setSearchResults]=useState([]),[searchBusy,setSearchBusy]=useState(false),[searchScope,setSearchScope]=useState('all'),[searchViewport,setSearchViewport]=useState(null)
  const[heldSearch,setHeldSearch]=useState(null)
  const[searchCatalogue,setSearchCatalogue]=useState([]),[catalogueReady,setCatalogueReady]=useState(false),[catalogueError,setCatalogueError]=useState(''),[catalogueRetry,setCatalogueRetry]=useState(0),[searchError,setSearchError]=useState('')
  const[quickItem,setQuickItem]=useState(null),[quickValue,setQuickValue]=useState(''),[urgentBusy,setUrgentBusy]=useState(false)
+ const[editCandidate,setEditCandidate]=useState(null)
+ const itemPress=useRef({timer:null,pointerId:null,x:0,y:0,activated:false})
+ const keepBrowsePosition=useRef(false)
+ const canEditItems=can('items.edit')
+ useEffect(()=>()=>clearTimeout(itemPress.current.timer),[])
+ function askToEdit(i){
+  if(!canEditItems)return
+  void confirmAction('Do you want to edit "'+stockItemLabel(i)+'"?',{
+   title:'Edit this item?',confirmLabel:'Edit item'
+  }).then(accepted=>{if(accepted)setEditCandidate(i)})
+ }
+ function stopItemPress(){
+  clearTimeout(itemPress.current.timer)
+  itemPress.current.timer=null
+  itemPress.current.pointerId=null
+ }
+ function itemLongPressProps(i){
+  if(!canEditItems)return {}
+  return {
+   onPointerDown:e=>{
+    if(e.button!==0)return
+    stopItemPress()
+    const pointerId=e.pointerId
+    itemPress.current={timer:null,pointerId,x:e.clientX,y:e.clientY,activated:false}
+    itemPress.current.timer=setTimeout(()=>{
+     if(itemPress.current.pointerId!==pointerId)return
+     itemPress.current.activated=true
+     askToEdit(i)
+    },650)
+   },
+   onPointerMove:e=>{
+    if(itemPress.current.pointerId===e.pointerId&&
+     Math.hypot(e.clientX-itemPress.current.x,e.clientY-itemPress.current.y)>14)stopItemPress()
+   },
+   onPointerUp:()=>stopItemPress(),
+   onPointerCancel:()=>{stopItemPress();itemPress.current.activated=false},
+   onContextMenu:e=>{
+    e.preventDefault()
+    if(itemPress.current.activated)return
+    stopItemPress()
+    itemPress.current.activated=true
+    askToEdit(i)
+   },
+   onKeyDown:e=>{if(e.key==='F2'){e.preventDefault();askToEdit(i)}}
+  }
+ }
+ function consumeLongPress(e){
+  if(!itemPress.current.activated)return false
+  itemPress.current.activated=false
+  e.preventDefault();e.stopPropagation()
+  return true
+ }
  const startedAt=useRef(null),startPromise=useRef(null),quickInput=useRef(null),guidedInput=useRef(null)
  const draftKey='gh-stock-count-draft:'+profile.id
  const rowField=(key,fallback=false)=>{const x=fields?.find(f=>f.module_key==='stock_entry'&&f.field_key===key);return x?x.enabled:fallback}
@@ -153,6 +159,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
 
  useEffect(()=>{
   if(!draftReady)return
+  if(skipEmptyDraft.current&&!Object.values(entry).some(v=>v!==''&&v!==undefined)&&!Object.values(sufficient).some(Boolean)){
+   try{localStorage.removeItem(draftKey)}catch{}
+   return
+  }
   const savedAt=new Date().toISOString()
   const filters={cat,movement,mainGroup,dueOnly,heldSearch,sufficient}
   const payload={entry,cursor,skipped:[...skipped],startedAt:startedAt.current,filters,savedAt}
@@ -189,6 +199,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   if(initialFilter!=='due'&&cat&&list.length&&!list.includes(cat))setCat(list.includes('GENERAL')?'GENERAL':list[0])
  }catch(e){fail(e)}})()},[fail])
 
+ const rememberItems=useCallback(rows=>setKnownItems(previous=>{const map=new Map(previous.map(i=>[i.item_id,i]));for(const row of indexStockItems(rows))map.set(row.item_id,row);return [...map.values()]}),[])
+ const serverPaged=!dueOnly&&viewMode==='browse'&&!heldSearch
+ const serverPage=serverPaged?browsePage:0,serverPageSize=serverPaged?browsePageSize:500
+ useEffect(()=>{setBrowsePage(0)},[cat,movement,mainGroup,dueOnly])
  const stockLoadRevision=useRef(0),stockLoadController=useRef(null)
  const load=useCallback(async()=>{
   stockLoadController.current?.abort()
@@ -197,12 +211,12 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   const revision=++stockLoadRevision.current
   setLoading(true);setStockLoadError('')
   try{
-  const pageChunk=500
-  const cap=dueOnly?dailyTarget:Infinity
-  let all=[],total=0,offset=0
+  const pageChunk=serverPageSize
+  const cap=serverPaged?serverPageSize:dueOnly?dailyTarget:Infinity
+  let all=[],total=0,offset=serverPaged?serverPage*serverPageSize:0
   while(all.length<cap){
    const r=await retryStockQuery(async()=>{
-    let q=supabase.from('proc_v_stock_check_due').select('*',{count:offset===0&&dueOnly?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,Math.min(offset+pageChunk-1,cap-1))
+    let q=supabase.from('proc_v_stock_check_due').select('*',{count:all.length===0?'exact':undefined}).order('next_check_date',{ascending:true}).order('description').order('item_id').range(offset,serverPaged?offset+pageChunk-1:Math.min(offset+pageChunk-1,cap-1))
     if(cat)q=q.eq('category',cat)
     if(movement)q=q.eq('movement',movement)
     if(mainGroup)q=q.eq('main_group',mainGroup)
@@ -212,17 +226,18 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     return response
    },{signal:controller.signal})
    if(controller.signal.aborted||revision!==stockLoadRevision.current)return
-   if(offset===0)total=r.count??0
+   if(all.length===0)total=r.count??0
    const batch=r.data||[]
    all=all.concat(batch)
    if(batch.length<pageChunk||all.length>=cap)break
    offset+=pageChunk
   }
   setDueTotal(total||all.length)
-  setItems(all)
-  setCursor(0);setBrowsePage(0)
- }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry])
- useEffect(()=>{load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load])
+  setItems(all);rememberItems(all)
+  if(!keepBrowsePosition.current){setCursor(0);if(!serverPaged)setBrowsePage(0)}
+  keepBrowsePosition.current=false
+ }catch(e){if(!controller.signal.aborted&&revision===stockLoadRevision.current)setStockLoadError(isTransientStockQueryError(e)?'Stock items timed out. Retry to continue.':e.message||'Stock items could not be loaded.')}finally{if(!controller.signal.aborted&&revision===stockLoadRevision.current)setLoading(false)}},[cat,movement,mainGroup,dueOnly,dailyTarget,stockLoadRetry,serverPaged,serverPage,serverPageSize,rememberItems])
+ useEffect(()=>{if(stockTab!=='general'||activeView!=='stock')return;load();return()=>{stockLoadRevision.current++;stockLoadController.current?.abort()}},[load,stockTab,activeView])
 
  useEffect(()=>{
   if(!searchOpen||typeof window==='undefined'||!window.visualViewport){setSearchViewport(null);return}
@@ -236,6 +251,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  // Load once per visit, not on every open/close of search.
  // Retry small pages on transient Postgres timeout; never mark a partial list ready.
  useEffect(()=>{
+  if(stockTab!=='general'||(!searchOpen&&!heldSearch)||!isActiveView('stock'))return
+  const key=profile.id+':'+catalogueRetry
+  if(catalogueLoaded.current===key)return
   const controller=new AbortController()
   setCatalogueReady(false);setCatalogueError('');setSearchCatalogue([])
   ;(async()=>{try{
@@ -249,19 +267,21 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     },
     onPage:rows=>setSearchCatalogue(indexStockItems(rows))
    })
-   if(result&&!controller.signal.aborted)setCatalogueReady(true)
+   if(result&&!controller.signal.aborted){catalogueLoaded.current=key;setCatalogueReady(true)}
   }catch(e){
    if(!controller.signal.aborted)setCatalogueError(isTransientStockQueryError(e)
     ?'Stock catalogue timed out. Tap Retry to load all items.'
     :'Stock catalogue could not be loaded. Tap Retry.')
   }})()
   return()=>controller.abort()
- },[profile.id,catalogueRetry])
+ },[profile.id,catalogueRetry,searchOpen,!!heldSearch,stockTab,activeView])
  const localSearchIndex=useMemo(()=>{
-  const rows=new Map(loadedItems.map(row=>[row.item_id,row]))
+  const rows=new Map(knownItems.map(row=>[row.item_id,row]))
+  for(const row of loadedItems)rows.set(row.item_id,row)
+  for(const row of searchResults)rows.set(row.item_id,row)
   for(const row of searchCatalogue)rows.set(row.item_id,row)
   return indexStockItems([...rows.values()].sort((a,b)=>(a.description||'').localeCompare(b.description||'')))
- },[loadedItems,searchCatalogue])
+ },[loadedItems,searchCatalogue,knownItems,searchResults])
  const items=useMemo(()=>heldSearch?searchStockItems(localSearchIndex,heldSearch.query,heldSearch.filters||{},Infinity):loadedItems,[heldSearch,localSearchIndex,loadedItems])
  function releaseHeldSearch(){
   // Clear only the held search, never the unsubmitted stock quantities.
@@ -282,9 +302,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
  }
  const visibleSearchResults=useMemo(()=>{
   const filters=searchScope==='current'?{category:cat,main_group:mainGroup,movement}:{}
-  const local=searchStockItems(localSearchIndex,searchTerm,filters)
-  const seen=new Set(local.map(row=>row.item_id))
-  return [...local,...searchStockItems(searchResults,searchTerm,filters).filter(row=>!seen.has(row.item_id))].slice(0,30)
+  const merged=new Map(localSearchIndex.map(row=>[row.item_id,row]))
+  for(const row of searchResults)if(!merged.has(row.item_id))merged.set(row.item_id,row)
+  return searchStockItems([...merged.values()],searchTerm,filters,30)
  },[localSearchIndex,searchTerm,searchScope,cat,mainGroup,movement,searchResults])
  useEffect(()=>{
   setSearchResults([]);setSearchError('');setSearchBusy(false)
@@ -333,12 +353,21 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   ensureServerCountStart().catch(error=>console.warn('Stock count session start failed',error))
  }
  function setCount(id,v){
+  if(finalizedMarkers[id]&&!explicitRecounts.has(id))return
+  skipEmptyDraft.current=false
   const raw=normalizeQuantityInput(v)
   if(raw===null)return
   if(raw!==''&&!/^\d*(?:\.\d{0,3})?$/.test(raw))return
   beginCount();setEntry(x=>({...x,[id]:raw}));setSufficient(s=>{if(!s[id])return s;const n={...s};delete n[id];return n});setSkipped(s=>{if(!s.has(id))return s;const n=new Set(s);n.delete(id);return n})
  }
+ function removeFromLot(id){
+  setEntry(previous=>{const next={...previous};delete next[id];return next})
+  setSufficient(previous=>{const next={...previous};delete next[id];return next})
+  setSkipped(previous=>{const next=new Set(previous);next.delete(id);return next})
+ }
  function setEnough(id,checked){
+  if(finalizedMarkers[id]&&!explicitRecounts.has(id))return
+  skipEmptyDraft.current=false
   beginCount()
   setSufficient(previous=>{const next={...previous};if(checked)next[id]=true;else delete next[id];return next})
   if(checked)setSkipped(previous=>{if(!previous.has(id))return previous;const next=new Set(previous);next.delete(id);return next})
@@ -392,7 +421,11 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   nextUnfinished(cursor+1)
  }
  function openQuick(i){
-  setQuickItem(i);setQuickValue(entry[i.item_id]??'');setSearchOpen(false)
+  if(finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)){
+   void allowRecount(i.item_id).then(allowed=>{if(allowed){setQuickItem(i);setQuickValue('');setSearchOpen(false)}})
+   return
+  }
+  rememberItems([i]);setQuickItem(i);setQuickValue(entry[i.item_id]??'');setSearchOpen(false)
   setTimeout(()=>quickInput.current?.focus(),80)
  }
  async function saveQuick(markUrgent=false){
@@ -420,48 +453,122 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }
  }
  function focusDenseInput(i){
-  setActiveBrowseId(i.item_id)
-  setTimeout(()=>document.getElementById('browse-row-'+i.item_id)?.scrollIntoView({block:'center',behavior:'smooth'}),90)
+  rememberItems([i]);setActiveBrowseId(i.item_id)
+  // Mobile focus is kept above the action dock by the shared workspace handler.
+  if(window.innerWidth>700)document.getElementById('browse-row-'+i.item_id)?.scrollIntoView({block:'nearest'})
  }
+
+
+ // A stock lot remains editable until final confirmation; item IDs are unique.
+ const labelMap=useMemo(()=>Object.fromEntries(localSearchIndex.map(i=>[i.item_id,stockItemLabel(i)])),[localSearchIndex])
+ const pendingLot=useMemo(()=>stockLotReview(entry,sufficient,labelMap,finalizedMarkers,explicitRecounts),[entry,sufficient,labelMap,finalizedMarkers,explicitRecounts])
+ const missingDraftIdsKey=JSON.stringify([...new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])])].filter(id=>!labelMap[id]).sort())
  useEffect(()=>{
-  if(typeof window==='undefined'||!window.visualViewport)return
-  const vv=window.visualViewport
-  const keepVisible=()=>{if(activeBrowseId)setTimeout(()=>document.getElementById('browse-row-'+activeBrowseId)?.scrollIntoView({block:'center',behavior:'smooth'}),60)}
-  vv.addEventListener('resize',keepVisible)
-  return()=>vv.removeEventListener('resize',keepVisible)
- },[activeBrowseId])
+  const ids=JSON.parse(missingDraftIdsKey)
+  if(!ids.length||stockTab!=='general'||activeView!=='stock')return
+  const controller=new AbortController()
+  ;(async()=>{try{
+   for(let offset=0;offset<ids.length;offset+=100){
+    const r=await supabase.from('proc_items').select(stockSearchColumns).in('id',ids.slice(offset,offset+100)).abortSignal(controller.signal)
+    if(controller.signal.aborted)return
+    if(r.error)throw r.error
+    rememberItems(r.data||[])
+   }
+  }catch(e){if(!controller.signal.aborted)console.warn('Draft item descriptions could not be loaded',e)}})()
+  return()=>controller.abort()
+ },[missingDraftIdsKey,stockTab,activeView,rememberItems])
+
+ async function allowRecount(id){
+  const prev=finalizedMarkers[id]
+  if(!prev||explicitRecounts.has(id))return true
+  const allowed=await confirmAction('This item was finalized in '+(prev.count_no||'an earlier stock lot')+' on '+submissionTime(prev.submitted_at)+'. Intentionally count it again in a NEW lot? The earlier count remains in history.',{title:'Recount submitted item?',confirmLabel:'Allow recount'})
+  if(allowed){setExplicitRecounts(x=>new Set([...x,id]));beginCount()}
+  return allowed
+ }
+ // Verify only visible rows and the pending lot, never the downloading catalogue.
+ const historyIdsKey=JSON.stringify([...new Set([
+  ...(viewMode==='guided'?items.slice(cursor,cursor+1):serverPaged?items:items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)).map(i=>i.item_id),
+  ...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id]),
+  ...(quickItem?[quickItem.item_id]:[])
+ ])].sort())
+ const markerScope=profile.id+':'+historyIdsKey
+ const markersReady=markersChecked&&verifiedMarkerScope.current===markerScope
+ const[markerError,setMarkerError]=useState('')
+ async function refreshFinalizedMarkers(){
+  markerController.current?.abort()
+  const controller=new AbortController();markerController.current=controller
+  const revision=++finalizedRevision.current,ids=JSON.parse(historyIdsKey)
+  setMarkersReady(false);setMarkerError('')
+  try{
+   const latest=await latestStockMarkers(supabase,ids,null,{signal:controller.signal})
+   if(revision!==finalizedRevision.current||controller.signal.aborted)return
+   setFinalizedMarkers(previous=>{const next={...previous};for(const id of ids)delete next[id];return {...next,...latest}})
+   verifiedMarkerScope.current=markerScope;setMarkersReady(true)
+  }catch(e){
+   if(revision===finalizedRevision.current&&!controller.signal.aborted){
+    setMarkersReady(false);setMarkerError('Could not check previous submissions for these items. Your entries remain on this screen. Retry the check before submitting.')
+   }
+  }
+ }
+ useEffect(()=>{if(stockTab!=='general'||activeView!=='stock')return;void refreshFinalizedMarkers();return()=>{finalizedRevision.current++;markerController.current?.abort()}},[markerScope,stockTab,activeView])
 
  async function submit(){
-  if(busy)return
-  const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
-  if(!checked.length)return fail(new Error(t('stock.at_least_one','Enter at least one stock quantity or mark an item sufficient.')))
-  if(counted.some(([,v])=>!isQuantityInput(v)))return fail(new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.')))
-  const submitSuffix=t('stock.submit_confirm_suffix_manual','item(s)? Shortages will go to Procurement Review.')
-  const batchNote=remaining?' '+remaining+' additional counted item(s) will stay in your draft for the next submission.':''
-  if(!await confirmAction(t('stock.submit_confirm_prefix','Submit')+' '+checked.length+' '+submitSuffix+batchNote,{title:t('stock.confirm_title','Submit stock count'),confirmLabel:t('stock.confirm_submit','Submit stock'),details:t('stock.confirm_next','Next: review shortages, approve quantities and choose suppliers.')}))return
-
-  setBusy(true)
+  if(busy||submissionLock.current)return
+  // Acquire synchronously, including during the confirmation dialog, to prevent double taps.
+  submissionLock.current=true;setBusy(true)
   try{
+   if(!markersReady)throw new Error('Recent submissions have not been checked. Retry the history check before finalizing, to prevent duplicate stock counts.')
+   const lotIds=[...new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])])]
+   const fresh=await latestStockMarkers(supabase,lotIds)
+   setFinalizedMarkers(previous=>({...previous,...fresh}))
+   const lot=stockLotReview(entry,sufficient,labelMap,fresh,explicitRecounts)
+   if(!lot.count)throw new Error('Enter at least one stock quantity or mark an item sufficient before reviewing the lot.')
+   if(lot.overLimit)throw new Error('This stock lot contains '+lot.count+' items. The server accepts at most 1000 items in one final submission. Contact an administrator before splitting this lot.')
+   if(lot.blocked.length)throw new Error(lot.blocked.length+' item(s) were already finalized. Review their Previous Submission markers and explicitly allow a recount, or remove them from this lot.')
+   const {counted,checked,remaining}=stockCountBatch(entry,sufficient)
+   if(remaining||checked.length!==lot.count)throw new Error('The entire stock lot must be finalized together. No partial submissions were made.')
+   if(counted.some(([,v])=>!isQuantityInput(v)))throw new Error(t('stock.negative_error','Stock quantities must be zero or positive numbers.'))
+   const canSeeReview=canNavigate('requirements')
+   // The editable lot review is the confirmation. Submit once from that review.
+   if(!lotReviewOpen)throw new Error('Review the stock lot before submitting.')
+   setBusy(true)
+   const overrides=sufficientStockOverrides(entry,sufficient,localSearchIndex)
+   let overrideReason=''
+   if(overrides.length&&!await confirmDanger({tone:'action',title:'Explain sufficient-stock override',message:overrides.length+' item(s) have an exact count at or below reorder but are marked sufficient.',requireReason:true,confirmLabel:'Record reason & submit',onConfirm:({reason})=>{overrideReason=reason}}))return
+   const notes=sufficientOverrideNotes(overrides,overrideReason)
    await draftWrites.current
    await ensureServerCountStart()
    const lines=checked.map(([item_id,v])=>sufficient[item_id]?{item_id,current_stock:null,sufficient_stock:true}:{item_id,current_stock:Number(v)})
-   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:null,p_attachment_path:null})
+   // This RPC creates one stock count. It is never called by Save Draft or Review.
+   const r=await supabase.rpc('proc_submit_stock_and_continue_v3',{p_category:cat||'',p_lines:lines,p_notes:notes,p_attachment_path:null})
    if(r.error)throw r.error
-   const automation=r.data?.automation||null
-   const next={...entry},nextSufficient={...sufficient};checked.forEach(([id])=>{delete next[id];delete nextSufficient[id]})
-   setEntry(next);setSufficient(nextSufficient);setSkipped(new Set());setCursor(0)
-   if(!Object.keys(next).length&&!Object.keys(nextSufficient).length){try{localStorage.removeItem(draftKey)}catch{}startedAt.current=null;if(serverDrafts){await draftWrites.current;await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id)}}
-   let message='Stock submitted. '
-   if(automation?.status==='review_required')message+=(automation.submitted_items||checked.length)+' item(s) saved · '+(automation.requirements||0)+' shortage(s) are waiting in Procurement Review.'
-   else if(automation?.status==='no_requirements')message+=(automation.submitted_items||checked.length)+' item(s) saved · no purchase is needed.'
-   else message+=checked.length+' item(s) saved for procurement review.'
-   setSubmission({message,remaining,needsReview:automation?.status!=='no_requirements'})
+   const now=new Date().toISOString()
+   const marker={count_id:r.data?.count_id||null,count_no:r.data?.count_no||'Finalized lot',submitted_at:now}
+   setFinalizedMarkers(prev=>{
+    const next={...prev}
+    for(const line of lines)next[line.item_id]={...marker,current_stock:line.current_stock}
+    return next
+   })
+   // Server RPC deletes its draft transactionally. Do not let a stale zero-item
+   // autosave recreate the previous lot after the successful final submission.
+   skipEmptyDraft.current=true
+   try{localStorage.removeItem(draftKey)}catch{}
+   if(serverDrafts){
+    try{await draftWrites.current;const removed=await supabase.from('proc_stock_count_drafts').delete().eq('owner_id',profile.id);if(removed.error)console.warn('Completed lot draft cleanup delayed',removed.error)}catch(e){console.warn('Completed lot draft cleanup delayed',e)}
+   }
+   setEntry({});setSufficient({});setSkipped(new Set());setCursor(0);setExplicitRecounts(new Set());startedAt.current=null;setLotReviewOpen(false)
+   const outcome=stockSubmissionOutcome(r.data,{purchaseVisible:canSeeReview})
+   setSubmission({...outcome,message:lot.count+' item(s) saved. '+outcome.message,remaining:0})
    await load()
    if(historyOpen)await loadStockHistory()
-   if(!remaining&&automation?.status!=='no_requirements'&&canNavigate('requirements')&&isActiveView('stock'))navigate('requirements','pending_review',2)
+   // The scope effect refreshes after the lot clears; do not restart its old scope.
+   // Keep the saved result visible; the buyer can choose the next action.
   }catch(e){
    fail(e)
-  }finally{setBusy(false)}
+  }finally{
+   submissionLock.current=false
+   setBusy(false)
+  }
  }
 
  async function discardDraft(){
@@ -479,13 +586,31 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   try{return new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Colombo'})}catch{return String(v)}
  }
  async function loadStockHistory(){
-  setHistoryLoading(true)
+  setHistoryLoading(true);setHistoryError('')
   try{
-   const r=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:30})
+   const r=await supabase.rpc('proc_stock_submission_history_v1',{p_limit:100})
    if(r.error)throw r.error
-   setHistoryRows(r.data||[])
-  }catch(e){fail(e)}finally{setHistoryLoading(false)}
+   setHistoryRows(generalStockHistoryRows(r.data))
+  }catch(e){
+   setHistoryError('General stock history could not be loaded. Please retry.')
+   console.warn('General stock history unavailable',e)
+  }finally{setHistoryLoading(false)}
  }
+ useEffect(()=>{if(itemListType&&itemListType!==stockTab)setStockTab(itemListType==='company'&&can('company_lists.view')?'company':'general')},[itemListType,can])
+ useEffect(()=>{onStockTabChange?.(stockTab)},[onStockTabChange,stockTab])
+ useEffect(()=>{
+  if(historyRequest>0&&stockTab==='general'&&isActiveView('stock')){
+   setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()
+  }
+ },[historyRequest])
+ useEffect(()=>{
+  if(!historyOpen)return
+  const previous=document.activeElement
+  historyCloseRef.current?.focus()
+  const onEscape=e=>{if(e.key==='Escape')setHistoryOpen(false)}
+  window.addEventListener('keydown',onEscape)
+  return()=>{window.removeEventListener('keydown',onEscape);previous?.focus?.()}
+ },[historyOpen])
  async function openHistoryRow(row){
   if(historyDetail?.count_id===row.count_id){setHistoryDetail(null);return}
   setHistoryLoading(true)
@@ -496,42 +621,64 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
   }catch(e){fail(e)}finally{setHistoryLoading(false)}
  }
 
- const browsePages=Math.max(1,Math.ceil(items.length/browsePageSize))
- const browseItems=items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
- useEffect(()=>{if(browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages])
+ const browsePages=Math.max(1,Math.ceil((serverPaged?dueTotal:items.length)/browsePageSize))
+ const browseItems=serverPaged?items:items.slice(browsePage*browsePageSize,(browsePage+1)*browsePageSize)
+ useEffect(()=>{if(!loading&&browsePage>=browsePages)setBrowsePage(Math.max(0,browsePages-1))},[browsePage,browsePages,loading])
  const cols=[
-  {key:'description',label:'Item',render:i=><strong>{stockItemLabel(i)}</strong>},
-  {key:'uom',label:'UOM'},
+  {key:'description',label:'Item',render:i=><div>{canEditItems?<button type="button" title="Hold to edit item" style={{padding:0,border:0,background:'none',color:'inherit',font:'inherit',textAlign:'left',touchAction:'pan-y',userSelect:'none'}} onClick={consumeLongPress} {...itemLongPressProps(i)}><strong>{stockItemLabel(i)}</strong></button>:<strong>{stockItemLabel(i)}</strong>}{finalizedMarkers[i.item_id]&&<StockHistoryLink itemName={stockItemLabel(i)} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}/>}</div>},
+  {key:'uom',label:'UOM',render:i=>uppercaseItemText(i.uom)},
   {key:'movement',label:'Movement',render:i=><Badge>{i.movement}</Badge>},
   ...(rowField('reorder_level',true)?[{key:'reorder_level',label:'Reorder',render:i=><strong className="stock-reorder-value">{qty(i.reorder_level)}</strong>}]:[]),
-  ...(rowField('brand')?[{key:'brand',label:'Brand'}]:[]),
+  ...(rowField('brand')?[{key:'brand',label:'Brand',render:i=>uppercaseItemText(i.brand)}]:[]),
   ...(rowField('item_code')?[{key:'item_code',label:'Code'}]:[]),
-  ...(rowField('category')?[{key:'category',label:'Category'}]:[]),
-  ...(rowField('main_group')?[{key:'main_group',label:'Main Group'}]:[]),
-  ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group'}]:[]),
+  ...(rowField('category')?[{key:'category',label:'Category',render:i=>uppercaseItemText(i.category)}]:[]),
+  ...(rowField('main_group')?[{key:'main_group',label:'Main Group',render:i=>uppercaseItemText(i.main_group)}]:[]),
+  ...(rowField('subgroup')?[{key:'subgroup',label:'Sub Group',render:i=>uppercaseItemText(i.subgroup)}]:[]),
   ...(rowField('max_stock')?[{key:'max_stock',label:'Max',render:i=>qty(i.max_stock)}]:[]),
-  {key:'current_stock',label:'Stock',render:i=><input aria-label={'Current stock: '+stockItemLabel(i)} className="input stock-entry" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[i.item_id]} value={sufficient[i.item_id]?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>},
-  {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
+  {key:'current_stock',label:'Stock',render:i=>finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)?<button className="btn small" onClick={()=>allowRecount(i.item_id)}>{tr('Recount')}</button>:<input aria-label={'Current stock: '+stockItemLabel(i)} className="input stock-entry" inputMode="decimal" enterKeyHint="next" disabled={!!sufficient[i.item_id]} value={sufficient[i.item_id]?'':entry[i.item_id]??''} onChange={e=>setCount(i.item_id,e.target.value)}/>},
+  {key:'sufficient_stock',label:'Sufficient',render:i=><input aria-label={'Sufficient stock: '+stockItemLabel(i)} title="Stock is above the reorder level; exact count not required" type="checkbox" className="stock-sufficient-checkbox" disabled={!!finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)} checked={!!sufficient[i.item_id]} onChange={e=>setEnough(i.item_id,e.target.checked)}/>}
  ]
 
- const stockTabs=<div className="stock-list-tabs" role="tablist" aria-label="Stock lists"><button role="tab" aria-selected={stockTab==='general'} className={'btn '+(stockTab==='general'?'primary':'')} onClick={()=>setStockTab('general')}>General / Bathroom Items</button>{can('company_lists.view')&&<button role="tab" aria-selected={stockTab==='company'} className={'btn '+(stockTab==='company'?'primary':'')} onClick={()=>setStockTab('company')}>Company Items</button>}</div>
- if(stockTab==='company')return <>{stockTabs}<CompanyLists profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
+ const canSeePurchaseHistory=canNavigate('requirements')||canNavigate('po')
+ const submitCount=new Set([...Object.keys(entry).filter(id=>entry[id]!==''&&entry[id]!==undefined),...Object.keys(sufficient).filter(id=>sufficient[id])]).size
+ const submitLabel=busy?'Submitting…':'Review & submit · '+submitCount
+ const stockTabs=<ItemListSelector value={stockTab} onChange={changeStockTab} allowCompany={can('company_lists.view')} t={t}/>
+ if(stockTab==='company')return <>{stockTabs}<CompanyLists countingOnly canNavigate={canNavigate} profile={profile} fields={fields} company={company} flash={flash} fail={fail} can={can} navigate={navigate} active={isActiveView('stock')} t={t}/></>
  return <>
   {stockTabs}
-  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{t('stock.saved','Stock count saved.')}</h3><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}{submission.needsReview&&!canNavigate('requirements')&&<p>{t('stock.waiting_review','Your procurement team will review the shortages. You can continue counting stock.')}</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{submission.needsReview&&canNavigate('requirements')&&<button className="btn primary" onClick={()=>navigate('requirements','to_order')}>{t('stock.continue_review','Continue to Procurement Review')} →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
+  {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} onClose={()=>setItemHistory(null)}/>}
+  {lotReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
+   <div className="modal card stock-lot-modal" role="dialog" aria-modal="true" aria-label="Review stock lot before final submission">
+    <div className="modal-head"><div><h3>{tr('Review stock lot')} · {pendingLot.count} {tr('items')}</h3><p className="muted tiny">{tr('Check your quantities, then submit once.')}</p></div><button type="button" className="btn small" disabled={busy} onClick={()=>setLotReviewOpen(false)} aria-label="Return to counting">✕</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Stock lot actions"><button type="button" className="btn" disabled={busy} onClick={()=>setLotReviewOpen(false)}>{tr('Back to counting')}</button><button type="button" className="btn primary" aria-label={`Submit reviewed lot of ${pendingLot.count} stock items`} disabled={busy||!markersReady||!pendingLot.count||!!pendingLot.blocked.length||pendingLot.overLimit} onClick={submit}>{busy?tr('Submitting…'):`${tr('Submit')} · ${pendingLot.count}`}</button></div>
+    {!markersReady&&<p className="notice" role="alert">{markerError||'Checking previous submissions for the items in this lot…'} <button type="button" className="btn small" onClick={()=>void refreshFinalizedMarkers()}>{tr('Retry history check')}</button></p>}
+    {pendingLot.count===0?<p>No items counted yet. Return to Stock Entry and enter quantities.</p>:<>
+     {pendingLot.blocked.length>0&&<p className="notice" role="alert">{pendingLot.blocked.length} item(s) were finalized in previous lots. Remove them or explicitly choose Recount before finalizing.</p>}
+     {pendingLot.overLimit&&<p className="notice" role="alert">This lot is too large for one server submission (maximum 1000 items). Nothing will be submitted until an administrator helps split it safely.</p>}
+     <div className="stock-lot-rows">{pendingLot.rows.map(row=><div className="stock-lot-row" key={row.id}>
+      <div className="stock-lot-item"><strong>{uppercaseItemText(row.description)}</strong>{row.previous&&<small className="stock-submitted-badge">{row.requiresRecount?'✓ Previously submitted':'↺ Explicit recount'} · {row.previous.count_no} · {submissionTime(row.previous.submitted_at)}</small>}</div>
+      {row.requiresRecount?<button type="button" className="btn small" onClick={()=>allowRecount(row.id)}>{tr('Recount')}</button>:<><input className="input stock-lot-qty" inputMode="decimal" aria-label={'Count for '+row.description} disabled={busy||row.sufficient} value={row.sufficient?'':row.quantity??''} onChange={e=>setCount(row.id,e.target.value)}/><label className="stock-lot-enough"><input type="checkbox" disabled={busy} checked={row.sufficient} onChange={e=>setEnough(row.id,e.target.checked)}/>{tr('Enough')}</label></>}
+      <button type="button" className="btn small stock-lot-remove" disabled={busy} onClick={()=>removeFromLot(row.id)} aria-label={'Remove '+row.description+' from pending lot'}>{tr('Remove')}</button>
+     </div>)}</div>
+    </>}
+
+    <p className="muted tiny" role="status">{draftSave.server==='failed'?'Draft sync failed. Keep this screen open and retry.':draftSave.server==='saved'?'Draft saved':draftSave.local?'Draft saved on this device':'Draft not saved yet. Keep this screen open.'}</p>{draftSave.server==='failed'&&<button className="btn small" onClick={()=>setDraftRetry(n=>n+1)}>Retry draft sync</button>}
+   </div>
+  </div>}
+  {submission&&<div ref={resultRef} className="card pad workflow-result section" role="status"><div className="sectionhead"><div><h3>{submission.title}</h3><AttentionBadge reason={submission.attentionReason}/><p>{submission.message}</p>{submission.remaining>0&&<p>{submission.remaining} counted item(s) remain in your draft. Submit the next batch when ready.</p>}</div><button className="btn small" aria-label="Dismiss stock result" onClick={()=>setSubmission(null)}>×</button></div><div className="toolbar">{(submission.key!=='saved'||submission.needsAttention)&&canNavigate('dashboard')&&<button className="btn" onClick={()=>navigate('dashboard')}>View work →</button>}<button className="btn" onClick={()=>setSubmission(null)}>{t('stock.keep_counting','Continue stock entry')}</button></div></div>}
   <div className="card pad stock-work-header">
-   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter or update the physical quantity, then tap Submit Stock. Each submission is kept in history.')}</p></div><div className="toolbar"><button className={'btn '+(historyOpen?'primary':'')} onClick={()=>{const next=!historyOpen;setHistoryOpen(next);if(next&&!historyRows.length)loadStockHistory()}}>{t('stock.history','History')}</button><button className="btn primary" disabled={busy} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('stock.submit','Submit Stock')+' · '+Object.values(entry).filter(v=>v!==''&&v!==undefined).length}</button></div></div>
+   <div className="sectionhead"><div><h3>{t('stock.title','Stock Entry')}</h3><p>{t('stock.subtitle','Enter quantities, then review and submit.')}</p></div><div className="toolbar"><details className="stock-options"><summary>Options</summary><button className="btn small" onClick={()=>{setHistoryOpen(true);setHistoryDetail(null);void loadStockHistory()}} aria-label="View recent General stock submission history">Submission history</button></details><StockSubmitAction active={isActiveView('stock')}><button className="btn primary stock-submit-dock" aria-label={submitLabel} disabled={busy||!draftReady} onClick={()=>setLotReviewOpen(true)}><span className="stock-submit-full">{submitLabel}</span><span className="stock-submit-compact" aria-hidden="true">{busy?'Submitting…':`Submit · ${submitCount}`}</span></button></StockSubmitAction></div></div>
    {heldSearch&&<div className="stock-held-summary" role="status">
     <div className="stock-held-summary-info"><strong>Held: {heldSearch.query}</strong><p>{items.length} matching items · Entered quantities stay saved.</p></div>
     <button type="button" className="btn small stock-clear-unhold" aria-label="Clear & Unhold" onClick={releaseHeldSearch}>✕ Clear &amp; Unhold</button>
    </div>}
-   {historyOpen&&<div className="stock-history-panel section">
-    <div className="stock-history-head"><div><strong>{t('stock.history_title','Stock Submission History')}</strong><span>{t('stock.history_hint','Recount anytime. The latest count updates current stock; older submissions stay unchanged.')}</span></div><button className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button></div>
-    {historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div><div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div><div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
-     <div className="stock-history-list">{historyRows.map(h=><div className="stock-history-record" key={h.count_id}><button className="stock-history-row" onClick={()=>openHistoryRow(h)}><div><strong>{h.count_no}</strong><span>{submissionTime(h.submitted_at)} · {h.counted_by_name||'Staff'}{h.category?' · '+h.category:''}</span></div><div className="stock-history-numbers"><b>{h.item_count||0} {t('stock.items_label','items')}</b><span>{h.shortage_count||0} {t('stock.need_order','need order')}</span></div><span className="stock-history-chevron">{historyDetail?.count_id===h.count_id?'⌃':'⌄'}</span></button>
-      {historyDetail?.count_id===h.count_id&&<div className="stock-history-detail"><div className="stock-history-detail-head"><span>{t('stock.item','ITEM')}</span><span>{t('stock.submitted_stock','SUBMITTED STOCK')}</span><span>{t('stock.order','ORDER')}</span></div>{historyDetail.lines.map(line=><div className="stock-history-detail-row" key={line.line_id}><div><strong>{[line.description,line.size].filter(Boolean).join(' · ')}</strong><small>{[line.item_code,line.uom].filter(Boolean).join(' · ')}</small></div><b>{qty(line.current_stock)}</b><b className={Number(line.required_qty)>0?'warn-text':''}>{Number(line.required_qty)>0?qty(line.required_qty):'—'}</b></div>)}</div>}
-     </div>)}</div></>:<div className="muted tiny section">{t('stock.history_empty','No submitted stock counts yet.')}</div>}
-   </div>}
+   {historyOpen&&<div className="modal-backdrop general-stock-history-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setHistoryOpen(false)}}><section className="modal card stock-history-panel section general-stock-history-modal" role="dialog" aria-modal="true" aria-label="General stock submission history">
+    <div className="stock-history-head"><div><strong>General Stock Submission History</strong><span>Recent General / Bathroom counts. Search, page and movement filters do not affect this history.</span></div><div className="general-stock-history-actions"><button type="button" className="btn small" disabled={historyLoading} onClick={loadStockHistory}>{t('common.refresh','Refresh')}</button><button type="button" className="btn small" ref={historyCloseRef} aria-label="Close General stock history" onClick={()=>setHistoryOpen(false)}>✕</button></div></div>
+    {historyError&&<p role="alert" className="notice">{historyError} <button type="button" className="btn small" onClick={loadStockHistory} disabled={historyLoading}>Retry</button></p>}
+    {!historyError&&(historyLoading&&!historyRows.length?<div className="muted tiny section">{t('stock.history_loading','Loading stock history…')}</div>:historyRows.length?<><div className="stock-history-summary"><div><span>{t('stock.latest_submission','Latest submission')}</span><b>{historyRows[0].item_count||0} {t('stock.items_label','items')}</b></div>{canSeePurchaseHistory&&<div><span>{t('stock.need_review','Need review')}</span><b>{historyRows[0].shortage_count||0}</b></div>}<div><span>{t('stock.zero_stock','Zero stock')}</span><b>{historyRows[0].zero_count||0}</b></div><div><span>{t('stock.submitted','Submitted')}</span><b>{submissionTime(historyRows[0].submitted_at)}</b></div></div>
+     <div className="stock-history-list">{historyRows.map(h=><div className="stock-history-record" key={h.count_id}><button className="stock-history-row" onClick={()=>openHistoryRow(h)}><div><strong>{h.count_no}</strong><span>{submissionTime(h.submitted_at)} · {h.counted_by_name||'Staff'}{h.category?' · '+h.category:''}</span></div><div className="stock-history-numbers"><b>{h.item_count||0} {t('stock.items_label','items')}</b>{canSeePurchaseHistory&&<span>{h.shortage_count||0} {t('stock.need_order','need order')}</span>}</div><span className="stock-history-chevron">{historyDetail?.count_id===h.count_id?'⌃':'⌄'}</span></button>
+      {historyDetail?.count_id===h.count_id&&<div className="stock-history-detail"><div className="stock-history-detail-head" style={!canSeePurchaseHistory?{gridTemplateColumns:'minmax(0,1fr) 110px'}:undefined}><span>{t('stock.item','ITEM')}</span><span>{t('stock.submitted_stock','SUBMITTED STOCK')}</span>{canSeePurchaseHistory&&<span>{t('stock.order','ORDER')}</span>}</div>{historyDetail.lines.map(line=><div className="stock-history-detail-row" key={line.line_id} style={!canSeePurchaseHistory?{gridTemplateColumns:'minmax(0,1fr) 110px'}:undefined}><div><strong>{uppercaseItemText([line.description,line.size].filter(Boolean).join(' · '))}</strong><small>{[line.item_code,uppercaseItemText(line.uom)].filter(Boolean).join(' · ')}</small></div><b>{qty(line.current_stock)}</b>{canSeePurchaseHistory&&<b className={Number(line.required_qty)>0?'warn-text':''}>{Number(line.required_qty)>0?qty(line.required_qty):'—'}</b>}</div>)}</div>}
+     </div>)}</div></>:<div className="muted tiny section">No recent General stock submissions were found.</div>)}</section></div>}
 
    <button className="stock-search-launch" onClick={()=>{setSearchOpen(true);setTimeout(()=>document.getElementById('stock-global-search')?.focus(),60)}}>
     <span className="stock-search-icon">⌕</span><span><strong>{t('stock.search_any','Search any item')}</strong><small>{t('stock.search_hint','Name, size, code, brand or group')}</small></span><span>›</span>
@@ -544,9 +691,9 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
     <button className={'btn '+(viewMode==='browse'?'primary':'')} onClick={()=>setViewMode('browse')}>{t('stock.browse','Fast Entry')}</button>
    </div>}
 
-   {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:items.length+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
+   {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:(serverPaged?dueTotal:items.length)+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
 
-   <div className="movement-tabs no-print section"><span className="muted tiny stock-inline-help">{t('stock.movement','Movement')} <InfoButton topic="movement" language={language}/></span>{['FAST','NORMAL','SLOW'].map(m=><button key={m} className={'btn '+(movement===m?'primary':'')} onClick={()=>setMovement(m)}>{m}</button>)}{!isCounter&&<button className={'btn '+(movement===''?'primary':'')} onClick={()=>setMovement('')}>ALL</button>}</div>
+   <div className="movement-tabs no-print section"><span className="muted tiny stock-inline-help">{t('stock.movement','Movement')} <InfoButton topic={isCounter?'stock_movement':'movement'} language={language}/></span>{['FAST','NORMAL','SLOW'].map(m=><button key={m} className={'btn '+(movement===m?'primary':'')} onClick={()=>setMovement(m)}>{m}</button>)}{!isCounter&&<button className={'btn '+(movement===''?'primary':'')} onClick={()=>setMovement('')}>ALL</button>}</div>
 
    <div className="stock-filter-summary section">
     <div><span className="muted tiny">{t('stock.current_filter','Current filter')}</span><strong>{[cat||t('stock.all_categories','All categories'),mainGroup||t('stock.all_groups','All groups'),movement||t('stock.all_movement','All movement')].join(' · ')}</strong></div>
@@ -588,9 +735,10 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="stock-pagination dense-pagination"><button className="btn small" disabled={browsePage<=0} onClick={()=>setBrowsePage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><strong>{t('common.page','Page')} {browsePage+1} {t('common.of','of')} {browsePages}</strong><button className="btn small" disabled={browsePage>=browsePages-1} onClick={()=>setBrowsePage(x=>Math.min(browsePages-1,x+1))}>{t('common.next','Next')}</button></div>
    <div className="desktop-table tablewrap"><table className="table"><thead><tr>{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{browseItems.map(i=><tr key={i.item_id} className={sufficient[i.item_id]||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')?'selected':''}>{cols.map(c=><td key={c.key}>{c.render?c.render(i):String(i[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
    <div className="mobile-card-list browse-entry-list stock-dense-list">
-    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}</span><span>{t('stock.stock','STOCK')}</span><span>Sufficient</span></div>
+    <div className="stock-dense-columns"><span>{t('stock.item','ITEM')}{canEditItems&&<small title="Hold item to edit" style={{fontSize:9,fontWeight:400,marginLeft:5}}>· Hold to edit</small>}</span><span>{t('stock.stock','STOCK')}</span><span>Sufficient</span></div>
     {browseItems.map((i,index)=>{
      const enough=!!sufficient[i.item_id]
+     const alreadySubmitted=finalizedMarkers[i.item_id]&&!explicitRecounts.has(i.item_id)
      const entered=enough||(entry[i.item_id]!==undefined&&entry[i.item_id]!=='')
      const expanded=expandedBrowseId===i.item_id
      const optional=[
@@ -602,13 +750,16 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
       rowField('subgroup')?i.subgroup:null,
       rowField('max_stock')?'MAX:'+qty(i.max_stock):null
      ].filter(Boolean)
-     return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')+(enough?' sufficient':'')} key={i.item_id}>
-      <button type="button" className="stock-dense-info" title={stockItemLabel(i)} onClick={()=>setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}>
-       <span className="stock-dense-title">{stockItemLabel(i)}</span>
-       <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
-      </button>
-      <div className="stock-dense-input-wrap">{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></div>
-      <label className="stock-dense-sufficient" title="Stock is above the reorder level; exact count not required"><input type="checkbox" className="stock-sufficient-checkbox" aria-label={'Sufficient stock: '+stockItemLabel(i)} checked={enough} onChange={e=>setEnough(i.item_id,e.target.checked)}/></label>
+     return <div id={'browse-row-'+i.item_id} className={'stock-dense-row '+(entered?'entered ':'pending ')+(activeBrowseId===i.item_id?'active ':'')+(expanded?'expanded':'')+(enough?' sufficient':'')+(alreadySubmitted?' stock-already-submitted':'')} key={i.item_id}>
+      <div className="stock-dense-info">
+       <button type="button" className="stock-dense-item-toggle" style={canEditItems?{touchAction:'pan-y',userSelect:'none',WebkitUserSelect:'none'}:undefined} title={canEditItems?'Tap for details · Hold to edit '+stockItemLabel(i):stockItemLabel(i)} onClick={e=>{if(consumeLongPress(e))return;setExpandedBrowseId(x=>x===i.item_id?null:i.item_id)}} {...itemLongPressProps(i)}>
+        <span className="stock-dense-title">{stockItemLabel(i)}</span>
+        <span className="stock-dense-meta"><span className={'mini-movement '+String(i.movement||'').toLowerCase()}>{i.movement}</span><span>{i.uom}</span>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}{optional.map((x,n)=><span key={n}>{x}</span>)}</span>
+       </button>
+       {finalizedMarkers[i.item_id]&&<StockHistoryLink itemName={stockItemLabel(i)} recounting={!alreadySubmitted} onClick={()=>setItemHistory({id:i.item_id,name:stockItemLabel(i)})}/>}
+      </div>
+      <div className="stock-dense-input-wrap">{alreadySubmitted?<button type="button" className="btn small stock-recount-action" onClick={()=>allowRecount(i.item_id)}>{tr('Recount')}</button>:<>{entered&&<span className="entry-check">✓</span>}<input id={'browse-stock-'+i.item_id} aria-label={stockItemLabel(i)+' '+t('stock.stock','Stock')} className="input browse-stock-input dense-stock-input" inputMode="decimal" enterKeyHint="next" autoComplete="off" disabled={enough} value={enough?'':entry[i.item_id]??''} onFocus={e=>{e.currentTarget.select();focusDenseInput(i)}} onBlur={()=>setActiveBrowseId(x=>x===i.item_id?null:x)} onChange={e=>setCount(i.item_id,e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();focusBrowseNext(index)}}} placeholder="0"/></>}</div>
+      <label className="stock-dense-sufficient" title="Stock is above the reorder level; exact count not required"><input type="checkbox" className="stock-sufficient-checkbox" aria-label={'Sufficient stock: '+stockItemLabel(i)} disabled={!!alreadySubmitted} checked={enough} onChange={e=>setEnough(i.item_id,e.target.checked)}/></label>
      </div>
     })}
    </div>
@@ -620,19 +771,26 @@ export function StockCheck({initialFilter='',profile,fields,features=[],settings
    <div className="stock-search-panel">
     <div className="stock-search-top">
      <button className="btn small" onClick={()=>setSearchOpen(false)}>←</button>
-     <input id="stock-global-search" className="input stock-search-input" autoComplete="off" inputMode="search" enterKeyHint="search" placeholder={t('stock.search_placeholder','Search e.g. 6mm, GI elbow, item code…')} value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+     <input id="stock-global-search" className="input stock-search-input" autoComplete="off" inputMode="search" enterKeyHint="search" placeholder={t('stock.search_placeholder','Search item or code (typos OK)…')} value={uppercaseItemText(searchTerm)} onChange={e=>setSearchTerm(uppercaseItemText(e.target.value))}/>
      {searchTerm&&<button className="btn small" onClick={()=>setSearchTerm('')}>{t('common.clear','Clear')}</button>}
     </div>
     <div className="stock-search-scope"><button className={'choice-pill '+(searchScope==='all'?'selected-choice':'')} onClick={()=>setSearchScope('all')}>{t('stock.all_items','All Items')}</button><button className={'choice-pill '+(searchScope==='current'?'selected-choice':'')} onClick={()=>setSearchScope('current')}>{t('stock.current_filters','Current Filters')}</button></div>
-    <label className="stock-search-hold"><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span><strong>Hold all matching results for stock entry</strong><small>{catalogueReady?'Keep all matching items in Stock Entry until released.':'Preparing all matching items…'}</small></span></label>
+    <label className="stock-search-hold" title="Keep matching items in Stock Entry until released."><input type="checkbox" checked={!!heldSearch&&heldSearch.query===searchTerm.trim()} disabled={!searchTerm.trim()||!catalogueReady} onChange={e=>e.target.checked?holdSearchResults():releaseHeldSearch()}/><span>Hold matching items</span></label>
     {searchError&&<div className="muted tiny" role="status">{searchError}</div>}
-    <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={()=>openQuick(i)}>
-      <div><strong>{stockItemLabel(i)}</strong><span>{[i.brand,i.uom].filter(Boolean).join(' · ')}</span><small>{[i.subgroup,i.category].filter(Boolean).join(' › ')}</small></div>
+    <div className="stock-search-results">{!searchTerm.trim()?<Empty>{t('stock.search_start','Start typing. Results appear here immediately above the keyboard.')}</Empty>:searchBusy&&visibleSearchResults.length===0?<Empty>{t('stock.searching','Searching all items…')}</Empty>:visibleSearchResults.length===0?<Empty>{t('stock.no_match','No matching items. Try item code, brand, size or part of the name.')}</Empty>:visibleSearchResults.map(i=><button className="stock-search-result" key={i.item_id} onClick={e=>{if(consumeLongPress(e))return;openQuick(i)}} {...itemLongPressProps(i)}>
+      <div><strong>{stockItemLabel(i)}</strong><span>{uppercaseItemText([i.brand,i.uom].filter(Boolean).join(' · '))}</span><small>{uppercaseItemText([i.subgroup,i.category].filter(Boolean).join(' › '))}</small>{isApproximateItemMatch(i,searchTerm)&&<small>≈ Possible match · verify item and size</small>}</div>
       <div className="right"><Badge>{i.movement}</Badge>{rowField('reorder_level',true)&&<strong className="stock-reorder-value">Reorder: {qty(i.reorder_level)}</strong>}</div>
      </button>)}</div>
    </div>
   </div>}
 
+  {editCandidate&&<StockItemEditor item={editCandidate} onClose={()=>setEditCandidate(null)} onSaved={async()=>{
+   keepBrowsePosition.current=true
+   setStockLoadRetry(v=>v+1)
+   setCatalogueRetry(v=>v+1)
+   setEditCandidate(null)
+   flash('Item details saved.')
+  }}/>}
   {quickItem&&<div className="modal-backdrop stock-quick-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setQuickItem(null)}}>
    <div className="modal stock-quick-modal card">
     <div className="modal-head"><div><h3>{stockItemLabel(quickItem)}</h3></div><button className="btn small" onClick={()=>setQuickItem(null)}>✕</button></div>
@@ -650,6 +808,7 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
  const[rows,setRows]=useState([]),[q,setQ]=useState(''),[cat,setCat]=useState(''),[cats,setCats]=useState([]),[status,setStatus]=useState('active'),[loading,setLoading]=useState(true),[page,setPage]=useState(0),[total,setTotal]=useState(0)
  const pageSize=100
+ const[groups,setMasterGroups]=useState([]),[uoms,setMasterUoms]=useState(ITEM_UOMS)
  const canEdit=can('items.edit')
 
  const load=useCallback(async()=>{setLoading(true);try{
@@ -662,19 +821,20 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
  }catch(e){fail(e)}finally{setLoading(false)}},[cat,status,q,page,fail])
  useEffect(()=>{const t=setTimeout(load,180);return()=>clearTimeout(t)},[load])
  useEffect(()=>{setPage(0)},[q,cat,status])
- useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error)setCats(r.data?.categories||[])})()},[])
+ useEffect(()=>{(async()=>{const r=await supabase.rpc('proc_item_filter_options_v1');if(!r.error){setCats(r.data?.categories||[]);setMasterGroups(itemOptionValues(r.data?.main_groups));setMasterUoms(itemOptionValues(ITEM_UOMS,r.data?.uoms))}})()},[])
 
  const filtered=rows
 
  async function save(r,k,v){
   if(!canEdit)return
-  let value=v
+  let value=typeof v==='string'&&ITEM_TEXT_FIELDS.includes(k)?uppercaseItemAttributes({[k]:v})[k]:v
   if(k==='max_stock'){
    value=Number(v)
    if(!Number.isFinite(value)||value<0)return fail(new Error(t('items.max_error','Max Stock must be zero or positive.')))
   }
   if(k==='description'&&!String(v||'').trim())return fail(new Error(t('items.description_error','Description cannot be blank.')))
-  const x=await supabase.rpc('proc_update_item_master_v1',{p_item_id:r.id,p_patch:{[k]:value}})
+  const patch=k==='category'&&value!==r.category?{category:value,main_group:'',subgroup:''}:k==='main_group'&&value!==r.main_group?{main_group:value,subgroup:''}:{[k]:value}
+  const x=await supabase.rpc('proc_update_item_master_v1',{p_item_id:r.id,p_patch:patch})
   if(x.error)return fail(x.error)
   flash(k==='active'?(value?t('items.enabled_msg','Item enabled.'):t('items.disabled_msg','Item disabled.')):t('items.updated_msg','Item updated successfully.'))
   await load()
@@ -687,19 +847,19 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
    const result=await supabase.rpc('proc_admin_delete_item_v1',{p_item_id:r.id,p_confirmation:confirmation});if(result.error)throw result.error;flash('Item deleted.');await load()
   }})
  }
+ const editableSelect=(r,key,values,allowEmpty=false)=>canEdit?<ModernSelect className="select compact-select" aria-label={key.replaceAll('_',' ')} value={r[key]||''} allowCustom customOptionLabel={key.replaceAll('_',' ')} onChange={e=>save(r,key,e.target.value)}>{allowEmpty&&<option value="">None</option>}{itemOptionValues(values,r[key]).map(value=><option key={value} value={value}>{value}</option>)}</ModernSelect>:(r[key]||'—')
  const editableText=(r,key,wide=false)=>
-  canEdit?<input className={'input item-inline-edit '+(wide?'wide':'')} defaultValue={r[key]||''} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(String(e.target.value??'')!==String(r[key]??''))save(r,key,e.target.value)}}/>:(r[key]||'—')
+  canEdit?<input className={'input item-inline-edit item-uppercase '+(wide?'wide':'')} defaultValue={uppercaseItemText(r[key]||'')} list={key==='category'?'item-master-categories':undefined} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r[key]))save(r,key,e.target.value)}}/>:uppercaseItemText(r[key]||'—')
 
  const defaults=[
   {key:'active',label:'Enabled',render:r=>canEdit?<button className={'btn small '+(r.active?'good':'')} onClick={()=>save(r,'active',!r.active)}>{r.active?'Enabled':'Disabled'}</button>:<Badge>{r.active?'enabled':'disabled'}</Badge>},
   {key:'item_code',label:'Code',render:r=><span className="mono">{r.item_code}</span>},
-  {key:'category',label:'Category',render:r=>editableText(r,'category')},
-  {key:'brand',label:'Brand',render:r=>editableText(r,'brand')},
-  {key:'description',label:'Description',render:r=><div className="item-master-title"><strong>{itemTitle(r)}</strong>{canEdit&&<input className="input item-inline-edit" defaultValue={r.description||''} onBlur={e=>{if(e.target.value!==r.description)save(r,'description',e.target.value)}}/>}</div>},
-  {key:'main_group',label:'Main Group',render:r=>editableText(r,'main_group')},
+  {key:'category',label:'Category',render:r=>editableSelect(r,'category',cats)},
+  {key:'description',label:'Description',render:r=><div className="item-master-title"><strong>{itemTitle(r)}</strong>{canEdit&&<input className="input item-inline-edit item-uppercase" defaultValue={uppercaseItemText(r.description||'')} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r.description))save(r,'description',e.target.value)}}/>}</div>},
+  {key:'main_group',label:'Main Group',render:r=>editableSelect(r,'main_group',groups,true)},
   {key:'subgroup',label:'Subgroup',render:r=>editableText(r,'subgroup')},
   {key:'size',label:'Size',render:r=>editableText(r,'size')},
-  {key:'uom',label:'UOM',render:r=>editableText(r,'uom')},
+  {key:'uom',label:'UOM',render:r=>editableSelect(r,'uom',uoms)},
   {key:'movement',label:'Movement',render:r=>canEdit?<ModernSelect className="select compact-select" value={r.movement} onChange={e=>save(r,'movement',e.target.value)}><option>FAST</option><option>NORMAL</option><option>SLOW</option></ModernSelect>:<Badge>{r.movement}</Badge>},
   {key:'max_stock',label:'Max Stock',render:r=>canEdit?<input className="input stock-entry" defaultValue={r.max_stock} inputMode="decimal" onBlur={e=>save(r,'max_stock',e.target.value)}/>:qty(r.max_stock)},
   {key:'reorder_level',label:'Reorder At',render:r=>qty(r.reorder_level)},
@@ -709,9 +869,9 @@ export function Items({profile,fields,flash,fail,can=()=>false,t=(k,f)=>f||k}){
 
  return <div className="card pad">
   <datalist id="item-master-categories">{cats.map(c=><option key={c} value={c}/>)}</datalist>
-  <div className="sectionhead"><div><h3>{t('items.title','Item Master')}</h3><p>{t('items.subtitle','Edit approved item details, move items between categories or FAST/NORMAL/SLOW, and enable/disable products without deleting their history.')}</p></div><div className="toolbar"><input className="input toolbar-input" placeholder={t('items.search','Search item, size, brand or group')} value={q} onChange={e=>setQ(e.target.value)}/><ModernSelect className="select toolbar-select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(c=><option key={c}>{c}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={status} onChange={e=>setStatus(e.target.value)}><option value="active">{t('items.enabled_items','Enabled items')}</option><option value="inactive">{t('items.disabled_items','Disabled items')}</option><option value="all">{t('items.all_items','All items')}</option></ModernSelect></div></div>
+  <div className="sectionhead"><div><h3>{t('items.title','Item Master')}</h3><p>{t('items.subtitle','Edit approved item details, move items between categories or FAST/NORMAL/SLOW, and enable/disable products without deleting their history.')}</p></div><div className="toolbar"><input className="input toolbar-input" placeholder={t('items.search','Search item, size, brand or group')} value={q} onChange={e=>setQ(uppercaseItemText(e.target.value))}/><ModernSelect className="select toolbar-select" value={cat} onChange={e=>setCat(e.target.value)}><option value="">{t('stock.all_categories','All categories')}</option>{cats.map(c=><option key={c}>{c}</option>)}</ModernSelect><ModernSelect className="select toolbar-select" value={status} onChange={e=>setStatus(e.target.value)}><option value="active">{t('items.enabled_items','Enabled items')}</option><option value="inactive">{t('items.disabled_items','Disabled items')}</option><option value="all">{t('items.all_items','All items')}</option></ModernSelect></div></div>
   <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async()=>{setQ('');setCat('');setPage(0);await load()}}/>
-  {canEdit&&<div className="notice"><b>{t('items.quick_edit','Quick edit is on.')}</b> {t('items.quick_edit_hint','Change Description, Size, Category, Movement or Max Stock directly. Reorder level remains formula-controlled by movement.')}</div>}
+  {canEdit&&<div className="notice"><b>{t('items.quick_edit','Quick edit is on.')}</b> {t('items.quick_edit_hint','Change Description, Size, Category, Group, UOM, Movement or Max Stock directly. Changing a parent category clears previous child groups. Reorder level remains formula-controlled by movement.')}</div>}
   {loading?<Empty>{t('items.loading','Loading item master…')}</Empty>:<><div className="section"><DataTable columns={cols} rows={filtered} mobileCards/></div><div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?((page*pageSize)+1):0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div></>}
  </div>
 }

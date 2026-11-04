@@ -1,5 +1,5 @@
 import {createClient} from '@supabase/supabase-js'
-import {createHash,timingSafeEqual} from 'node:crypto'
+import {createHash,randomBytes,timingSafeEqual} from 'node:crypto'
 import {renderProcurementPng} from '@/lib/procurement-auto-png.mjs'
 import {eligibleAutomaticJob,hasExistingAttempt,supplierSendRows,verifiedAuditGroup} from '@/lib/procurement-auto-selection.mjs'
 import {supplierRequestItems} from '@/lib/rfq-sheet'
@@ -58,8 +58,8 @@ async function itemsForIds(db,ids){
  return map
 }
 async function rfqWork(db,rfqId){
- const rfq=checked(await db.from('proc_rfqs').select('id,rfq_no,due_date,status').eq('id',rfqId).maybeSingle(),'RFQ lookup failed')
- if(!rfq||['awarded','closed','cancelled'].includes(rfq.status))return []
+ const rfq=checked(await db.from('proc_rfqs').select('id,rfq_no,due_date,status,company_id').eq('id',rfqId).maybeSingle(),'RFQ lookup failed')
+ if(!rfq||rfq.company_id||['awarded','closed','cancelled'].includes(rfq.status))return []
  const raw=checked(await db.from('proc_rfq_items').select('id,requirement_id,requested_qty').eq('rfq_id',rfqId),'RFQ lines unavailable')
  if(!raw.length)throw new Error('RFQ contains no lines')
  const requirements=checked(await db.from('proc_requirements').select('id,item_id').in('id',[...new Set(raw.map(x=>x.requirement_id))]),'RFQ requirements unavailable')
@@ -77,7 +77,10 @@ async function rfqWork(db,rfqId){
   const scopes=checked(await db.from('proc_supplier_scopes').select('supplier_id,scope_type,item_id,scope_value').eq('supplier_id',inv.supplier_id),'Supplier scope unavailable')
   const selected=supplierRequestItems(items,inv,scopes)
   if(!selected.length)continue
+  const token=randomBytes(32).toString('hex')
+  checked(await db.rpc('proc_portal_issue_verified_link_v1',{p_rfq_supplier_id:inv.id,p_token_hash:createHash('sha256').update(token).digest('hex'),p_hours:6}),'Verified supplier quotation link could not be created')
   output.push({kind:'rfq',id:rfq.id,supplierId:supplier.id,number:rfq.rfq_no,supplier:supplier.name,
+   quoteUrl:ORIGIN+'/supplier/quote#token='+token,
    dueDate:rfq.due_date,rows:supplierSendRows(selected.map(x=>({
     description:x.requirement.item.description,size:x.requirement.item.size,uom:x.requirement.item.uom,qty:x.requested_qty
    })))})
@@ -85,8 +88,8 @@ async function rfqWork(db,rfqId){
  return output
 }
 async function poWork(db,poId){
- const po=checked(await db.from('proc_purchase_orders').select('id,po_no,status,supplier_id,po_date,quantity_only').eq('id',poId).maybeSingle(),'PO lookup failed')
- if(!po||po.status!=='approved')return []
+ const po=checked(await db.from('proc_purchase_orders').select('id,po_no,status,supplier_id,po_date,quantity_only,company_id').eq('id',poId).maybeSingle(),'PO lookup failed')
+ if(!po||po.company_id||po.status!=='approved')return []
  const existing=checked(await db.from('proc_whatsapp_po_dispatches').select('id,status').eq('po_id',poId).limit(1),'PO send history unavailable')
  if(hasExistingAttempt(existing))return []
  const supplier=checked(await db.from('proc_suppliers').select('id,name,active').eq('id',po.supplier_id).maybeSingle(),'PO supplier lookup failed')
@@ -98,42 +101,32 @@ async function poWork(db,poId){
   uom:items.get(x.item_id)?.uom,qty:x.qty,
   ...(po.quantity_only?{}:{unitPrice:x.unit_price,lineTotal:x.line_total})})))}]
 }
-async function auditCopy(db,work,document,dispatchId){
- const config=gatewayConfig(),groupId=auditGroup(work.kind)
- if(!config||!groupId||!dispatchId)throw new Error('Owner-only audit configuration is incomplete')
- const caption='GH PROCUREMENT PRIVATE AUDIT - '+work.kind.toUpperCase()+' '+work.number+' - '+work.supplier
- const hash=createHash('sha256').update(document.png).digest('hex')
- const attemptId=checked(await db.rpc('proc_whatsapp_claim_private_group_copy',{
-  p_kind:work.kind,p_source_id:dispatchId,p_page:1,p_group_id:groupId,p_session:config.session,
-  p_image_sha256:hash,p_caption:caption
- }),'Could not claim private audit copy')
- let status='unknown',messageId=null,lastError=null
- try{
-  const response=await fetch(config.base+'/api/sendImage',{method:'POST',
-   headers:{'X-Api-Key':config.key,'Content-Type':'application/json',Accept:'application/json'},
-   body:JSON.stringify({session:config.session,chatId:groupId,
-    file:{mimetype:'image/png',filename:'GH-'+work.kind.toUpperCase()+'-'+work.id+'.png',data:document.base64},caption}),
-   cache:'no-store',redirect:'error',signal:AbortSignal.timeout(25000)})
-  if(response.ok){
-   const data=await response.json().catch(()=>({}))
-   messageId=typeof data?.id==='string'?data.id:typeof data?.id?._serialized==='string'?data.id._serialized:null
-   status='accepted'
-  }else{
-   status=response.status>=500?'unknown':'failed'
-   lastError='Private group gateway returned HTTP '+response.status
-  }
- }catch{lastError='Private group outcome unknown - do not retry automatically'}
- const updated=checked(await db.rpc('proc_whatsapp_finish_private_group_copy',{
-  p_id:attemptId,p_status:status,p_message_id:messageId,p_error:lastError
- }),'Could not finalize private audit copy')
- if(!updated||status!=='accepted')throw new Error('Owner audit copy not confirmed as accepted; inspect the group manually')
- return true
+async function companyPendingWork(db,cutoff,limit){
+ const result=[]
+ for(const [table,kind] of [['proc_company_rfq_queue','company_rfq'],['proc_company_dispatch_queue','company_po']]){
+  const rows=checked(await db.from(table).select('id,created_at').eq('status','pending').gte('created_at',cutoff)
+   .order('created_at').order('id').limit(limit),'Company sending queue unavailable')
+  for(const row of rows||[])result.push({kind,queueId:row.id})
+ }
+ return result.slice(0,limit)
+}
+async function sendCompanyWork(token,work){
+ const route=work.kind==='company_rfq'?'rfqs':'orders'
+ const response=await fetch(ORIGIN+'/api/company-items/'+route,{
+  method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+  body:JSON.stringify({queueIds:[work.queueId]}),cache:'no-store',redirect:'error',signal:AbortSignal.timeout(110000)
+ })
+ const data=await response.json().catch(()=>({}))
+ const outcome=data.outcomes?.find(v=>v.id===work.queueId)
+ if(!response.ok||!outcome||outcome.status!=='accepted'||outcome.error)throw new Error('Company supplier send needs reconciliation. No automatic retry.')
+ if(!outcome.privateGroupCopies?.length||outcome.privateGroupCopies.some(v=>v.status!=='accepted'))throw new Error('Company supplier accepted but its private audit copies need review. Do not resend.')
+ return {kind:work.kind,supplierAccepted:true,auditAccepted:true,deliveryVerified:false}
 }
 async function sendWork(db,token,work){
  const document=renderProcurementPng(work)
  const caption=work.kind==='rfq'?
-  'General Hardware - RFQ '+work.number+'. Please review the attached price request and submit your prices.':
-  'General Hardware - PO '+work.number+'. Please confirm availability and delivery.'
+  'GEN - RFQ '+work.number+'. Please review the attached price request and submit your prices: '+work.quoteUrl:
+  'GEN - PO '+work.number+'. Please confirm availability and delivery.'
  const payload={pngBase64:document.base64,caption,
   ...(work.kind==='rfq'?{rfqId:work.id,supplierId:work.supplierId}:{poId:work.id})}
  const response=await fetch(ORIGIN+'/api/integrations/whatsapp/'+work.kind,{
@@ -146,7 +139,7 @@ async function sendWork(db,token,work){
   throw new Error('Supplier gateway send not accepted (HTTP '+response.status+'). Inspect the dispatch audit; no retry.')
  }
  if(data.status!=='accepted'||!data.dispatchId)throw new Error('Missing audited supplier acceptance; inspect before retry')
- await auditCopy(db,work,document,data.dispatchId)
+ if(data.privateGroupCopy?.status!=='accepted')throw new Error('Supplier accepted but its private audit copy needs review. Do not resend the supplier document.')
  return {kind:work.kind,number:work.number,supplierAccepted:true,auditAccepted:true,deliveryVerified:false}
 }
 export async function POST(request){
@@ -180,6 +173,10 @@ export async function POST(request){
    }
    if(jobs.length<20)break
    if(page===24)more=true
+  }
+  if(results.length<2){
+   const company=await companyPendingWork(db,cutoff,2-results.length)
+   for(const work of company)results.push(await sendCompanyWork(token,work))
   }
   return json({ok:true,processed:results.length,scanned,more,results,
    notice:'API acceptance is not proof of recipient delivery.'})

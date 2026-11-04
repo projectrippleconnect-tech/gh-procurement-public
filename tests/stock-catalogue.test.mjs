@@ -75,7 +75,7 @@ test('catalogue read policies cache permission checks without changing allowed p
  assert.equal((migration.match(/using \(\(select private\.proc_has_any_permission\(/g)||[]).length,4)
  assert.equal((migration.match(/'stock\.count\.view'/g)||[]).length,4)
  const stock=readFileSync(new URL('../components/modules-stock.jsx',import.meta.url),'utf8')
- assert.match(stock,/\[profile\.id,catalogueRetry\]/)
+ assert.match(stock,/\[profile\.id,catalogueRetry,searchOpen/)
  assert.match(stock,/loadStockCatalogue\(/)
  assert.match(stock,/setCatalogueReady\(true\)/)
  assert.match(stock,/setCatalogueError\(/)

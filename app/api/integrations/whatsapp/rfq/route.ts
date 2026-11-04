@@ -1,7 +1,8 @@
+import {wahaGatewayConfig} from '@/lib/waha-gateway.mjs'
 import {createClient} from '@supabase/supabase-js'
-import {gatewayConfig} from '@/lib/waha-gateway-config'
 import {createHash} from 'node:crypto'
 import {extractWahaMessageId,verifyPng,wahaImagePayload} from '@/lib/waha-rfq'
+import {mirrorStaffGroupCopy,privateGroupCaption,privateGroupConfig} from '@/lib/whatsapp-private-audit'
 
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -9,6 +10,8 @@ export const dynamic='force-dynamic'
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const error=(message:string,status:number)=>Response.json({ok:false,error:message},{status,headers:{'cache-control':'no-store'}})
 const reply=(data:object,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}})
+
+const gatewayConfig=()=>wahaGatewayConfig(process.env)
 
 async function authorize(request:Request){
  const token=(request.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i)?.[1]
@@ -28,7 +31,7 @@ async function authorize(request:Request){
 async function gatewaySession(config:{base:string;key:string;session:string}){
  const response=await fetch(config.base+'/api/sessions/'+encodeURIComponent(config.session),{
   headers:{'X-Api-Key':config.key,Accept:'application/json'},
-  signal:AbortSignal.timeout(5000),cache:'no-store',redirect:'error'
+  signal:AbortSignal.timeout(5000),redirect:'error',cache:'no-store'
  })
  if(!response.ok)return {connected:false}
  const session=await response.json()
@@ -52,7 +55,7 @@ export async function GET(request:Request){
  }
  let connected=false
  try{connected=(await gatewaySession(config)).connected}catch{}
- return reply({ok:true,configured:true,connected,sendingEnabled:process.env.WAHA_SENDING_ENABLED==='true',dispatches})
+ return reply({ok:true,configured:true,connected,sendingEnabled:process.env.WAHA_SENDING_ENABLED==='true',privateGroupConfigured:privateGroupConfig().ready,dispatches})
 }
 
 export async function POST(request:Request){
@@ -72,6 +75,7 @@ export async function POST(request:Request){
  if(!UUID.test(rfqId)||!UUID.test(supplierId))return error('Invalid RFQ or supplier identifier.',400)
  let png
  try{png=verifyPng(payload?.pngBase64)}catch(e){return error(e instanceof Error?e.message:'Invalid PNG.',400)}
+ const imageHash=createHash('sha256').update(png).digest('hex')
  const {db,user}=access
  const [{data:rfq,error:rfqError},{data:supplier,error:supplierError},{data:invite,error:inviteError}]=await Promise.all([
   db.from('proc_rfqs').select('id,rfq_no,due_date,status').eq('id',rfqId).maybeSingle(),
@@ -107,7 +111,7 @@ export async function POST(request:Request){
  // Unique constraint stops double taps and concurrent requests from sending duplicates.
  const {data:attemptId,error:claimError}=await db.rpc('proc_whatsapp_claim_dispatch',{
   p_rfq_id:rfqId,p_supplier_id:supplierId,p_session:config.session,
-  p_image_sha256:createHash('sha256').update(png).digest('hex'),p_caption:finalCaption
+  p_image_sha256:imageHash,p_caption:finalCaption
  })
  if(claimError){
   if(claimError.code==='23505')return error('This RFQ already has a gateway send attempt for this supplier. Review its status; duplicate sending is blocked.',409)
@@ -118,12 +122,13 @@ export async function POST(request:Request){
   const response=await fetch(config.base+'/api/sendImage',{
    method:'POST',
    headers:{'X-Api-Key':config.key,'Content-Type':'application/json',Accept:'application/json'},
-   body:JSON.stringify(chatPayload),signal:AbortSignal.timeout(25000),cache:'no-store',redirect:'error'
+   body:JSON.stringify(chatPayload),signal:AbortSignal.timeout(25000),redirect:'error',cache:'no-store'
   })
   if(response.ok){
    const responseBody=await response.json().catch(()=>({}))
    messageId=extractWahaMessageId(responseBody)
-   status='accepted'
+   status=messageId?'accepted':'unknown'
+   if(!messageId)lastError='Gateway returned HTTP success without a message ID. Check WhatsApp before any resend.'
   }else{
    // WAHA 4xx is a definite rejection; a 5xx may hide a partially-completed send.
    status=response.status>=500?'unknown':'failed'
@@ -140,5 +145,14 @@ export async function POST(request:Request){
  if(writeError||!updated)return error('Gateway was contacted but the audit update failed. Inspect WhatsApp and dispatch records before doing anything else.',503)
  if(status!=='accepted')return error(lastError||'Gateway status unknown. Verify whether WhatsApp received the image.',responseStatus)
  // API acceptance is NOT proof of delivery or reading. The manual Confirm Sent remains.
- return reply({ok:true,status:'accepted',messageId,dispatchId:attemptId,recipient:supplier.name})
+ // Supplier dispatch is already accepted and permanently audited. The staff copy is
+ // separately claimed and verified, and must not affect supplier sending on failure.
+ const privateGroupCopy=await mirrorStaffGroupCopy({
+  db,kind:'rfq',sourceId:attemptId,pageNumber:1,session:config.session,
+  base:config.base,key:config.key,base64:payload.pngBase64,imageHash,
+  filename:'GH-Audit-RFQ-'+String(rfq.rfq_no||'Document')+'.png',
+  caption:privateGroupCaption({kind:'rfq',number:String(rfq.rfq_no||''),
+   supplier:String(supplier.name||''),dispatchId:attemptId,originalCaption:finalCaption})
+ })
+ return reply({ok:true,status:'accepted',messageId,dispatchId:attemptId,recipient:supplier.name,privateGroupCopy})
 }

@@ -7,20 +7,33 @@ import {supabase} from '@/lib/supabase'
 import {useDangerConfirmation,useActionConfirmation} from './danger-confirmation'
 import {normalizeQuantityInput,isQuantityInput,normalizeQuantityDraft} from '@/lib/quantity-input.mjs'
 import {allRows,containsAny} from '@/lib/query-pages'
+import {indexStockItems,searchStockItems,isApproximateItemMatch} from '@/lib/stock-search.mjs'
+import {searchWords} from '@/lib/fuzzy-item-search.mjs'
 import {businessDate,money,qty} from '@/lib/helpers'
-import {Badge,DataTable,Empty,fieldEnabled,fieldLabel} from './ui'
+import {Badge,DataTable,Empty,fieldEnabled,fieldLabel,StockSubmitAction} from './ui'
 import {extractPriceListFile} from '@/lib/price-list-extract'
 import {QuickAddItem} from './quick-add-item'
 import {CompanyListOcr} from './company-list-ocr'
+import {hasFilterChoices} from '@/lib/select-options.mjs'
 import {StockPrintDialog} from './stock-print-dialog'
 import {CompanyControls,companyApi} from './company-controls'
+import {CompanyContactDirectory} from './company-contact-directory'
+import {CompanyWorkflowDirectory} from './company-workflow-directory'
+import {WhatsAppAuditGroups} from './whatsapp-audit-groups'
 import {reorderFor} from '@/lib/company-items.mjs'
 import {CompanyItemDetails,CompanyRowLayoutControls} from './company-row-layout'
 import {CompanySectionManager} from './company-section-manager'
-import {CompanyContactDirectory} from './company-contact-directory'
+import {CompanySectionRouteManager} from './company-section-route-manager'
+import {CompanySubmissionResult} from './company-submission-result'
+import {companySubmissionMessage} from '@/lib/company-submission-result.mjs'
+import {sufficientStockOverrides,sufficientOverrideNotes} from '@/lib/stock-submission-outcome.mjs'
 import {normalizeCompanyDisplay} from '@/lib/company-display.mjs'
+import {companyLotRows,companyLotGroups} from '@/lib/company-stock-lot.mjs'
 import {companySectionRows,sectionPaths} from '@/lib/company-section-tree.mjs'
 import {companyRowStyle} from '@/lib/company-row-layout.mjs'
+import {uppercaseItemText,normalizeItemText,uppercaseItemAttributes} from '@/lib/item-text.mjs'
+import {loadCompanyStockCatalogue,loadCompanyStockMarkers} from '@/lib/company-stock-loading.mjs'
+import {StockItemSubmissionHistory,StockHistoryLink} from './stock-item-submission-history'
 
 const cleanName=s=>String(s||'file').replace(/[^a-zA-Z0-9._-]/g,'_')
 const makeId=()=>globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(16).slice(2)
@@ -89,48 +102,82 @@ function ImageCropper({file,onReady,t=(k,f)=>f||k}){
  </div>
 }
 
-export function CompanyLists({profile,company,fields,settings={},onConfigChanged=()=>{},flash,fail,can=()=>false,navigate=()=>{},active=true,t=(k,f)=>f||k}){
+export function CompanyLists({profile,company,fields,settings={},onConfigChanged=()=>{},flash,fail,can=()=>false,navigate=()=>{},active=true,countingOnly=false,canNavigate=()=>true,t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
  const confirmAction=useActionConfirmation()
  const canManage=can('company_lists.manage'),canCount=can('stock.count.enter')
  const[companies,setCompanies]=useState([]),[companyId,setCompanyId]=useState(''),[rows,setRows]=useState([]),[balances,setBalances]=useState({}),[entry,setEntry]=useState({}),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[refreshing,setRefreshing]=useState(false),[search,setSearch]=useState('')
- const[newCompany,setNewCompany]=useState({code:'',name:''}),[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
+ const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[target,setTarget]=useState(''),[reorder,setReorder]=useState('')
  const[category,setCategory]=useState(''),[subgroup,setSubgroup]=useState(''),[brand,setBrand]=useState(''),[sectionFilter,setSectionFilter]=useState(''),[collapsedSections,setCollapsedSections]=useState({}),[sufficient,setSufficient]=useState({}),[sections,setSections]=useState([])
+ const[submissionResult,setSubmissionResult]=useState(null),[setupOpen,setSetupOpen]=useState(!countingOnly)
+ const[companyReviewOpen,setCompanyReviewOpen]=useState(false),[companyHistoryOpen,setCompanyHistoryOpen]=useState(false)
+ const[companyHistory,setCompanyHistory]=useState([]),[companyHistoryDetails,setCompanyHistoryDetails]=useState({}),[expandedHistoryId,setExpandedHistoryId]=useState(null)
+ const[companyHistoryLoading,setCompanyHistoryLoading]=useState(false),[companyHistoryReady,setCompanyHistoryReady]=useState(false),[companyHistoryError,setCompanyHistoryError]=useState('')
+ const[recentFinalized,setRecentFinalized]=useState({}),[companyRecounts,setCompanyRecounts]=useState(new Set())
+ const[itemHistory,setItemHistory]=useState(null)
+ const submitLock=useRef(false),historyRequest=useRef(0)
+ const [directoryRevision,setDirectoryRevision]=useState(0)
+ const [workflowReviewRequest,setWorkflowReviewRequest]=useState({companyId:null,sequence:0})
+ const workflowPanelRef=useRef(null)
+ const reviewedCompanyLot=useMemo(()=>companyLotRows(rows,entry,sufficient,recentFinalized,companyRecounts),[rows,entry,sufficient,recentFinalized,companyRecounts])
+ const countedRows=reviewedCompanyLot.map(x=>x.row)
+ const countTotal=reviewedCompanyLot.length
+ const lotGroups=useMemo(()=>companyLotGroups(reviewedCompanyLot),[reviewedCompanyLot])
+ const companyLotBlocked=reviewedCompanyLot.filter(x=>x.blocked)
+ const oversizedCompanyLot=lotGroups.some(g=>g.count>1000)
+ const resultRef=useRef(null)
+ useEffect(()=>{if(submissionResult&&active)resultRef.current?.scrollIntoView({block:'start'})},[submissionResult,active])
  const startedAt=useRef(null),draftReady=useRef(''),loadSequence=useRef(0)
+ const rowLoadController=useRef(null),loadedScope=useRef('')
+ const[rowsError,setRowsError]=useState('')
+ const allCompanies=companyId==='all'
+ const selectedCompanyIds=useMemo(()=>companies.map(c=>c.id),[companies])
+ const companyNames=useMemo(()=>new Map(companies.map(c=>[c.id,c.name])),[companies])
  const draftKey='gh-company-count-v2:'+profile.id+':'+companyId
 
- const loadCompanies=useCallback(async()=>{const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name');if(r.error)return fail(r.error);setCompanies(r.data||[]);if(!companyId&&r.data?.length)setCompanyId(r.data[0].id)},[companyId,fail])
+ const loadCompanies=useCallback(async()=>{
+  const r=await supabase.from('proc_companies').select('*').eq('active',true).eq('company_list_enabled',true).order('name')
+  if(r.error)return fail(r.error)
+  const data=r.data||[]
+  // A refresh returning the same directory must not restart all catalogue/history requests.
+  setCompanies(previous=>JSON.stringify(previous)===JSON.stringify(data)?previous:data)
+  if(data.length){let saved='';try{saved=localStorage.getItem('gh-company-selection-v1:'+profile.id)||''}catch{}
+   setCompanyId(previous=>previous||(saved==='all'||data.some(c=>c.id===saved)?saved:'all'))
+  }
+ },[profile.id,fail])
+ const syncCompanySupplierPanels=useCallback(async()=>{await loadCompanies();setDirectoryRevision(v=>v+1)},[loadCompanies])
  useEffect(()=>{loadCompanies()},[loadCompanies])
 
  const loadRows=useCallback(async()=>{
+  rowLoadController.current?.abort()
+  const controller=new AbortController()
+  rowLoadController.current=controller
+  const timeout=setTimeout(()=>controller.abort(),20000)
   const request=++loadSequence.current
-  if(!companyId){setRows([]);setSections([]);return}
-  setLoading(true)
+  if(!companyId){clearTimeout(timeout);setRows([]);setSections([]);setLoading(false);return}
+  if(loadedScope.current!==companyId){setRows([]);setSections([])}
+  setLoading(true);setRowsError('')
   try{
-   const r=await supabase.from('proc_company_list_items').select('*,item:proc_items(id,item_code,description,size,uom,movement,category,main_group,subgroup,brand,colour,variation,remarks)').eq('company_id',companyId).eq('active',true).order('sort_order').order('created_at')
-   if(r.error)throw r.error
-   if(request!==loadSequence.current)return
-   const list=r.data||[]
-   const sectionResult=await supabase.from('proc_company_sections').select('id,company_id,parent_id,name,sort_order,color,active').eq('company_id',companyId).eq('active',true).order('sort_order')
-   if(request!==loadSequence.current)return
-   if(sectionResult.error&&!['PGRST205','42P01'].includes(sectionResult.error.code))throw sectionResult.error
-   setSections(sectionResult.data||[])
-   setRows(list)
-   const ids=list.map(x=>x.item_id)
-   if(ids.length){const b=await supabase.from('proc_stock_balances').select('item_id,qty').in('item_id',ids);if(b.error)throw b.error;if(request!==loadSequence.current)return;setBalances(Object.fromEntries((b.data||[]).map(x=>[x.item_id,Number(x.qty)])))}else setBalances({})
+   const catalogue=await loadCompanyStockCatalogue(supabase,allCompanies?selectedCompanyIds:[companyId],controller.signal)
+   if(request!==loadSequence.current||controller.signal.aborted)return
+   setSections(catalogue.sections)
+   setRows(catalogue.rows)
+   loadedScope.current=companyId
+   setBalances({})
    if(draftReady.current!==companyId){
     const saved=localStorage.getItem(draftKey)
     setEntry({});setSufficient({});startedAt.current=null
     if(saved)try{const p=JSON.parse(saved);setEntry(normalizeQuantityDraft(p.entry||{}));setSufficient(p.sufficient||{});startedAt.current=p.startedAt||null}catch{}
    }
    draftReady.current=companyId
-  }catch(e){if(request===loadSequence.current)fail(e)}
-  finally{if(request===loadSequence.current)setLoading(false)}
- },[companyId,draftKey,fail])
- useEffect(()=>{if(active)loadRows()},[active,loadRows])
+  }catch(e){if(request===loadSequence.current)setRowsError(controller.signal.aborted?'Company list took too long to load. Please retry.':(e.message||'Company list could not be loaded.'))}
+  finally{clearTimeout(timeout);if(request===loadSequence.current)setLoading(false)}
+ },[companyId,draftKey,fail,allCompanies,selectedCompanyIds])
+ useEffect(()=>{if(active)loadRows();return()=>{loadSequence.current++;rowLoadController.current?.abort()}},[active,loadRows])
  useEffect(()=>{
   if(!active)return
-  const refreshOnReturn=()=>{if(document.visibilityState==='visible')loadRows()}
+  let refreshedAt=0
+  const refreshOnReturn=()=>{if(document.visibilityState==='visible'&&Date.now()-refreshedAt>1500){refreshedAt=Date.now();void loadRows()}}
   window.addEventListener('focus',refreshOnReturn)
   document.addEventListener('visibilitychange',refreshOnReturn)
   return()=>{window.removeEventListener('focus',refreshOnReturn);document.removeEventListener('visibilitychange',refreshOnReturn)}
@@ -138,8 +185,8 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
 
  useEffect(()=>{
   if(!companyId||draftReady.current!==companyId)return
-  const t=setTimeout(()=>localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current})),200)
-  return()=>clearTimeout(t)
+  try{localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current}))}
+  catch{fail(new Error('Draft could not be saved on this device. Keep this screen open and retry.'))}
  },[entry,sufficient,companyId])
 
  useEffect(()=>{
@@ -149,21 +196,32 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
  },[itemSearch,canManage,fail])
 
  function setCount(id,v){
+  const linked=rows.find(r=>r.id===id)
+  if(linked&&recentFinalized[linked.company_id+'|'+linked.item_id]&&!companyRecounts.has(id))return
   const value=normalizeQuantityInput(v);if(value===null)return
   if(!startedAt.current)startedAt.current=new Date().toISOString()
   setEntry(x=>({...x,[id]:value}))
  }
  const categories=[...new Set(rows.map(r=>r.item?.category).filter(Boolean))].sort()
  const subcategories=[...new Set(rows.filter(r=>!category||r.item?.category===category).map(r=>r.item?.subgroup).filter(Boolean))].sort()
- const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&[r.item?.description,r.item?.item_code,r.item?.size,r.item?.brand,r.item?.category,r.item?.main_group,r.item?.subgroup,r.item?.colour,r.item?.variation].join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search,category,subgroup,brand])
+ const companySearchIndex=useMemo(()=>indexStockItems(rows.map(r=>({...r.item,item_id:r.id}))).map((indexed,i)=>{
+  const name=String(companyNames.get(rows[i].company_id)||'')
+  return {...indexed,searchText:indexed.searchText+' '+name.toLowerCase(),searchTokens:[...indexed.searchTokens,...searchWords(name)]}
+ }),[rows,companyNames])
+ const companyMatches=useMemo(()=>search.trim()?searchStockItems(companySearchIndex,search,{},Infinity):null,[companySearchIndex,search])
+ const companyMatchIds=useMemo(()=>companyMatches?new Set(companyMatches.map(r=>r.item_id)):null,[companyMatches])
+ const companyHasSuggestions=useMemo(()=>companyMatches?.some(r=>isApproximateItemMatch(r,search))||false,[companyMatches,search])
+ const shown=useMemo(()=>rows.filter(r=>(!category||r.item?.category===category)&&(!subgroup||r.item?.subgroup===subgroup)&&(!brand||r.item?.brand===brand)&&(!companyMatchIds||companyMatchIds.has(r.id))),[rows,companyMatchIds,category,subgroup,brand])
  const currentCompany=companies.find(c=>c.id===companyId)
+ const filterChoices={category:hasFilterChoices(rows,r=>r.item?.category,category),subgroup:hasFilterChoices(rows.filter(r=>!category||r.item?.category===category),r=>r.item?.subgroup,subgroup),brand:hasFilterChoices(rows,r=>r.item?.brand,brand),section:hasFilterChoices(rows,r=>r.section_id,sectionFilter)}
+ const hasFilters=Object.values(filterChoices).some(Boolean)
  const display=useMemo(()=>normalizeCompanyDisplay(settings?.company_lists_display),[settings?.company_lists_display])
  const visibleFields=display.fields,rowLayout=display.row_layout
  const sectionLabels=useMemo(()=>sectionPaths(sections),[sections])
  const scoped=useMemo(()=>shown.filter(r=>!sectionFilter||r.section_id===sectionFilter||sectionLabels.get(r.section_id)?.startsWith((sectionLabels.get(sectionFilter)||'\u0000')+' /')),[shown,sectionFilter,sectionLabels])
- const tableEntries=useMemo(()=>companySectionRows(scoped,sections,collapsedSections,!!search.trim()),[scoped,sections,collapsedSections,search])
- function setEnough(id,checked){if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
- async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:{[key]:value}});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
+ const tableEntries=useMemo(()=>allCompanies?companies.flatMap(c=>{const items=scoped.filter(r=>r.company_id===c.id);return items.length?[{type:'section',key:'company:'+c.id,title:c.name,depth:0,count:items.length,legacy:true},...companySectionRows(items,sections.filter(s=>s.company_id===c.id),collapsedSections,!!search.trim()).map(line=>({...line,key:c.id+':'+line.key}))]:[]}):companySectionRows(scoped,sections,collapsedSections,!!search.trim()),[scoped,sections,collapsedSections,search,allCompanies,companies])
+ function setEnough(id,checked){const linked=rows.find(r=>r.id===id);if(linked&&recentFinalized[linked.company_id+'|'+linked.item_id]&&!companyRecounts.has(id))return;if(!startedAt.current)startedAt.current=new Date().toISOString();setSufficient(v=>({...v,[id]:checked}))}
+ async function editItem(r,key,value){try{const x=await supabase.rpc('proc_company_edit_item',{p_list_id:r.id,p_patch:uppercaseItemAttributes({[key]:value})});if(x.error)throw x.error;await loadRows();flash('Company item updated.')}catch(e){fail(e)}}
  async function refreshCompany(){
   if(refreshing)return
   setRefreshing(true)
@@ -185,11 +243,35 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    setCompanies(v=>v.filter(c=>c.id!==companyId));setCompanyId('');setRows([]);setEntry({});flash('Company list removed from active selection.')
   }})
  }
- async function createCompany(){
-  if(!newCompany.name.trim())return fail(new Error(t('company_lists.name_required','Company name is required.')))
-  const code=newCompany.code.trim()||newCompany.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'')
-  const r=await supabase.from('proc_companies').insert({company_code:code,name:newCompany.name.trim(),created_by:profile.id}).select('id').single()
-  if(r.error)return fail(r.error);flash('Company list created.');setNewCompany({code:'',name:''});await loadCompanies();setCompanyId(r.data.id);try{const synced=await companyApi('sheets',{action:'publish',companyId:r.data.id});flash(synced.message)}catch(e){flash('Company created. Google Sheets tab awaits connection setup.');fail(e)}
+ async function createCompanyForQuickAdd({name,code}){
+  if(!canManage)throw new Error('Company management permission required.')
+  const nameValue=String(name||'').trim().replace(/\s+/g,' ')
+  if(!nameValue)throw new Error('Company name is required.')
+  const existing=companies.find(c=>c.name.trim().toLowerCase()===nameValue.toLowerCase())
+  if(existing)return existing
+  const generatedCode=nameValue.toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'')
+  const r=await supabase.from('proc_companies').insert({company_code:String(code||'').trim()||generatedCode,name:nameValue,created_by:profile.id,company_list_enabled:true}).select('id,name,company_code').single()
+  if(r.error)throw r.error
+  setCompanies(v=>[...v,r.data].sort((a,b)=>a.name.localeCompare(b.name)))
+  // Preserve the previous new-company Google Sheets publishing behavior without delaying item creation.
+  void companyApi('sheets',{action:'publish',companyId:r.data.id}).catch(()=>flash('Company saved. Google Sheets tab awaits connection setup.'))
+  return r.data
+ }
+ async function saveQuickCompanyItem(item,{companyId:targetCompanyId,maxStock}){
+  if(!targetCompanyId||targetCompanyId==='all')throw new Error('Select a company to save this item.')
+  const found=await supabase.from('proc_company_list_items').select('id,active').eq('company_id',targetCompanyId).eq('item_id',item.id).maybeSingle()
+  if(found.error)throw found.error
+  if(!found.data?.active){
+   const record={company_id:targetCompanyId,item_id:item.id,target_stock:maxStock,reorder_level:reorderFor(maxStock),max_stock_review:false,active:true,updated_at:new Date().toISOString()}
+   const result=found.data
+    ?await supabase.from('proc_company_list_items').update(record).eq('id',found.data.id)
+    :await supabase.from('proc_company_list_items').insert({...record,created_by:profile.id})
+   if(result.error)throw result.error
+  }
+  setCompanyId(targetCompanyId);setCategory('');setSubgroup('');setSearch('')
+  await loadCompanies()
+  if(companyId===targetCompanyId)await loadRows()
+  return found.data?.active?'Item already exists in this company list; no duplicate created.':'Item saved to the selected company list.'
  }
  async function addItem(item){
   if(!companyId)return
@@ -213,73 +295,212 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
    if(x.error)throw x.error;flash('Company-list item removed.');await loadRows()
   }})
  }
+
+ const companyDateTime=v=>v?new Date(v).toLocaleString(undefined,{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Colombo'}):'—'
+ const companyMarker=r=>recentFinalized[r.company_id+'|'+r.item_id]
+ async function allowCompanyRecount(r){
+  const marker=companyMarker(r)
+  if(!marker||companyRecounts.has(r.id))return true
+  const accepted=await confirmAction((r.item?.description||'This item')+' was finalized under '+marker.count_no+' on '+companyDateTime(marker.submitted_at)+'. Recount it as part of a NEW company stock lot? The earlier count will remain in history.',{title:'Previously submitted · recount?',confirmLabel:'Allow recount'})
+  if(accepted)setCompanyRecounts(previous=>new Set([...previous,r.id]))
+  return accepted
+ }
+ function removeFromCompanyLot(id){
+  setEntry(previous=>{const next={...previous};delete next[id];return next})
+  setSufficient(previous=>{const next={...previous};delete next[id];return next})
+ }
+ function saveCompanyDraftNow(){
+  try{
+   localStorage.setItem(draftKey,JSON.stringify({entry,sufficient,startedAt:startedAt.current}))
+   setCompanyReviewOpen(false)
+   flash('Company stock draft saved. Continue counting later.')
+  }catch(e){fail(new Error('Unable to save stock draft on this device. Keep this screen open.'))}
+ }
+ const companyHistoryController=useRef(null)
+ const loadCompanyHistory=useCallback(async()=>{
+  companyHistoryController.current?.abort()
+  const controller=new AbortController();companyHistoryController.current=controller
+  const revision=++historyRequest.current
+  setCompanyHistoryLoading(true);setCompanyHistoryReady(false);setCompanyHistoryError('')
+  try{
+   const [result,latest]=await Promise.all([
+    companyHistoryOpen?supabase.rpc('proc_stock_submission_history_v1',{p_limit:100}).abortSignal(controller.signal):Promise.resolve({data:companyHistory}),
+    loadCompanyStockMarkers(supabase,rows,{signal:controller.signal})
+   ])
+   if(result.error)throw result.error
+   const records=(result.data||[]).filter(h=>h.counted_by===profile.id&&String(h.category||'').startsWith('COMPANY: '))
+   const owned=records.map(h=>({...h,company:companies.find(c=>c.name.trim().toLowerCase()===String(h.category).slice(9).trim().toLowerCase())})).filter(h=>h.company)
+   if(revision!==historyRequest.current)return
+   setCompanyHistory(owned)
+   setCompanyHistoryDetails({})
+   setRecentFinalized(latest)
+   setCompanyHistoryReady(true)
+  }catch(e){if(revision===historyRequest.current){setCompanyHistoryError('Could not verify previous company counts. Retry History before finalizing.');setCompanyHistoryReady(false);console.warn('Company count history unavailable',e)}}
+  finally{if(revision===historyRequest.current)setCompanyHistoryLoading(false)}
+ },[companies,profile.id,rows,companyHistoryOpen])
+ useEffect(()=>{if(active&&companies.length)void loadCompanyHistory();return()=>{historyRequest.current++;companyHistoryController.current?.abort()}},[active,loadCompanyHistory,companies.length])
+
+ async function openCompanyHistoryRecord(id){
+  if(expandedHistoryId===id){setExpandedHistoryId(null);return}
+  setExpandedHistoryId(id)
+  if(companyHistoryDetails[id])return
+  try{const result=await supabase.rpc('proc_stock_submission_detail_v1',{p_count_id:id});if(result.error)throw result.error;setCompanyHistoryDetails(previous=>({...previous,[id]:result.data||[]}))}catch(e){fail(e)}
+ }
  async function submit(){
-  if(!canCount)return
+  if(!canCount||busy||submitLock.current)return
+  if(!companyHistoryReady)return fail(new Error('Recent company stock submissions have not been verified. Retry History before finalizing.'))
+  if(companyLotBlocked.length)return fail(new Error('Previously submitted item(s) are included. Remove them or explicitly allow recount before finalizing.'))
+  if(oversizedCompanyLot)return fail(new Error('A company has more than 1000 counted items. Each company lot must stay within the server limit.'))
   const counted=rows.filter(r=>sufficient[r.id]||(entry[r.id]!==undefined&&entry[r.id]!==''))
   if(!counted.length)return fail(new Error(t('company_lists.enter_one','Enter at least one stock quantity.')))
   if(counted.some(r=>!sufficient[r.id]&&!isQuantityInput(entry[r.id])))return fail(new Error(t('company_lists.stock_error','Stock quantities must be zero or positive.')))
   if(counted.some(r=>r.max_stock_review&&!sufficient[r.id]))return fail(new Error('An admin must enter the maximum stock for items marked Review before procurement.'))
-  if(!await confirmAction(t('confirm.company_submit_prefix','Submit')+' '+counted.length+' '+t('confirm.company_submit_suffix','company-list count(s)? The configured company approval and ordering route will apply.')))return
+  // The editable review is the only confirmation; retain all server-side route guards.
+  if(!companyReviewOpen||companyHistoryOpen)return
+  if(submitLock.current)return
+  submitLock.current=true
   setBusy(true)
   try{
-   const p=counted.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
-   const saved=await companyApi('submit',{companyId,lines:p,startedAt:startedAt.current||new Date().toISOString()});const x={data:saved}
-   localStorage.removeItem(draftKey);setEntry({});setSufficient({});startedAt.current=null
-   flash(x.data.count_no+' submitted. '+(x.data.requirements_created||0)+' new shortage(s).');await loadRows();if(saved.dispatch){if(saved.dispatch.ok)flash(saved.dispatch.message);else fail(new Error(saved.dispatch.error+' Stock submission was saved; the order remains queued.'))}
-  }catch(e){fail(e)}finally{setBusy(false)}
+   const overrides=sufficientStockOverrides(entry,sufficient,counted.map(r=>({...r,item_id:r.id,reorder_level:r.reorder_level??reorderFor(r.target_stock)})))
+   let overrideReason=''
+   if(overrides.length&&!await confirmDanger({tone:'action',title:'Explain sufficient-stock override',message:overrides.length+' item(s) have an exact count at or below reorder but are marked sufficient.',requireReason:true,confirmLabel:'Record reason & submit',onConfirm:({reason})=>{overrideReason=reason}}))return
+   const groups=allCompanies?companies.map(c=>({id:c.id,rows:counted.filter(r=>r.company_id===c.id)})).filter(g=>g.rows.length):[{id:companyId,rows:counted}]
+   const results=[]
+   let remainingEntry={...entry},remainingSufficient={...sufficient}
+   for(const group of groups){
+    const p=group.rows.map(r=>({company_list_item_id:r.id,current_stock:sufficient[r.id]?null:Number(entry[r.id]),sufficient_stock:!!sufficient[r.id]}))
+    const submissionKey=draftKey+'-submission'+(allCompanies?':'+group.id:'')
+    let submissionId=localStorage.getItem(submissionKey)
+    if(!submissionId){submissionId=crypto.randomUUID();localStorage.setItem(submissionKey,submissionId)}
+    const saved=await companyApi('submit',{submissionId,companyId:group.id,lines:p,notes:sufficientOverrideNotes(overrides.filter(item=>group.rows.some(row=>row.id===item.id)),overrideReason),startedAt:startedAt.current||new Date().toISOString()})
+    results.push({...saved,company_id:group.id})
+    localStorage.removeItem(submissionKey)
+    for(const r of group.rows){delete remainingEntry[r.id];delete remainingSufficient[r.id]}
+    setRecentFinalized(previous=>{const next={...previous};for(const row of group.rows)next[row.company_id+'|'+row.item_id]={count_id:saved.count_id,count_no:saved.count_no,submitted_at:new Date().toISOString(),quantity:sufficient[row.id]?null:Number(entry[row.id])};return next})
+    localStorage.setItem(draftKey,JSON.stringify({entry:remainingEntry,sufficient:remainingSufficient,startedAt:startedAt.current}))
+    setEntry({...remainingEntry});setSufficient({...remainingSufficient})
+    setSubmissionResult({company_id:companyId,results:[...results]})
+    flash(companySubmissionMessage(saved))
+    if(saved.dispatch&&!saved.dispatch.ok)fail(new Error(saved.dispatch.error+' Stock saved. Review the order sending status before retrying.'))
+    if(saved.rfqDispatch&&!saved.rfqDispatch.ok)fail(new Error(saved.rfqDispatch.error+' Stock saved. Review RFQ sending status before retrying.'))
+    if(saved.automation_errors?.length)fail(new Error('Stock saved. Automatic requests need attention: '+saved.automation_errors.map(e=>e.error).join('; ')))
+   }
+   localStorage.removeItem(draftKey);startedAt.current=null
+   setCompanyReviewOpen(false);setCompanyRecounts(new Set())
+   await loadRows()
+   void loadCompanyHistory()
+  }catch(e){fail(e)}finally{setBusy(false);submitLock.current=false}
  }
 
  return <>
+
+  {itemHistory&&<StockItemSubmissionHistory itemId={itemHistory.id} itemName={itemHistory.name} companyId={itemHistory.companyId} onClose={()=>setItemHistory(null)}/>}
+  {companyReviewOpen&&<div className="modal-backdrop stock-lot-backdrop" role="presentation">
+   <div className="modal card stock-lot-modal company-lot-modal" role="dialog" aria-modal="true" aria-label="Review company stock lot">
+    <div className="modal-head"><div><h3>{companyHistoryOpen?'Company stock history':'Review company lot · '+countTotal+' items'}</h3><p className="muted tiny">Review once, then submit · drafts save automatically</p></div><button type="button" className="btn small" aria-label="Close review" onClick={()=>setCompanyReviewOpen(false)}>✕</button></div>
+    <div className="stock-lot-actions" role="group" aria-label="Company stock lot actions">
+     <button type="button" className="btn" onClick={saveCompanyDraftNow}>Save draft</button>
+     <button type="button" className="btn" onClick={()=>{setCompanyHistoryOpen(x=>!x);if(!companyHistoryReady)void loadCompanyHistory()}}>{companyHistoryOpen?'Review':'History'}</button>
+     <button type="button" className="btn primary" disabled={busy||loading||companyHistoryOpen||!companyHistoryReady||!countTotal||!!companyLotBlocked.length||oversizedCompanyLot} onClick={submit}>{busy?'Submitting…':'Submit · '+countTotal}</button>
+    </div>
+    {!companyHistoryReady&&<p className="notice" role="alert">{companyHistoryError||'Checking previous company counts…'} <button type="button" className="btn small" disabled={companyHistoryLoading} onClick={()=>void loadCompanyHistory()}>Retry</button></p>}
+    {!companyHistoryOpen&&!!companyLotBlocked.length&&<p className="notice" role="alert">{companyLotBlocked.length} previously submitted item(s). Remove or explicitly choose Recount before final confirmation.</p>}
+    {!companyHistoryOpen&&oversizedCompanyLot&&<p className="notice" role="alert">More than 1,000 items in one company. Final submission is blocked until the lot is safely split.</p>}
+    {!companyHistoryOpen&&lotGroups.length>1&&<p className="muted tiny company-lot-group-hint">{lotGroups.length} company-specific lots will be processed separately. Successfully submitted company lots cannot be rolled back by later failures.</p>}
+    {companyHistoryOpen?<div className="stock-lot-rows company-lot-history" aria-label="Past company stock submissions">
+      {companyHistoryLoading?<p className="muted tiny">Loading submitted counts…</p>:!companyHistory.filter(h=>allCompanies||h.company.id===companyId).length?<p className="muted tiny">No recent submitted company counts found.</p>:companyHistory.filter(h=>allCompanies||h.company.id===companyId).map(h=><div key={h.count_id} className="company-lot-history-entry">
+       <button type="button" className="company-history-trigger" onClick={()=>void openCompanyHistoryRecord(h.count_id)} aria-expanded={expandedHistoryId===h.count_id}><strong>{h.company.name} · {h.count_no}</strong><small>{companyDateTime(h.submitted_at)} · {h.item_count} items</small><span aria-hidden="true">{expandedHistoryId===h.count_id?'▴':'▾'}</span></button>
+       {expandedHistoryId===h.count_id&&<div className="company-lot-history-lines">{!companyHistoryDetails[h.count_id]?<p className="muted tiny">Loading item details…</p>:companyHistoryDetails[h.count_id].map(line=><div key={line.line_id}><span>{line.description}{line.size?' · '+line.size:''}</span><b>{line.current_stock===null?'Enough':qty(line.current_stock)} {line.current_stock===null?'':line.uom||''}</b></div>)}</div>}
+      </div>)}
+     </div>:<div className="stock-lot-rows company-lot-review-rows" aria-label="Company stock items for review">
+      {!countTotal?<p className="muted tiny">No company items counted yet. Save draft and return to counting.</p>:lotGroups.map(g=><div key={g.companyId}>
+       <div className="company-lot-group-heading">{companyNames.get(g.companyId)||'Company'} <small>({g.count} items)</small></div>
+       {g.lines.map(line=><div className="stock-lot-row" key={line.id}>
+        <div className="stock-lot-item"><strong>{line.row.item?.description||line.row.item?.item_code||'Item'}{line.row.item?.size?' · '+line.row.item.size:''}</strong><small>{line.row.item?.uom||''}{line.previous?' · Submitted '+line.previous.count_no:''}</small></div>
+        {line.blocked?<button className="btn small" onClick={()=>void allowCompanyRecount(line.row)}>Recount</button>:<><input aria-label={'Stock quantity for '+(line.row.item?.description||'company item')} className="input stock-lot-qty" inputMode="decimal" disabled={line.sufficient} value={line.sufficient?'':line.quantity??''} onChange={e=>setCount(line.id,e.target.value)}/><label className="stock-lot-enough"><input type="checkbox" checked={line.sufficient} onChange={e=>setEnough(line.id,e.target.checked)}/>Enough</label></>}
+        <button type="button" className="btn small stock-lot-remove" onClick={()=>removeFromCompanyLot(line.id)}>Remove</button>
+       </div>)}
+      </div>)}
+     </div>}
+    <p className="muted tiny company-lot-footnote">Draft only until final confirmation. Company automatic RFQ/PO rules apply after finalization.</p>
+   </div>
+  </div>}
   <div className="company-stock-header">
-   <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'Refreshing…':'↻ Refresh'}</button>{canCount&&<button className="btn primary" disabled={busy||!companyId} onClick={submit}>{busy?t('stock.submitting','Submitting…'):t('company_lists.submit','Submit Count')}</button>}</div></div>
-   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={t('company_lists.search','Search this company list')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
-   {companyId&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand].filter(Boolean).length>0?' · '+[category,subgroup,brand].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
-    <label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
-    <label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>
-    <label className="field">Section<select aria-label="Company list section" className="select" value={sectionFilter} onChange={e=>setSectionFilter(e.target.value)}><option value="">All sections</option>{sections.map(s=><option key={s.id} value={s.id}>{sectionLabels.get(s.id)}</option>)}</select></label>
-    <label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>
+   <div className="company-stock-title"><h3>{t('company_lists.title','Company Lists')}</h3><div className="company-title-actions"><button type="button" className="btn small" disabled={refreshing||loading} onClick={refreshCompany} aria-label="Refresh company items">{refreshing?'…':'↻'}</button>{canManage&&<button className="btn small" aria-label={setupOpen?'Back to stock':'Company setup'} onClick={()=>setSetupOpen(v=>!v)}>{setupOpen?'Back to stock':'Setup'}</button>}</div></div>
+   <div className="company-stock-search"><ModernSelect aria-label="Company list" className="select" value={companyId} disabled={busy} onChange={e=>{setCompanyId(e.target.value);try{localStorage.setItem('gh-company-selection-v1:'+profile.id,e.target.value)}catch{};setCategory('');setSubgroup('');setBrand('');setSectionFilter('');setCollapsedSections({});setSearch('');setEntry({});startedAt.current=null}}><option value="all">All Companies</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input aria-label="Search company items" className="input" placeholder={allCompanies?'Search all companies and items (typos OK)':t('company_lists.search','Search company items (typos OK)')} value={search} onChange={e=>setSearch(uppercaseItemText(e.target.value))}/></div>
+   {companyId&&hasFilters&&<details className="company-stock-filters"><summary>Filters{[category,subgroup,brand,sectionFilter].filter(Boolean).length>0?' · '+[category,subgroup,brand,sectionFilter].filter(Boolean).length+' active':''}</summary><div className="company-filter-grid">
+    {filterChoices.category&&<label className="field">Category<select aria-label="Company list category" className="select" value={category} onChange={e=>{setCategory(e.target.value);setSubgroup('')}}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>}
+    {filterChoices.subgroup&&<label className="field">Subcategory<select aria-label="Company list subcategory" className="select" value={subgroup} onChange={e=>setSubgroup(e.target.value)}><option value="">All subcategories</option>{subcategories.map(c=><option key={c}>{c}</option>)}</select></label>}
+    {filterChoices.section&&<label className="field">Section<select aria-label="Company list section" className="select" value={sectionFilter} onChange={e=>setSectionFilter(e.target.value)}><option value="">All sections</option>{sections.map(s=><option key={s.id} value={s.id}>{sectionLabels.get(s.id)}</option>)}</select></label>}
+    {filterChoices.brand&&<label className="field">Brand<select aria-label="Company brand" className="select" value={brand} onChange={e=>setBrand(e.target.value)}><option value="">All brands</option>{[...new Set(rows.map(r=>r.item?.brand).filter(Boolean))].map(b=><option key={b}>{b}</option>)}</select></label>}
    </div><button className="btn small" onClick={()=>{setCategory('');setSubgroup('');setBrand('');setSectionFilter('')}}>Clear filters</button></details>}
   </div>
-  {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail}/>}
+  <div ref={resultRef}>{submissionResult?.company_id===companyId&&(submissionResult.results||[submissionResult]).map(result=><div key={result.company_id}>{allCompanies&&<strong>{companyNames.get(result.company_id)}</strong>}<CompanySubmissionResult result={result} navigate={navigate} canNavigate={canNavigate} onContinueCounting={()=>setSubmissionResult(null)}/></div>)}</div>
+  {setupOpen&&<div className="company-setup-panel" aria-label="Company setup">
+  {canManage&&<CompanyContactDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} onDirectoryChanged={()=>setDirectoryRevision(v=>v+1)} onReviewRouting={id=>{setWorkflowReviewRequest(v=>({companyId:id,sequence:v.sequence+1}));const panel=workflowPanelRef.current;if(panel){panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'})}}}/>}
+  {canManage&&<details ref={workflowPanelRef} className="card pad section company-workflow-hub" aria-label="RFQ and PO workflow settings">
+    <summary><strong>RFQ &amp; PO Workflow Settings</strong></summary>
+    <CompanyWorkflowDirectory companies={companies} can={can} active={active} flash={flash} fail={fail} embedded directoryRevision={directoryRevision} reviewRequest={workflowReviewRequest} onRoutesChanged={syncCompanySupplierPanels}/>
+    {companyId&&!allCompanies&&<details className="section" aria-label="Advanced group sending and templates">
+      <summary>Advanced document templates &amp; approved sending</summary>
+      <p className="muted tiny">Edit outgoing RFQ/PO images and captions, or prepare and send documents for approved outstanding shortages. Supplier assignments, recipients and automatic-send rules are managed only in the checklist above.</p>
+      <CompanySectionRouteManager company={currentCompany} sections={sections} rows={rows} profile={profile} can={can} flash={flash} fail={fail} navigate={navigate} onChanged={syncCompanySupplierPanels} directoryRevision={directoryRevision} toolsOnly/>
+    </details>}
+  </details>}
+  {canManage&&<WhatsAppAuditGroups/>}
   {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<CompanyRowLayoutControls value={settings?.company_lists_display} flash={flash} fail={fail} onSaved={()=>onConfigChanged()}/>}
-
-  <div className="card pad section">{loading?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{t('company_lists.empty','No items in this company list.')}</Empty>:<>
-   <div className="muted tiny">{scoped.length} item(s) · entered quantities are saved locally until submission.</div>
+  {allCompanies&&<p className="muted">Select an individual company to manage its suppliers, automation and items.</p>}
+  </div>}
+  {!setupOpen&&rowsError&&<div className="card pad section" role="alert">{rowsError} <button type="button" className="btn small" onClick={()=>void loadRows()}>Retry company list</button></div>}
+  {!setupOpen&&loading&&rows.length>0&&<p className="muted tiny" role="status">Refreshing company list…</p>}
+  {!setupOpen&&<div className="card pad section company-count-workspace" aria-busy={loading}>{loading&&!rows.length?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{search.trim()?'No matching items. Try another spelling or size.':t('company_lists.empty','No items in this company list.')}</Empty>:<>
+   <div className="muted tiny">{scoped.length} item(s) · {countTotal} in saved draft · review before final submission.{companyHasSuggestions?' Possible spelling matches included — confirm item and size.':''}</div>
    <div className="tablewrap section company-items-grid" style={companyRowStyle(rowLayout)}><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
-    <thead><tr><th>Item / description</th><th>Current</th><th>Sufficient</th></tr></thead>
+    <thead><tr><th>Item / description</th><th>Stock</th><th>Enough</th></tr></thead>
     <tbody>{tableEntries.map(line=>line.type==='section'
       ?<tr key={'section:'+line.key} className={'company-category-row company-nested-section '+(line.legacy?'company-legacy-section':'')} style={{'--company-section-color':line.color||display.sectionColors[Math.min(line.depth,display.sectionColors.length-1)],'--company-section-depth':Math.min(line.depth,12)}}><th colSpan={3}>{line.legacy?<span>{line.title} <small>({line.count})</small></span>:<button type="button" className="company-section-toggle" aria-label={'Toggle '+line.title} aria-expanded={!collapsedSections[line.id]} onClick={()=>setCollapsedSections(v=>({...v,[line.id]:!v[line.id]}))}><span aria-hidden="true">{collapsedSections[line.id]?'▸':'▾'}</span> {line.title} <small>({line.count})</small></button>}</th></tr>
-      :(()=>{const r=line.row;return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row':'')}>
-     <td><CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
+      :(()=>{const r=line.row;const last=companyMarker(r);const alreadyFinalized=!!last&&!companyRecounts.has(r.id);return <tr key={line.key} className={'company-stock-item-row '+(r.max_stock_review?'company-review-row ':'')+(alreadyFinalized?'company-stock-finalized':'')}>
+     <td>{allCompanies&&<small className="muted">{companyNames.get(r.company_id)}</small>}<CompanyItemDetails row={r} visibleFields={visibleFields} layout={rowLayout}/>
+      {last&&<StockHistoryLink itemName={r.item?.description||r.item?.item_code||'Company item'} recounting={!alreadyFinalized} onClick={()=>setItemHistory({id:r.item_id,companyId:r.company_id,name:r.item?.description||r.item?.item_code||'Company item'})}/>}
       {r.max_stock_review&&<small>Maximum stock needs admin review</small>}
       {canManage&&<details className="company-item-edit"><summary>Edit</summary><div className="company-item-edit-fields">
-       <label>Item / description<input aria-label="Company item description" className="input" defaultValue={r.item?.description} onBlur={e=>{if(e.target.value!==r.item?.description)editItem(r,'description',e.target.value)}}/></label>
+       <label>Item / description<input aria-label="Company item description" className="input item-uppercase" defaultValue={uppercaseItemText(r.item?.description)} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r.item?.description))editItem(r,'description',e.target.value)}}/></label>
        <label>Maximum stock<input key={String(r.target_stock)+r.max_stock_review} aria-label="Company maximum stock" className="input" inputMode="decimal" placeholder="Review" defaultValue={r.max_stock_review?'':r.target_stock} onBlur={e=>{if(e.target.value!==String(r.max_stock_review?'':r.target_stock))editItem(r,'target_stock',e.target.value)}}/></label>
-       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}<input aria-label={'Company item '+k} className="input" defaultValue={r.item?.[k]||''} onBlur={e=>{if(e.target.value!==(r.item?.[k]||''))editItem(r,k,e.target.value)}}/></label>)}
+       {['size','colour','variation','brand','category','subgroup','uom','remarks'].filter(k=>visibleFields[k]!==false).map(k=><label key={k}>{k}<input aria-label={'Company item '+k} className="input item-uppercase" defaultValue={uppercaseItemText(r.item?.[k]||'')} onBlur={e=>{if(normalizeItemText(e.target.value)!==normalizeItemText(r.item?.[k]))editItem(r,k,e.target.value)}}/></label>)}
        <button className="btn small" onClick={()=>removeItem(r)}>Remove</button>
       </div></details>}
      </td>
-     <td>{canCount?<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>:'—'}</td>
-     <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
+     <td>{!canCount?'—':alreadyFinalized?<button className="btn small company-recount-btn" type="button" onClick={()=>void allowCompanyRecount(r)}>Recount</button>:<input aria-label={'Current stock: '+r.item?.description} className="input stock-entry" inputMode="decimal" disabled={!!sufficient[r.id]} value={sufficient[r.id]?'':entry[r.id]??''} onChange={e=>setCount(r.id,e.target.value)}/>}</td>
+     <td><input aria-label={'Sufficient stock: '+r.item?.description} type="checkbox" disabled={!canCount||alreadyFinalized} checked={!!sufficient[r.id]} onChange={e=>setEnough(r.id,e.target.checked)}/></td>
     </tr>})())}</tbody>
    </table></div>
-  </>}</div>
-  {companyId&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
-  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companyItems={rows.map(r=>({...r.item,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
+  </>}</div>}
+  {setupOpen&&<>
+  {companyId&&!allCompanies&&<details className="company-stock-tools section"><summary>Print &amp; list tools</summary><div className="company-tools-content">
+  {companyId&&<StockPrintDialog profile={profile} company={company} companyName={companies.find(c=>c.id===companyId)?.name||''} companySections={sections} companyItems={rows.map(r=>({...r.item,section_id:r.section_id,description:[r.item?.description,r.item?.brand,r.item?.colour,r.item?.variation].filter(Boolean).join(' · '),id:r.item_id,max_stock:r.max_stock_review?'':r.target_stock,reorder_level:r.max_stock_review?'':r.reorder_level??reorderFor(r.target_stock)}))} can={can} fail={fail}/>}
   <button className="btn small" onClick={()=>navigate('requirements','to_order')}>Review company shortages →</button>
-  <CompanyListOcr companyId={companyId} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
+  <CompanyListOcr companyId={companyId} companyName={currentCompany?.name||''} can={can} profile={profile} fail={fail} flash={flash} onImported={loadRows}/>
   {canManage&&<button className="btn small bad" onClick={archiveCompanyList}>Remove company list</button>}
   </div></details>}
-  {canManage&&companyId&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows}/>}
-  {companyId&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
-  {canManage&&<details className="card pad section"><summary>Quick create company / item</summary><div className="split section">
-   <div className="card pad"><h3>{t('company_lists.create_company','Create Company')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.company_code','Company code')}</label><input className="input" value={newCompany.code} onChange={e=>setNewCompany(x=>({...x,code:e.target.value}))}/></div><div className="field"><label>{t('company_lists.company_name','Company name')}</label><input className="input" value={newCompany.name} onChange={e=>setNewCompany(x=>({...x,name:e.target.value}))}/></div></div><button className="btn" onClick={createCompany}>{t('company_lists.create_company','Create Company')}</button></div>
-   <div className="card pad"><h3>{t('company_lists.add_item','Add Item to Company List')}</h3><div className="formgrid section"><div className="field"><label>{t('company_lists.find_item','Find item')}</label><input className="input" value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder={t('company_lists.item_placeholder','Item, code or size')}/></div><div className="field"><label>{t('company_lists.target','Target stock')}</label><input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></div><div className="field"><label>{'Reorder · 50%'}</label><input className="input" readOnly value={target===''?'':reorderFor(target)}/></div></div>
-    <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{const max=Number(item.max_stock||0);const r=await supabase.from('proc_company_list_items').upsert({company_id:companyId,item_id:item.id,target_stock:max,reorder_level:max*.5,max_stock_review:false,active:true,created_by:profile.id},{onConflict:'company_id,item_id'});if(r.error)throw r.error;await loadRows();flash('Company item created with a 50% reorder level.')}}/>
-    {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{i.description}</strong><div className="muted tiny">{[i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · ')}</div></div><span>+ Add</span></button>)}</div>}
-   </div>
-  </div></details>}
+  {canManage&&companyId&&!allCompanies&&<CompanySectionManager company={currentCompany} sections={sections} rows={rows} flash={flash} fail={fail} onChanged={loadRows} superAdmin={(profile.role_key||profile.role)==='admin'}/>}
+  {companyId&&!allCompanies&&<CompanyControls company={currentCompany} rows={rows} can={can} flash={flash} fail={fail} onChanged={()=>{loadCompanies();loadRows()}}/>}
+  {canManage&&<div className="card pad section" aria-label="Company item quick create">
+   <h3>Company item management</h3>
+   <QuickAddItem mode="company" can={can} fail={fail} flash={flash} companies={companies} selectedCompanyId={allCompanies?'':companyId} onCreateCompany={createCompanyForQuickAdd} onCreated={saveQuickCompanyItem}/>
+   {!allCompanies&&<details className="section"><summary>Add an existing item to this company</summary>
+    <div className="formgrid section"><label className="field">Find item<input className="input" value={itemSearch} onChange={e=>setItemSearch(uppercaseItemText(e.target.value))} placeholder="Item, code or size"/></label>
+     <label className="field">Maximum stock<input className="input" inputMode="decimal" value={target} onChange={e=>setTarget(e.target.value)}/></label>
+     <label className="field">Reorder · 50%<input className="input" readOnly value={target===''?'':reorderFor(target)}/></label>
+    </div>
+    {itemResults.length>0&&<div className="stack section">{itemResults.map(i=><button type="button" className="btn record-button" key={i.id} onClick={()=>addItem(i)}><div><strong>{uppercaseItemText(i.description)}</strong><div className="muted tiny">{uppercaseItemText([i.item_code,i.size,i.uom,i.category].filter(Boolean).join(' · '))}</div></div><span>+ Add</span></button>)}</div>}
+   </details>}
+  </div>}
+  </>}
+  {!setupOpen&&canCount&&companyId&&active&&<StockSubmitAction active={active}><div className="task-dock company-count-dock" role="region" aria-label="Company count actions">
+   <div className="count-dock-summary" role="status"><strong>{countTotal} of {rows.length} counted</strong><small>{search||category||subgroup||brand||sectionFilter?'Includes counted items outside filters':'Zero counts as entered · blank items are skipped'}</small></div>
+   <button className="btn primary" aria-label={'Review company stock lot with '+countTotal+' items'} disabled={busy||loading} onClick={()=>{setCompanyHistoryOpen(false);setCompanyReviewOpen(true)}}><span className="stock-submit-full">Review &amp; submit · {countTotal}</span><span className="stock-submit-compact" aria-hidden="true">Submit · {countTotal}</span></button>
+  </div></StockSubmitAction>}
  </>
 }
 
@@ -357,8 +578,8 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    ...r,
    _draftId:makeId(),
    _selected:true,
-   price_description:r.description||'',
-   import_name:r.description||'',
+   price_description:uppercaseItemText(r.description||''),
+   import_name:uppercaseItemText(r.description||''),
    brand,
    category:importDefaults.category||'GENERAL',
    main_group:importDefaults.main_group||'',
@@ -395,7 +616,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
   const src=new File([blob],'cropped-price-list.jpg',{type:'image/jpeg'})
   await runExtraction(src,listType)
  }
- function setDraft(id,key,value){setDraftRows(rows=>rows.map(r=>r._draftId===id?{...r,[key]:value}:r))}
+ function setDraft(id,key,value){const next=['price_description','import_name','brand','category','main_group','subgroup','size','uom'].includes(key)?uppercaseItemText(value):value;setDraftRows(rows=>rows.map(r=>r._draftId===id?{...r,[key]:next}:r))}
  function deleteDraft(id){setDraftRows(rows=>rows.filter(r=>r._draftId!==id))}
  function selectedRows(){return draftRows.filter(r=>r._selected)}
  function selectAll(value){setDraftRows(rows=>rows.map(r=>({...r,_selected:value})))}
@@ -409,7 +630,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    code:r.external_code||'',
    category:r.category||''
   }
-  return namingTemplate.replace(/\{(brand|description|size|code|category)\}/gi,(_,k)=>tokens[k.toLowerCase()]||'').replace(/\s+/g,' ').trim()
+  return uppercaseItemText(namingTemplate.replace(/\{(brand|description|size|code|category)\}/gi,(_,k)=>tokens[k.toLowerCase()]||'').replace(/\s+/g,' ').trim())
  }
  function applyNameFormat(){
   setDraftRows(rows=>rows.map(r=>r._selected?{...r,import_name:formatName(r)}:r))
@@ -430,7 +651,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  function toggleField(k){setImportFields(v=>({...v,[k]:!v[k]}))}
 
  function itemImportPayload(){
-  return selectedRows().map(r=>({
+  return selectedRows().map(r=>uppercaseItemAttributes({
    selected:true,
    item_code:importFields.item_code?(r.external_code||''):'',
    description:String(r.import_name||r.price_description||'').trim(),
@@ -562,7 +783,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  async function addLine(){
   if(!active||!canUpload)return
   if(!line.description.trim())return fail(new Error(t('validation.item_description','Item description is required.')))
-  const payload={price_list_id:active.id,external_code:line.external_code||null,description:line.description.trim(),size:line.size||null,uom:line.uom||null,mrp:line.mrp===''?null:Number(line.mrp),cost:isAdmin&&active.list_type==='cost'&&line.cost!==''?Number(line.cost):null,discount_percent:isAdmin?Number(line.discount_percent||0):0,extra_discount_percent:isAdmin?Number(line.extra_discount_percent||0):0,tax_percent:isAdmin?Number(line.tax_percent||0):0,match_status:'unmatched'}
+  const payload={price_list_id:active.id,external_code:line.external_code||null,description:normalizeItemText(line.description),size:line.size?normalizeItemText(line.size):null,uom:line.uom?normalizeItemText(line.uom):null,mrp:line.mrp===''?null:Number(line.mrp),cost:isAdmin&&active.list_type==='cost'&&line.cost!==''?Number(line.cost):null,discount_percent:isAdmin?Number(line.discount_percent||0):0,extra_discount_percent:isAdmin?Number(line.extra_discount_percent||0):0,tax_percent:isAdmin?Number(line.tax_percent||0):0,match_status:'unmatched'}
   const r=await supabase.from('proc_company_price_list_lines').insert(payload)
   if(r.error)return fail(r.error)
   setLine({external_code:'',description:'',size:'',uom:'',mrp:'',cost:'',discount_percent:'0',extra_discount_percent:'0',tax_percent:'0'})
@@ -575,7 +796,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    if(value==='')v=key==='mrp'||key==='cost'?null:0
    else{v=Number(value);if(!Number.isFinite(v)||v<0)return fail(new Error(t('validation.nonnegative','Enter a valid non-negative number.')))}
    if(['discount_percent','extra_discount_percent','tax_percent'].includes(key)&&v>100)return fail(new Error(t('validation.percent','Percentages must be between 0 and 100.')))
-  }else v=value===''?null:value
+  }else v=value===''?null:['description','size','uom'].includes(key)?normalizeItemText(value):value
   const r=await supabase.from('proc_company_price_list_lines').update({[key]:v}).eq('id',row.id)
   if(r.error)return fail(r.error)
   setLines(x=>x.map(y=>y.id===row.id?{...y,[key]:v}:y))
@@ -622,7 +843,7 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
  return <>
   <div className="card pad">
    <div className="sectionhead"><div><h3>{t('price_lists.title','Company Price Lists')}</h3><p>{staffMode?t('price_lists.staff_hint','Latest approved company MRP only. Confidential cost, discount and history are hidden.'):t('price_lists.admin_hint','Upload company price lists, extract products, optionally create Item Master records, then save/approve the document.')}</p></div></div>
-   <div className="filters two"><ModernSelect className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setActive(null);resetDraft()}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input className="input" placeholder={t('price_lists.search','Search saved price-list items')} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+   <div className="filters two"><ModernSelect className="select" value={companyId} onChange={e=>{setCompanyId(e.target.value);setActive(null);resetDraft()}}><option value="">{t('company_lists.select_company','Select company…')}</option>{companies.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ModernSelect><input className="input" placeholder={t('price_lists.search','Search saved price-list items')} value={search} onChange={e=>setSearch(uppercaseItemText(e.target.value))}/></div>
   </div>
 
   {canUpload&&<div className="card pad section">
@@ -652,11 +873,11 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
    <div className="notice"><b>Item Name Format</b><div className="muted tiny">Available placeholders: {'{brand}'} {'{description}'} {'{size}'} {'{code}'} {'{category}'}</div><div className="toolbar section"><input className="input" style={{minWidth:260}} value={namingTemplate} onChange={e=>setNamingTemplate(e.target.value)}/><button className="btn" onClick={applyNameFormat}>Apply Format to Selected</button></div></div>
 
    <div className="formgrid section">
-    <div className="field"><label>Default Category</label><input className="input" list="proc-import-categories" value={importDefaults.category} onChange={e=>setImportDefaults(x=>({...x,category:e.target.value}))}/></div>
-    <div className="field"><label>Default Brand</label><input className="input" list="proc-import-brands" value={importDefaults.brand} onChange={e=>setImportDefaults(x=>({...x,brand:e.target.value}))}/></div>
-    <div className="field"><label>Main Group</label><input className="input" list="proc-import-main-groups" value={importDefaults.main_group} onChange={e=>setImportDefaults(x=>({...x,main_group:e.target.value}))}/></div>
-    <div className="field"><label>Subgroup</label><input className="input" list="proc-import-subgroups" value={importDefaults.subgroup} onChange={e=>setImportDefaults(x=>({...x,subgroup:e.target.value}))}/></div>
-    <div className="field"><label>Default UOM</label><input className="input" list="proc-import-uoms" value={importDefaults.uom} onChange={e=>setImportDefaults(x=>({...x,uom:e.target.value}))}/></div>
+    <div className="field"><label>Default Category</label><input className="input" list="proc-import-categories" value={importDefaults.category} onChange={e=>setImportDefaults(x=>({...x,category:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Default Brand</label><input className="input" list="proc-import-brands" value={importDefaults.brand} onChange={e=>setImportDefaults(x=>({...x,brand:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Main Group</label><input className="input" list="proc-import-main-groups" value={importDefaults.main_group} onChange={e=>setImportDefaults(x=>({...x,main_group:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Subgroup</label><input className="input" list="proc-import-subgroups" value={importDefaults.subgroup} onChange={e=>setImportDefaults(x=>({...x,subgroup:uppercaseItemText(e.target.value)}))}/></div>
+    <div className="field"><label>Default UOM</label><input className="input" list="proc-import-uoms" value={importDefaults.uom} onChange={e=>setImportDefaults(x=>({...x,uom:uppercaseItemText(e.target.value)}))}/></div>
     <div className="field"><label>Movement</label><ModernSelect className="select" value={importDefaults.movement} onChange={e=>setImportDefaults(x=>({...x,movement:e.target.value}))}><option>FAST</option><option>NORMAL</option><option>SLOW</option></ModernSelect></div>
     <div className="field"><label>Max Stock</label><input className="input" inputMode="decimal" value={importDefaults.max_stock} onChange={e=>setImportDefaults(x=>({...x,max_stock:e.target.value}))}/></div>
     <div className="field"><label>Reorder Level</label><input className="input" inputMode="decimal" value={importDefaults.reorder_level} onChange={e=>setImportDefaults(x=>({...x,reorder_level:e.target.value}))}/></div>
@@ -683,12 +904,12 @@ export function CompanyPriceLists({profile,fields,flash,fail,can=()=>false,t=(k,
   <div className="card pad section">{!active?<Empty>{companyId?'No saved/approved price list selected.':'Select a company.'}</Empty>:<>
    <div className="sectionhead"><div><h3>{active.title}</h3><p>{active.effective_date||'No effective date'}{!staffMode?' · '+active.list_type.toUpperCase():''}{!staffMode?' · extraction '+String(active.extraction_status||'not requested').replaceAll('_',' '):''}</p></div><div className="toolbar">{canUpload&&active.list_type==='mrp'&&active.status!=='approved'&&<button className="btn" onClick={rematch}>Re-match Items</button>}{isAdmin&&active.status!=='approved'&&<button className="btn good" onClick={approve}>Approve & Make Current</button>}{isAdmin&&active.status==='approved'&&active.list_type==='mrp'&&<button className="btn" disabled={busy} onClick={populateCompanyList}>Link Matched Items to Company List</button>}</div></div>
    {visibleDocs.length>0&&<div className="toolbar section">{visibleDocs.map(d=><button className="btn" key={d.id} onClick={()=>viewDoc(d)}>{staffMode?'View Latest MRP PDF/Image':d.document_kind.replaceAll('_',' ')}</button>)}</div>}
-   {canUpload&&active.status!=='approved'&&<div className="section"><h4>Saved extracted rows</h4><div className="formgrid section"><div className="field"><label>Code</label><input className="input" value={line.external_code} onChange={e=>setLine(x=>({...x,external_code:e.target.value}))}/></div><div className="field"><label>Description</label><input className="input" value={line.description} onChange={e=>setLine(x=>({...x,description:e.target.value}))}/></div><div className="field"><label>Size</label><input className="input" value={line.size} onChange={e=>setLine(x=>({...x,size:e.target.value}))}/></div><div className="field"><label>UOM</label><input className="input" value={line.uom} onChange={e=>setLine(x=>({...x,uom:e.target.value}))}/></div><div className="field"><label>MRP</label><input className="input" inputMode="decimal" value={line.mrp} onChange={e=>setLine(x=>({...x,mrp:e.target.value}))}/></div>{isAdmin&&active.list_type==='cost'&&<><div className="field"><label>Cost</label><input className="input" inputMode="decimal" value={line.cost} onChange={e=>setLine(x=>({...x,cost:e.target.value}))}/></div><div className="field"><label>Discount %</label><input className="input" inputMode="decimal" value={line.discount_percent} onChange={e=>setLine(x=>({...x,discount_percent:e.target.value}))}/></div></>}</div><button className="btn section" onClick={addLine}>Add Review Row</button></div>}
+   {canUpload&&active.status!=='approved'&&<div className="section"><h4>Saved extracted rows</h4><div className="formgrid section"><div className="field"><label>Code</label><input className="input" value={line.external_code} onChange={e=>setLine(x=>({...x,external_code:e.target.value}))}/></div><div className="field"><label>Description</label><input className="input" value={line.description} onChange={e=>setLine(x=>({...x,description:uppercaseItemText(e.target.value)}))}/></div><div className="field"><label>Size</label><input className="input" value={line.size} onChange={e=>setLine(x=>({...x,size:uppercaseItemText(e.target.value)}))}/></div><div className="field"><label>UOM</label><input className="input" value={line.uom} onChange={e=>setLine(x=>({...x,uom:uppercaseItemText(e.target.value)}))}/></div><div className="field"><label>MRP</label><input className="input" inputMode="decimal" value={line.mrp} onChange={e=>setLine(x=>({...x,mrp:e.target.value}))}/></div>{isAdmin&&active.list_type==='cost'&&<><div className="field"><label>Cost</label><input className="input" inputMode="decimal" value={line.cost} onChange={e=>setLine(x=>({...x,cost:e.target.value}))}/></div><div className="field"><label>Discount %</label><input className="input" inputMode="decimal" value={line.discount_percent} onChange={e=>setLine(x=>({...x,discount_percent:e.target.value}))}/></div></>}</div><button className="btn section" onClick={addLine}>Add Review Row</button></div>}
    <DataTable mobileCards columns={[
     {key:'external_code',label:'Code',render:r=>canUpload&&active.status!=='approved'?<input className="input" defaultValue={r.external_code||''} onBlur={e=>updateLine(r,'external_code',e.target.value)}/>:r.external_code||'—'},
-    {key:'description',label:fieldLabel(fields,'price_lists','description','Item'),render:r=>canUpload&&active.status!=='approved'?<input className="input" defaultValue={r.description||''} onBlur={e=>updateLine(r,'description',e.target.value)}/>:r.description},
-    {key:'size',label:fieldLabel(fields,'price_lists','size','Size'),render:r=>r.size||'—'},
-    {key:'uom',label:fieldLabel(fields,'price_lists','uom','UOM'),render:r=>r.uom||'—'},
+    {key:'description',label:fieldLabel(fields,'price_lists','description','Item'),render:r=>canUpload&&active.status!=='approved'?<input className="input item-uppercase" defaultValue={uppercaseItemText(r.description||'')} onBlur={e=>updateLine(r,'description',e.target.value)}/>:uppercaseItemText(r.description)},
+    {key:'size',label:fieldLabel(fields,'price_lists','size','Size'),render:r=>uppercaseItemText(r.size||'—')},
+    {key:'uom',label:fieldLabel(fields,'price_lists','uom','UOM'),render:r=>uppercaseItemText(r.uom||'—')},
     {key:'mrp',label:fieldLabel(fields,'price_lists','mrp','MRP'),render:r=>r.mrp===null||r.mrp===undefined?'—':money(r.mrp)},
     ...(!staffMode?[{key:'match_status',label:'Match',render:r=><Badge>{r.match_status}</Badge>}]:[]),
     ...(isAdmin&&active.list_type==='cost'?[{key:'cost',label:'Cost',render:r=>r.cost===null?'—':money(r.cost)},{key:'net_cost',label:'Net Cost',render:r=>r.net_cost===null?'—':money(r.net_cost)}]:[]),
