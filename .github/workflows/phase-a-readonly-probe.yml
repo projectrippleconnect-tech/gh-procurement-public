@@ -1,0 +1,35 @@
+name: GH Phase A read-only gateway verification
+on:
+  push:
+    branches: [ops/phase-a-readonly-probe-20261104]
+    paths: [.github/workflows/phase-a-readonly-probe.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check Hostless and Netlify without credentials or messaging
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const checks=[
+            ['Hostless ping','https://gh-procurement-waha.hostless.app/ping'],
+            ['Hostless health','https://gh-procurement-waha.hostless.app/health'],
+            ['Hostless session endpoint (unauthenticated)','https://gh-procurement-waha.hostless.app/api/sessions/default'],
+            ['Netlify health','https://gh-procurement.netlify.app/api/health']
+          ]
+          let ok=true
+          for(const [name,url] of checks){
+            try{
+              const r=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(15000)})
+              const mime=(r.headers.get('content-type')||'none').split(';')[0]
+              console.log(name+': HTTP '+r.status+' type='+mime)
+              if(name==='Hostless ping'&&r.status!==200)ok=false
+              if(name==='Netlify health'&&r.status!==200)ok=false
+              await r.body?.cancel()
+            }catch(e){ok=false;console.log(name+': NETWORK_ERROR '+e.name)}
+          }
+          console.log('No API keys, WhatsApp messages, restarts, or data changes used.')
+          process.exit(ok?0:1)
+          NODE
