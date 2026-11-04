@@ -1,0 +1,42 @@
+name: Read-only procurement restore evidence
+on:
+  push:
+    branches: [ops/restore-complete-release-once-20261104]
+    paths: [.github/workflows/restore-evidence.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Save non-secret restore run IDs and public route status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ops/restore-complete-release-once-20261104
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://api.github.com/repos/'+process.env.REPO
+          const headers={Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json','Content-Type':'application/json'}
+          const response=await fetch(base+'/actions/runs?branch='+encodeURIComponent(process.env.BRANCH)+'&per_page=20',{headers,redirect:'error'})
+          if(!response.ok)throw Error('Cannot read recovery run status: '+response.status)
+          const runs=(await response.json()).workflow_runs.filter(r=>r.name==='Restore previous verified complete procurement release once').map(r=>({id:r.id,status:r.status,conclusion:r.conclusion,head_sha:r.head_sha}))
+          const probes=[]
+          for(const path of ['/api/health','/supplier/quote','/supplier/portal','/supplier-access']){
+            try{
+              const r=await fetch('https://gh-procurement.netlify.app'+path,{cache:'no-store',redirect:'manual',signal:AbortSignal.timeout(15000)})
+              const p={path,status:r.status}
+              if(path==='/api/health'&&r.ok){const j=await r.json();p.version=j.version;p.database=j.database;p.schema_ready=j.schema_ready}else await r.body?.cancel()
+              probes.push(p)
+            }catch{probes.push({path,status:'NETWORK_ERROR'})}
+          }
+          const evidence={checked_at:new Date().toISOString(),runs,probes,notice:'Read-only evidence; no Netlify build, restore, billing or messaging operation.'}
+          const path='/contents/docs/verification/restore-result-20261104.json'
+          const existing=await fetch(base+path+'?ref='+encodeURIComponent(process.env.BRANCH),{headers,redirect:'error'})
+          const sha=existing.ok?(await existing.json()).sha:null
+          const write=await fetch(base+path,{method:'PUT',headers,redirect:'error',body:JSON.stringify({message:'Record read-only recovery outcome and supplier-route health',branch:process.env.BRANCH,content:Buffer.from(JSON.stringify(evidence,null,2)+'\n').toString('base64'),...(sha?{sha}:{})})})
+          if(!write.ok)throw Error('Cannot retain recovery evidence: '+write.status)
+          console.log(JSON.stringify(evidence))
+          NODE
