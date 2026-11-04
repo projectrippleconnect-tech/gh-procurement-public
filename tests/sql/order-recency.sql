@@ -6,7 +6,7 @@ begin
  perform set_config('request.jwt.claim.sub',principal::text,true);
  insert into public.proc_items(id,item_code,category,description,uom,max_stock,reorder_level,movement) values(item,'RECENCY-'||item,'GENERAL','Recency QA','PCS',10,5,'FAST');
  insert into public.proc_suppliers(id,supplier_code,name) values(supplier,'RECENCY-'||supplier,'Recency QA supplier');
- insert into public.proc_purchase_orders(id,po_no,supplier_id,status,po_date) values(po,'RECENCY-'||po,supplier,'approved',current_date),(old_po,'RECENCY-'||old_po,supplier,'sent',current_date-100);
+ insert into public.proc_purchase_orders(id,po_no,supplier_id,status,po_date) values(po,'RECENCY-'||po,supplier,'approved',current_date),(old_po,'RECENCY-'||old_po,supplier,'sent',(now() AT TIME ZONE 'Asia/Colombo')::date-100);
  insert into public.proc_requirements(id,requirement_no,item_id,location_id,required_qty,adjusted_qty,source_type,status,approval_status) values(req,'RECENCY-'||req,item,private.proc_default_location_id(),10,10,'manual','open','approved');
  insert into public.proc_po_lines(po_id,requirement_id,item_id,qty,unit_price) values(po,req,item,1,100);
  assert (select never_ordered from public.proc_v_item_order_recency where item_id=item),'Approved unsent PO counted as actual order';
