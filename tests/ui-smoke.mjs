@@ -1992,8 +1992,9 @@ try{
    await page.getByRole('button',{name:'Select All Visible',exact:true}).click()
    await page.getByRole('button',{name:'Approve & Continue',exact:true}).click()
    const builder=page.locator('.rfq-builder')
-   await builder.waitFor()
-   assert.ok(await builder.isVisible(),'Approval advances to the supplier builder')
+   // Approval refreshes the connected case while mounting the supplier builder.
+   // Wait for its actionable control through that render, rather than sampling visibility.
+   await builder.getByRole('button',{name:'Create RFQ & Continue',exact:true}).waitFor({state:'visible'})
    await builder.getByRole('checkbox',{name:new RegExp('^'+supplier.name+' ')}).check()
    await builder.getByPlaceholder('Required override reason',{exact:true}).fill('Guided workflow test supplier')
    await builder.getByRole('button',{name:'Create RFQ & Continue',exact:true}).click()
