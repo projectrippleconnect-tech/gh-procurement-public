@@ -1,0 +1,47 @@
+name: GH Phase A read-only provider access audit
+on:
+  push:
+    branches: [ops/phase-a-readonly-probe-20261104]
+    paths: [.github/workflows/phase-a-provider-access-audit.yml]
+permissions: {contents: read}
+jobs:
+  verify-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      HOSTLESS_TOKEN_A: ${{ secrets.HOSTLESS_TOKEN }}
+      HOSTLESS_TOKEN_B: ${{ secrets.GH_HOSTLESS_TOKEN }}
+      HOSTLESS_TOKEN_C: ${{ secrets.HOSTLESS_API_TOKEN }}
+    steps:
+      - name: Read-only provider status, no secret or body logging
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const get=async(u,token)=>{
+            const r=await fetch(u,{headers:{Authorization:'Bearer '+token,Accept:'application/json'},signal:AbortSignal.timeout(15000)})
+            const v=await r.json().catch(()=>({}))
+            return [r.status,v]
+          }
+          const netlify=process.env.NETLIFY_AUTH_TOKEN
+          if(!netlify){console.log('Netlify credentials: absent in connected GitHub Actions repo')}
+          else{
+            const [status,account]=await get('https://api.netlify.com/api/v1/accounts/projectrippleconnect-tech',netlify)
+            console.log('Netlify account HTTP '+status+' plan='+String(account?.type||'unknown')+' operation='+String(account?.operational_mode||'unspecified'))
+            const [siteStatus,site]=await get('https://api.netlify.com/api/v1/sites/b36357ec-4dda-4373-a3d7-95f9c8f3ad9e',netlify)
+            console.log('Existing Netlify site HTTP '+siteStatus+' state='+String(site?.state||'unknown')+' published='+Boolean(site?.published_deploy))
+          }
+          const hostless=process.env.HOSTLESS_TOKEN_A||process.env.HOSTLESS_TOKEN_B||process.env.HOSTLESS_TOKEN_C
+          if(!hostless)console.log('Hostless provider API credentials: absent in connected GitHub Actions repo')
+          else {
+            const [status,app]=await get('https://api.hostless.cloud/v1/apps/gh-procurement-waha',hostless)
+            console.log('Hostless API app HTTP '+status+' status='+String(app?.status||app?.state||'unknown'))
+            if(status===200){
+              const [dstatus,deps]=await get('https://api.hostless.cloud/v1/apps/gh-procurement-waha/deployments',hostless)
+              console.log('Hostless deployments API HTTP '+dstatus+' list-count='+String(Array.isArray(deps)?deps.length:Array.isArray(deps?.deployments)?deps.deployments.length:'unknown'))
+              const list=Array.isArray(deps)?deps:(deps?.deployments||[])
+              for(const dep of list.slice(0,3))console.log('Hostless recent deployment id='+String(dep.id||dep.deploymentId||'unknown').slice(0,20)+' state='+String(dep.status||dep.state||'unknown'))
+            }
+          }
+          console.log('READ ONLY. No credentials or response bodies printed; no changes or supplier messages sent.')
+          NODE
