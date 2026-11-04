@@ -26,6 +26,7 @@ test('Default Hostless root file explicitly points to WAHA monorepo Dockerfile',
  assert.match(root,/build_context_directory:\s*"\/"\s*$/m)
  assert.match(root,/^dockerfile_path:\s*"deploy\/waha-hostless\/Dockerfile"\s*$/m)
  assert.match(root,/^build:\s*\n\s*system:\s*docker/m)
+ assert.match(root,/^start_command:\s*"\\/entrypoint\\.sh"\s*$/m)
 })
 
 test('Root and optional subdirectory Hostless files keep identical safe settings',()=>{
