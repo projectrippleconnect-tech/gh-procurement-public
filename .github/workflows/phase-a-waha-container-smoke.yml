@@ -1,0 +1,57 @@
+name: Phase A - disposable WAHA container smoke test
+on:
+  push:
+    branches: [ops/phase-a-readonly-probe-20261104]
+    paths: [.github/workflows/phase-a-waha-container-smoke.yml]
+permissions: {contents: read}
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Pull upstream WAHA GOWS test image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull devlikeapro/waha:gows
+          docker image inspect devlikeapro/waha:gows --format 'WAHA image architecture={{.Architecture}}'
+      - name: Run without real WhatsApp credentials, 384MB, read-only root
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name gh-waha-ephemeral-test \
+            --memory=384m --memory-swap=384m --cpus=0.2 \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,size=128m \
+            --tmpfs /root:rw,nosuid,size=64m \
+            --tmpfs /app/.cache:rw,nosuid,size=64m \
+            --tmpfs /app/.sessions:rw,nosuid,size=64m \
+            -p 127.0.0.1:3000:3000 \
+            -e PORT=3000 \
+            -e WHATSAPP_DEFAULT_ENGINE=GOWS \
+            -e WAHA_API_KEY=GHPROC_EPHEMERAL_LOCAL_TEST_ONLY_20261104 \
+            -e WAHA_API_KEY_EXCLUDE_PATH=ping \
+            -e WAHA_DASHBOARD_ENABLED=false \
+            -e WHATSAPP_SWAGGER_ENABLED=false \
+            -e WAHA_PRINT_QR=False \
+            -e WHATSAPP_START_SESSION= \
+            -e WHATSAPP_RESTART_ALL_SESSIONS=False \
+            -e WAHA_LOCAL_STORE_BASE_DIR=/app/.sessions \
+            devlikeapro/waha:gows >/dev/null
+          ok=0
+          for i in $(seq 1 90); do
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:3000/ping || true)
+            if [ "$code" = 200 ]; then ok=1; echo "WAHA ping reached HTTP 200 in local isolated test"; break; fi
+            state=$(docker inspect --format '{{.State.Status}}' gh-waha-ephemeral-test)
+            if [ "$state" != running ]; then echo "WAHA process status=$state"; break; fi
+            sleep 1
+          done
+          echo "WAHA isolated test image and runtime:"
+          docker inspect gh-waha-ephemeral-test --format 'running={{.State.Running}} oom_killed={{.State.OOMKilled}} exit_code={{.State.ExitCode}}'
+          if [ "$ok" = 1 ]; then
+            blocked=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 http://127.0.0.1:3000/api/sessions || true)
+            echo "Unauthenticated sessions endpoint HTTP $blocked"
+          fi
+          docker rm --force gh-waha-ephemeral-test >/dev/null 2>&1 || true
+          echo "No production secrets, database, WhatsApp session, public ingress or supplier sends used"
+          test "$ok" = 1
