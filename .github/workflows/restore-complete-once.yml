@@ -1,0 +1,82 @@
+# One operator-initiated recovery. Never builds, buys credits, edits billing or sends messages.
+name: Restore previous verified complete procurement release once
+on:
+  push:
+    branches: [ops/restore-complete-release-once-20261104]
+    paths: [.github/workflows/restore-complete-once.yml]
+permissions: {contents: read}
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restore only a known complete production deploy without a new build
+        env:
+          NETLIFY_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          const siteId='b36357ec-4dda-4373-a3d7-95f9c8f3ad9e'
+          const origin='https://gh-procurement.netlify.app'
+          const broken='8df2c86a35897ec85e6c1708118eba9c6803ccc1'
+          const approved=['c95aa5b73a3a460a722d34fb4c3216f2ed92afc9','2488427d475b3c422c25e7a4a49485ef1a243ee4','4af9fae48b34d588cfdc4f23c266a55c8203b366']
+          const token=process.env.NETLIFY_TOKEN
+          assert.ok(token,'Existing Netlify credential is required')
+          async function api(path,method='GET'){
+            const r=await fetch('https://api.netlify.com/api/v1'+path,{method,headers:{Authorization:'Bearer '+token,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(20000)})
+            if(!r.ok)throw Error('Netlify '+method+' '+path.split('?')[0]+' returned HTTP '+r.status+'; no billing or quota workaround attempted')
+            return r.json()
+          }
+          async function publicHealth(){
+            const r=await fetch(origin+'/api/health',{cache:'no-store',redirect:'error',signal:AbortSignal.timeout(15000)})
+            assert.equal(r.status,200,'Published app health failed before restore')
+            return r.json()
+          }
+          const current=await publicHealth()
+          if(current.version!==broken){console.log('NO CHANGE: production revision has changed; refusing to overwrite another release');process.exit(0)}
+          const site=await api('/sites/'+siteId)
+          assert.equal(site.name,'gh-procurement')
+          assert.ok(!site.repo&&!site.repo_url&&!site.build_settings?.repo_url,'Continuous Git deploy must stay disabled')
+          const account=site.account_slug||site.account_id
+          assert.ok(account,'Site account is missing')
+          const environment=await api('/accounts/'+encodeURIComponent(account)+'/env?site_id='+siteId)
+          const vars=Array.isArray(environment)?environment:environment.env_vars||[]
+          for(const key of ['WAHA_SENDING_ENABLED','GH_PORTAL_DISPATCH_ENABLED']){
+            const variable=vars.find(v=>v.key===key)
+            const production=variable?.values?.find(v=>v.context==='production')
+            const shared=variable?.values?.find(v=>v.context==='all')
+            const value=production?.value??shared?.value??site.env?.[key]
+            assert.equal(String(value),'false',key+' must already be explicitly disabled; no flags changed')
+          }
+          const deploys=await api('/sites/'+siteId+'/deploys?per_page=100')
+          const candidates=deploys.filter(d=>d.state==='ready'&&!d.draft&&d.published_at&&(d.context==='production'||!d.context)).map(d=>({...d,verified:approved.find(sha=>d.commit_ref===sha||String(d.title||'').includes(sha))})).filter(d=>d.verified)
+          candidates.sort((a,b)=>Date.parse(b.published_at)-Date.parse(a.published_at))
+          if(!candidates.length){
+            console.log('NO CHANGE: no exact previously verified production revision found')
+            console.log('Ready production deploy metadata:',JSON.stringify(deploys.filter(d=>d.state==='ready'&&!d.draft&&d.published_at).map(d=>({id:d.id,commit:d.commit_ref,title:d.title,context:d.context}))))
+            process.exit(1)
+          }
+          const selected=candidates[0],prior=site.published_deploy?.id
+          assert.ok(prior&&prior!==selected.id,'Restore target must differ from existing publication')
+          assert.equal((await publicHealth()).version,broken,'Production changed while preparing recovery')
+          console.log('Restoring existing verified deployment',selected.id,'revision',selected.verified,'previous deploy',prior)
+          // Official Netlify docs: rollback to a previous production deploy consumes no credits.
+          await api('/sites/'+siteId+'/deploys/'+selected.id+'/restore','POST')
+          const updated=await api('/sites/'+siteId)
+          assert.equal(updated.published_deploy?.id,selected.id,'Netlify did not publish the requested existing deployment')
+          let verified=false
+          for(let attempt=0;attempt<3;attempt++){
+            const health=await publicHealth()
+            const statuses=await Promise.all(['/supplier/quote','/supplier/portal','/supplier-access'].map(async p=>{
+              const r=await fetch(origin+p,{redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(15000)});await r.body?.cancel();return r.status
+            }))
+            console.log('Post-restore revision',health.version,'supplier route status codes',statuses.join(','))
+            if(health.version===selected.verified&&health.database==='connected'&&health.schema_ready===true&&statuses.every(s=>s===200)){verified=true;break}
+            if(attempt<2)await new Promise(resolve=>setTimeout(resolve,5000))
+          }
+          assert.ok(verified,'Restore requires further runtime verification; do not send suppliers')
+          console.log('PASS existing complete procurement deployment restored. No build, new deploy, billing change, supplier message, or database write.')
+          NODE
