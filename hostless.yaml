@@ -4,6 +4,8 @@
 working_directory: "/"
 build_context_directory: "/"
 dockerfile_path: "deploy/waha-hostless/Dockerfile"
+# Force WAHA image startup even if the old Hostless app retained an automatic Next.js start command.
+start_command: "/entrypoint.sh"
 build:
   system: docker
 scaling:
