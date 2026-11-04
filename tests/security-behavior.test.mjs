@@ -7,7 +7,7 @@ const ts=require('typescript')
 function moduleAt(path,scope={}){
  const m={exports:{}}
  const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
- new Function('module','exports',...Object.keys(scope),code)(m,m.exports,...Object.values(scope))
+ new Function('module','exports','require',...Object.keys(scope),code)(m,m.exports,id=>id==='@/lib/release-capabilities.mjs'?require('../lib/release-capabilities.mjs'):require(id),...Object.values(scope))
  return m.exports
 }
 test('production CSP authorizes nonce scripts without unrestricted inline execution',()=>{

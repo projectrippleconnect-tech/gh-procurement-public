@@ -18,6 +18,10 @@ export async function POST(request:Request){
   if(!check.ok||(await check.json()).status!=='WORKING')throw new Error('WhatsApp is offline; RFQ images remain queued.')
   let query=db.from('proc_company_rfq_queue').select('id').in('status',['pending','failed']).order('created_at').limit(50)
   if(body.companyId)query=query.eq('company_id',body.companyId)
+  if(body.queueIds!==undefined){
+   if(!Array.isArray(body.queueIds)||body.queueIds.length!==1||typeof body.queueIds[0]!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.queueIds[0]))throw new Error('Select one valid queued document.')
+   query=query.in('id',body.queueIds)
+  }
   // Stock submissions provide RFQ IDs; they may never drain older company queues.
   if(body.rfqIds!==undefined)query=query.in('rfq_id',checkedRfqIds(body.rfqIds))
   const {data:queue,error}=await query;if(error)throw error

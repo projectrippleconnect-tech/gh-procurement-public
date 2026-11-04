@@ -1,4 +1,5 @@
 'use client'
+import {AuditHistory} from './audit-history'
 import {BusinessOverview} from './business-overview'
 import {RecordDeletion} from './delete-record'
 import {AccessSettings} from './access-settings'
@@ -19,6 +20,7 @@ import {InterfaceSettings} from './interface-settings'
 import {InfoButton} from './help-ui'
 
 const REPORT_DEFS={
+ order_recency:{label:'Items Not Ordered Recently',source:'proc_v_item_order_recency',select:'*',order:'item_id',orderAscending:true,categoryField:'category',columns:[['item_code','Code'],['category','Category'],['description','Item'],['size','Size'],['uom','UOM'],['movement','Movement'],['last_ordered_at','Last Ordered'],['days_since_order','Days Since Order'],['never_ordered','Never Ordered']]},
  reconciliation:{label:'Procurement Reconciliation',source:'proc_v_requirements',select:'*',order:'created_at',dateField:'created_at',dateTime:true,statusField:'status',categoryField:'category',columns:[['requirement_no','Requirement'],['category','Category'],['description','Item'],['size','Size'],['uom','UOM'],['movement','Movement'],['required_qty','Required'],['adjusted_qty','Adjusted'],['ordered_qty','Ordered'],['received_qty','Received'],['remaining_to_order','Still To Order'],['ordered_not_received','Ordered Not Received'],['status','Status'],['created_at','Created']]},
  po:{label:'Purchase Order Register',source:'proc_purchase_orders',select:'*,supplier:proc_suppliers(name,supplier_code)',order:'po_date',dateField:'po_date',statusField:'status',columns:[['po_no','PO No'],['supplier_name','Supplier'],['po_date','PO Date'],['expected_date','Expected'],['subtotal','Subtotal'],['tax_total','Tax'],['freight_total','Freight'],['total','Total'],['status','Status'],['created_at','Created']]},
  invoices:{label:'Supplier Invoice Register',source:'proc_supplier_invoices',select:'*,supplier:proc_suppliers(name,supplier_code),po:proc_purchase_orders(po_no)',order:'invoice_date',dateField:'invoice_date',statusField:'status',columns:[['invoice_no','Invoice'],['supplier_name','Supplier'],['po_no','PO No'],['invoice_date','Invoice Date'],['total','Total'],['status','Status'],['variance_resolution_status','Variance Resolution'],['created_at','Created']]},
@@ -50,8 +52,9 @@ function flatten(type,r){
  return r
 }
 
-export function Reports({profile,company,footer,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
- const[type,setType]=useState('reconciliation'),[rows,setRows]=useState([]),[columns,setColumns]=useState([]),[selected,setSelected]=useState([]),[status,setStatus]=useState(''),[category,setCategory]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[presets,setPresets]=useState([]),[presetName,setPresetName]=useState(''),[loading,setLoading]=useState(false),[screenPage,setScreenPage]=useState(0)
+export function Reports({initialFilter='',profile,company,footer,features=[],flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
+ const[type,setType]=useState(initialFilter==='order_recency'?'order_recency':'reconciliation'),[rows,setRows]=useState([]),[columns,setColumns]=useState([]),[selected,setSelected]=useState([]),[status,setStatus]=useState(''),[category,setCategory]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[presets,setPresets]=useState([]),[presetName,setPresetName]=useState(''),[loading,setLoading]=useState(false),[screenPage,setScreenPage]=useState(0)
+ const[staleDays,setStaleDays]=useState(90)
  const def=REPORT_DEFS[type]
  const reportCfg=features.find(x=>x.feature_key==='reports.full_export')?.config||{}
  const screenPageSize=Math.max(25,Math.min(Number(reportCfg.screen_page_size||100),500))
@@ -66,12 +69,13 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
  const reportQuery=useCallback((offset,size,count=false,signal)=>{
   let q=supabase.from(def.source).select(def.select,count?{count:'exact'}:{}).range(offset,offset+size-1)
   if(def.order)q=q.order(def.order,{ascending:def.orderAscending===true})
+  if(type==='order_recency')q=q.or('last_ordered_at.is.null,days_since_order.gte.'+Math.max(1,Math.min(3650,Number(staleDays)||90)))
   if(status&&def.statusField)q=q.eq(def.statusField,status)
   if(category&&def.categoryField)q=q.eq(def.categoryField,category)
   if(from&&def.dateField)q=q.gte(def.dateField,from)
   if(to&&def.dateField)q=q.lte(def.dateField,def.dateTime?to+'T23:59:59.999':to)
   return signal?q.abortSignal(signal):q
- },[def,status,category,from,to])
+ },[def,type,staleDays,status,category,from,to])
  const load=useCallback(async()=>{
   reportController.current?.abort();const controller=new AbortController();reportController.current=controller
   const revision=++reportRevision.current;setLoading(true)
@@ -117,6 +121,7 @@ export function Reports({profile,company,footer,features=[],flash,fail,can=()=>f
   <div className="card pad"><div className="sectionhead"><div><h3>{t('reports.builder','Report Builder')}</h3><p>{t('reports.builder_hint','Exports page through the complete filtered dataset; screen rendering is paged separately for performance.')}</p></div><div className="toolbar">{can('reports.export_csv')&&<button className="btn" disabled={loading||exportBusy} onClick={()=>exportReport('csv')}>CSV</button>}{can('reports.export_pdf')&&<button className="btn primary" disabled={loading||exportBusy} onClick={()=>exportReport('pdf')}>PDF</button>}</div></div>
    {exportBusy&&<p role="status">Preparing the complete filtered export…</p>}
    <div className="report-controls">
+    {type==='order_recency'&&<label className="field">Days without an order<input className="input" type="number" min="1" max="3650" value={staleDays} onChange={e=>{setStaleDays(e.target.value);setScreenPage(0)}}/></label>}
     <div className="field"><label>{t('reports.report','Report')}</label><ModernSelect className="select" value={type} onChange={e=>setType(e.target.value)}>{Object.entries(REPORT_DEFS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</ModernSelect></div>
     {def.statusField&&<div className="field"><label>{t('reports.status','Status')}</label><input className="input" placeholder="Optional exact status" value={status} onChange={e=>setStatus(e.target.value)}/></div>}
     {def.categoryField&&<div className="field"><label>{t('reports.category','Category')}</label><ModernSelect className="select" value={category} onChange={e=>setCategory(e.target.value)}><option value="">All categories</option>{categories.map(c=><option key={c}>{c}</option>)}</ModernSelect></div>}
@@ -139,7 +144,7 @@ function RoleManager({language='en',t=(k,f)=>f||k,flash,fail,onChanged}){
    supabase.from('proc_permissions').select('*').order('sort_order'),
    supabase.from('proc_role_permissions').select('*').eq('allowed',true)
   ])
-  if(a.error)throw a.error;if(b.error)throw b.error;if(c.error)throw c.error
+  if(a.error)throw a.error;if(c.error)throw c.error
   setRoles(a.data||[]);setPermissions(b.data||[]);setLinks(c.data||[])
   if((a.data||[]).length&&!a.data.some(x=>x.role_key===selected))setSelected(a.data[0].role_key)
  }catch(e){fail(e)}},[fail,selected])
@@ -210,14 +215,14 @@ function DataManagement({profile,flash,fail}){
 
 export function Admin({profile,modules,fields,features=[],settings,onConfigChanged,flash,fail,can=()=>false,language='en',t=(k,f)=>f||k}){
  const confirmDanger=useDangerConfirmation()
- const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[audit,setAudit]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
+ const[users,setUsers]=useState([]),[invites,setInvites]=useState([]),[directory,setDirectory]=useState([]),[roles,setRoles]=useState([]),[selectedModule,setSelectedModule]=useState('stock'),[company,setCompany]=useState(settings.company_profile||{}),[idle,setIdle]=useState(Number(settings.security_idle_minutes||60)),[busy,setBusy]=useState(false)
  const[invite,setInvite]=useState({display_name:'',email:'',role:'viewer'}),[inviteBusy,setInviteBusy]=useState(false),[resetBusy,setResetBusy]=useState(null)
  const[setupLink,setSetupLink]=useState(null)
  const[deleteTarget,setDeleteTarget]=useState(null),[deleteConfirmation,setDeleteConfirmation]=useState(''),[deleteBusy,setDeleteBusy]=useState(false),[deleteError,setDeleteError]=useState('')
  const hasAdmin=can('admin.users.manage')||can('admin.roles.manage')||can('admin.configure_app')||can('admin.audit.view')
  const load=useCallback(async()=>{if(!hasAdmin)return;try{
-  const[a,b,d,e,r]=await Promise.all([allRows(()=>supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name').order('id')),supabase.from('proc_audit_logs').select('*').order('created_at',{ascending:false}).limit(100),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),allRows(()=>supabase.from('proc_user_directory').select('*').order('user_id')),supabase.from('proc_roles').select('*').order('name')])
-  if(a.error)throw a.error;if(b.error)throw b.error;if(d.error)throw d.error;if(e.error)throw e.error;if(r.error)throw r.error;setUsers(a.data||[]);setAudit(b.data||[]);setInvites(d.data||[]);setDirectory(e.data||[]);setRoles(r.data||[])
+  const[a,d,e,r]=await Promise.all([allRows(()=>supabase.from('proc_profiles').select('*').is('deleted_at',null).order('display_name').order('id')),supabase.from('proc_user_invites').select('*').order('invited_at',{ascending:false}).limit(100),allRows(()=>supabase.from('proc_user_directory').select('*').order('user_id')),supabase.from('proc_roles').select('*').order('name')])
+  if(a.error)throw a.error;if(d.error)throw d.error;if(e.error)throw e.error;if(r.error)throw r.error;setUsers(a.data||[]);setInvites(d.data||[]);setDirectory(e.data||[]);setRoles(r.data||[])
  }catch(e){fail(e)}},[hasAdmin,fail])
  useEffect(()=>{load()},[load])
  useEffect(()=>{setCompany(settings.company_profile||{});setIdle(Number(settings.security_idle_minutes||60))},[settings])
@@ -377,8 +382,6 @@ export function Admin({profile,modules,fields,features=[],settings,onConfigChang
    </div></div></details>
   {deleteTarget&&<div className="modal-backdrop"><div className="modal card danger-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-title"><div className="modal-head"><h3 id="delete-user-title">Delete user · {deleteTarget.display_name}</h3><button className="btn small" disabled={deleteBusy} onClick={()=>setDeleteTarget(null)}>Cancel</button></div><div className="danger-warning"><b>⚠ Warning · delete user</b><p>Check the selected person carefully before confirming.</p></div><p>This removes the user from GH Procurement and immediately blocks procurement access. Past orders, stock entries and audit history remain. Access to other GH apps is retained.</p><p>Type <b>DELETE {deleteTarget.display_name}</b> to confirm.</p><label className="field">Delete user confirmation<input className="input" aria-label="Delete user confirmation" autoComplete="off" value={deleteConfirmation} disabled={deleteBusy} onChange={e=>setDeleteConfirmation(e.target.value)}/></label><Err v={deleteError}/><button className="btn bad section" disabled={deleteBusy||deleteConfirmation!=='DELETE '+deleteTarget.display_name} onClick={deleteUser}>{deleteBusy?'Deleting…':'Confirm delete user'}</button></div></div>}
   </>}
-  {can('admin.audit.view')&&<details name="gh-admin-section" className="admin-accordion"><summary>Audit Trail</summary><div className="card pad section"><div className="sectionhead"><div><h3>{t('admin.audit','Audit Trail')}</h3><p>{t('admin.audit_hint','Last 100 server-generated changes.')}</p></div><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div><DataTable columns={[
-   {key:'created_at',label:'Time',render:r=>new Date(r.created_at).toLocaleString()},{key:'table_name',label:'Area'},{key:'action',label:'Action'},{key:'user_id',label:'User ID',render:r=><span className="mono tiny">{r.user_id||'system'}</span>}
-  ]} rows={audit} mobileCards/></div></details>}
+  {can('admin.audit.view')&&<AuditHistory fail={fail} t={t}/>}
  </SettingsSearch>
 }

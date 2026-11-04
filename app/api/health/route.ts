@@ -1,3 +1,4 @@
+import {procurementCapabilities} from '@/lib/release-capabilities.mjs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
@@ -22,7 +23,7 @@ export async function GET() {
   }catch{}
   const ok=database==='connected'&&schemaReady
   return Response.json(
-    {ok,app:'GH Procurement',database,schema_ready:schemaReady,version,at:new Date().toISOString()},
+    {ok,app:'GH Procurement',database,schema_ready:schemaReady,version,capabilities:procurementCapabilities,at:new Date().toISOString()},
     {status:ok?200:503,headers:{'cache-control':'no-store'}}
   )
 }

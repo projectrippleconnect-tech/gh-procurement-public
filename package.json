@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/copy-pdf-worker.mjs && next build",
+    "build": "node scripts/copy-pdf-worker.mjs && node scripts/verify-release-source.mjs && next build && node scripts/verify-release-routes.mjs",
     "start": "next start",
     "lint": "tsc --noEmit",
     "postinstall": "node scripts/copy-pdf-worker.mjs",

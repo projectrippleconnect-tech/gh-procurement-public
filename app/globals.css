@@ -1487,3 +1487,5 @@ input.item-uppercase{ text-transform:uppercase; }
 @media(max-width:360px){.compact-work-case{grid-template-columns:minmax(0,1fr) minmax(80px,105px);column-gap:6px}}
 
 .compact-work-case .btn{white-space:normal;overflow-wrap:anywhere}
+
+.procurement-guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px 28px;padding-left:24px;margin-bottom:12px}.procurement-guide li{padding:8px}.procurement-guide p{margin:4px 0}.procurement-guide li::marker{font-weight:800;color:var(--accent,#136c4b)}
