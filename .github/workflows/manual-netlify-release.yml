@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GH_RELEASE_SHA: c95aa5b73a3a460a722d34fb4c3216f2ed92afc9
+      GH_RELEASE_SHA: c2d762e194d4d44bba3d9002c4453ce99c77d57c
       GH_PRODUCTION_URL: https://gh-procurement.netlify.app
       NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
       NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout the reviewed release, never an unreviewed branch head
         uses: actions/checkout@v4
         with:
-          ref: c95aa5b73a3a460a722d34fb4c3216f2ed92afc9
+          ref: c2d762e194d4d44bba3d9002c4453ce99c77d57c
           persist-credentials: false
 
       - name: Require manual confirmation, existing site credentials and exact revision
@@ -130,7 +130,7 @@ jobs:
         run: |
           node --input-type=module - <<'NODE'
           import assert from 'node:assert/strict'
-          const response=await fetch('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/41313465758',{headers:{Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)})
+          const response=await fetch('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/41923922846',{headers:{Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)})
           assert.equal(response.status,200,'Quality verification must be readable before publication')
           const run=await response.json()
           assert.equal(run.head_sha,process.env.GH_RELEASE_SHA,'Quality checks must cover the exact release revision')
