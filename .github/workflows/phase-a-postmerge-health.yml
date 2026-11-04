@@ -1,0 +1,36 @@
+name: Phase A - post-merge Hostless recovery verification
+on:
+  push:
+    branches: [ops/phase-a-readonly-probe-20261104]
+    paths: [.github/workflows/phase-a-postmerge-health.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Check public WAHA readiness after corrective main merge
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://gh-procurement-waha.hostless.app';
+          const paths=['/ping','/health','/api/sessions/default'];
+          let ok=false;
+          for(let attempt=1;attempt<=5;attempt++){
+            const statuses=[];
+            for(const p of paths){
+              try{
+                const r=await fetch(base+p,{redirect:'manual',signal:AbortSignal.timeout(10000)});
+                statuses.push(p+':'+r.status+'/'+(r.headers.get('content-type')||'none').split(';')[0]);
+                await r.body?.cancel();
+                if(p==='/ping'&&r.status===200)ok=true;
+              }catch(e){statuses.push(p+':NETWORK_ERROR')}
+            }
+            console.log('Post-merge probe '+attempt+': '+statuses.join(' '));
+            if(ok)break;
+            if(attempt<5)await new Promise(resolve=>setTimeout(resolve,15000));
+          }
+          console.log(ok?'WAHA HTTP gateway reachable; authenticated session/delivery still unverified':'WAHA public route not restored; provider deployment or runtime access required');
+          console.log('GET-only without secrets, session mutation, database changes or supplier sends');
+          process.exit(ok?0:1);
+          NODE
