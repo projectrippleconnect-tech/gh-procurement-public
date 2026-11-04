@@ -1,9 +1,7 @@
 # One operator-initiated recovery. Never builds, buys credits, edits billing or sends messages.
 name: Restore previous verified complete procurement release once
 on:
-  push:
-    branches: [ops/restore-complete-release-once-20261104]
-    paths: [.github/workflows/restore-complete-once.yml]
+  workflow_dispatch:
 permissions: {contents: read}
 concurrency:
   group: gh-procurement-manual-netlify-production
