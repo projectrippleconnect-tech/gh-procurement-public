@@ -1,0 +1,33 @@
+{
+  "checked_at": "2026-11-04T22:24:58.354Z",
+  "runs": [
+    {
+      "id": 41924765151,
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "17a7385e69cc829d28ee5c91440a1211ca5c3342"
+    }
+  ],
+  "probes": [
+    {
+      "path": "/api/health",
+      "status": 200,
+      "version": "c95aa5b73a3a460a722d34fb4c3216f2ed92afc9",
+      "database": "connected",
+      "schema_ready": true
+    },
+    {
+      "path": "/supplier/quote",
+      "status": 200
+    },
+    {
+      "path": "/supplier/portal",
+      "status": 200
+    },
+    {
+      "path": "/supplier-access",
+      "status": 200
+    }
+  ],
+  "notice": "Read-only evidence; no Netlify build, restore, billing or messaging operation."
+}
