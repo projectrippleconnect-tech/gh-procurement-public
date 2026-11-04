@@ -1,0 +1,47 @@
+name: Phase A - read-only Netlify release and credit state
+on:
+  push:
+    branches: [ops/phase-a-readonly-probe-20261104]
+    paths: [.github/workflows/phase-a-netlify-state-20261104.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+    steps:
+      - name: Inspect existing free team without writes or exposing secrets
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.NETLIFY_AUTH_TOKEN;
+          if(!token){console.log('NETLIFY_AUTH_TOKEN: ABSENT');process.exit(1)}
+          const base='https://api.netlify.com/api/v1';
+          async function get(path) {
+            const r=await fetch(base+path,{headers:{Authorization:'Bearer '+token,Accept:'application/json'},signal:AbortSignal.timeout(12000),redirect:'error'});
+            const data=await r.json().catch(()=>null);
+            console.log('GET '+path.split('?')[0]+' HTTP '+r.status);
+            return r.ok?data:null;
+          }
+          const acc=await get('/accounts/projectrippleconnect-tech');
+          if(acc){
+            const safeKeys=Object.keys(acc).filter(k=>/credit|billing|plan|period|quota|usage|operational|subscription/i.test(k));
+            for(const k of safeKeys) {
+              const v=acc[k];
+              if(['string','number','boolean'].includes(typeof v))console.log('account.'+k+'='+String(v).slice(0,120));
+              else if(v&&typeof v==='object') {
+                const obj={};
+                for(const [x,y] of Object.entries(v)){
+                  if(/credit|included|consumed|remaining|used|period|date|start|end|limit|status|type|tier/i.test(x)&&['string','number','boolean'].includes(typeof y))obj[x]=y;
+                }
+                console.log('account.'+k+' '+JSON.stringify(obj).slice(0,800));
+              }
+            }
+          }
+          const site=await get('/sites/b36357ec-4dda-4373-a3d7-95f9c8f3ad9e');
+          if(site)console.log('site '+JSON.stringify({name:site.name,state:site.state,updated_at:site.updated_at,published_deploy_id:site.published_deploy?.id||null,published_sha:site.published_deploy?.commit_ref||null,repo_connected:Boolean(site.repo||site.repo_url||site.build_settings?.repo_url)}));
+          const deploys=await get('/sites/b36357ec-4dda-4373-a3d7-95f9c8f3ad9e/deploys?per_page=15');
+          if(Array.isArray(deploys))for(const d of deploys.slice(0,15))console.log('deploy '+JSON.stringify({id:d.id,state:d.state,created_at:d.created_at,commit_ref:d.commit_ref,branch:d.branch,context:d.context,locked:d.locked||false,skipped:d.skipped||false,manual:d.manual||false,error_message:typeof d.error_message==='string'?d.error_message.slice(0,100):undefined}));
+          console.log('Read-only Netlify audit; no writes, token/body exposure, production promotion or supplier messages.');
+          NODE
