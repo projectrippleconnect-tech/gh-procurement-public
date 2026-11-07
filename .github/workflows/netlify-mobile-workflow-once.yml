@@ -1,0 +1,150 @@
+name: GH Procurement - One-time Netlify mobile workflow release
+on:
+  push:
+    branches: [ops/netlify-mobile-workflow-20261107]
+    paths: [.github/workflows/netlify-mobile-workflow-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      GH_RELEASE_SHA: 29a10b750e7d3959b5632b946b74b109579b2c32
+      GH_PRODUCTION_URL: https://gh-procurement.netlify.app
+      NEXT_PUBLIC_SUPABASE_URL: https://huxhcjmcvlhblvpvrron.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable__Z6JVArxsa4aCweBy7SDyw_O3pLIm42
+      NEXT_TELEMETRY_DISABLED: '1'
+      WAHA_SENDING_ENABLED: 'false'
+      GH_AUTO_DISPATCH_ENABLED: 'false'
+      GH_AUTO_DELIVERY_TEST_VERIFIED: 'false'
+      GH_WA_AUDIT_ENABLED: 'false'
+      GH_PORTAL_PROCESSING_ENABLED: 'false'
+      GH_PORTAL_DISPATCH_ENABLED: 'false'
+      GH_PORTAL_DELIVERY_VERIFIED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 29a10b750e7d3959b5632b946b74b109579b2c32
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked application dependencies and pinned Netlify CLI
+        run: |
+          npm ci
+          npm install --global netlify-cli@27.13.0
+      - name: Verify exact candidate and completed quality gate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GH_RELEASE_SHA"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          for(let check=0;check<20;check++){
+            const response=await fetch('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/42398957730',{signal:AbortSignal.timeout(15000)})
+            assert.equal(response.status,200)
+            const qualityRun=await response.json()
+            assert.equal(qualityRun.head_sha,process.env.GH_RELEASE_SHA)
+            if(qualityRun.status==='completed'){
+              assert.equal(qualityRun.conclusion,'success')
+              process.exit(0)
+            }
+            await new Promise(resolve=>setTimeout(resolve,25000))
+          }
+          assert.fail('Quality gate did not finish before the release deadline')
+          NODE
+      - name: Verify the existing manual-only Netlify site
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$NETLIFY_AUTH_TOKEN"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          const r=await fetch('https://api.netlify.com/api/v1/sites/'+process.env.NETLIFY_SITE_ID,{
+            headers:{Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)
+          })
+          assert.equal(r.status,200)
+          const site=await r.json()
+          assert.equal(site.name,'gh-procurement')
+          assert.ok(!(site.repo||site.repo_url||site.build_settings?.repo_url),'Expected a manual-only existing Netlify site')
+          console.log('Existing Netlify site verified')
+          NODE
+          mkdir -p .netlify
+          printf '{"siteId":"%s"}' "$NETLIFY_SITE_ID" > .netlify/state.json
+      - name: Publish once or fall back to the supported Netlify draft
+        id: publish
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--build --context production --site "$NETLIFY_SITE_ID" --json
+            --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA"
+            --secret-env "WAHA_SENDING_ENABLED=false"
+            --secret-env "GH_AUTO_DISPATCH_ENABLED=false"
+            --secret-env "GH_AUTO_DELIVERY_TEST_VERIFIED=false"
+            --secret-env "GH_WA_AUDIT_ENABLED=false"
+            --secret-env "GH_PORTAL_PROCESSING_ENABLED=false"
+            --secret-env "GH_PORTAL_DISPATCH_ENABLED=false"
+            --secret-env "GH_PORTAL_DELIVERY_VERIFIED=false")
+          if netlify deploy "${args[@]}" --prod --message "Reviewed manual-first mobile workflow $GH_RELEASE_SHA" > "$RUNNER_TEMP/release.json" 2> "$RUNNER_TEMP/release.err"; then
+            echo 'RELEASE_MODE=production' >> "$GITHUB_ENV"
+          elif grep -Eqi '403|forbidden|operational.mode|production deploys.*(blocked|paused|disabled)|insufficient.*credits' "$RUNNER_TEMP/release.err" "$RUNNER_TEMP/release.json"; then
+            echo 'Netlify declined production. Trying one non-production draft on the same existing site.'
+            netlify deploy "${args[@]}" --message "Manual-first mobile workflow preview $GH_RELEASE_SHA" > "$RUNNER_TEMP/release.json"
+            echo 'RELEASE_MODE=preview' >> "$GITHUB_ENV"
+          else
+            tail -20 "$RUNNER_TEMP/release.err" >&2
+            exit 1
+          fi
+      - name: Verify the exact Netlify deployment and protected routes
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import fs from 'node:fs'
+          const result=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/release.json','utf8'))
+          const preview=process.env.RELEASE_MODE==='preview'
+          const url=new URL(preview ? (result.deploy_url||result.deploy_ssl_url) : process.env.GH_PRODUCTION_URL)
+          assert.equal(url.protocol,'https:')
+          assert.ok(preview ? /^[a-z0-9-]+--gh-procurement\.netlify\.app$/.test(url.hostname) : url.hostname==='gh-procurement.netlify.app')
+          console.log('NETLIFY_DEPLOY_URL='+url.origin)
+          const request=(base,path)=>fetch(new URL(path,base),{signal:AbortSignal.timeout(15000),redirect:'error'})
+          if(preview){
+            const deployId=result.deploy_id||result.id||url.hostname.split('--')[0]
+            assert.match(deployId,/^[a-f0-9]{24}$/)
+            const auth={Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN}
+            const metadata=await fetch('https://api.netlify.com/api/v1/sites/'+process.env.NETLIFY_SITE_ID+'/deploys/'+deployId,{headers:auth,redirect:'error',signal:AbortSignal.timeout(15000)})
+            assert.equal(metadata.status,200)
+            const deploy=await metadata.json()
+            assert.equal(deploy.id,deployId)
+            assert.equal(deploy.state,'ready')
+            assert.ok(deploy.title?.includes(process.env.GH_RELEASE_SHA))
+          }
+          const live=await request(process.env.GH_PRODUCTION_URL,'/api/health')
+          assert.equal(live.status,200)
+          const liveData=await live.json()
+          console.log('PRODUCTION_REVISION='+liveData.version)
+          const h=await request(url,'/api/health')
+          if(preview && h.status===401){
+            console.log('NETLIFY_TEAM_PROTECTED_PREVIEW='+url.origin)
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,'Ready Netlify team-protected preview '+url.origin+'\n')
+            process.exit(0)
+          }
+          assert.equal(h.status,200)
+          const data=await h.json()
+          assert.equal(data.version,process.env.GH_RELEASE_SHA)
+          assert.equal(data.database,'connected')
+          assert.equal(data.schema_ready,true)
+          assert.equal((await request(url,'/supplier/quote')).status,200)
+          assert.equal((await request(url,'/api/integrations/whatsapp/pair')).status,401)
+          console.log('VERIFIED_'+process.env.RELEASE_MODE.toUpperCase()+'='+url.origin)
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,'Verified Netlify '+process.env.RELEASE_MODE+' '+url.origin+'\n')
+          NODE
