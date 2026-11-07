@@ -454,7 +454,7 @@ export function CompanyLists({profile,company,fields,settings={},onConfigChanged
   {!setupOpen&&rowsError&&<div className="card pad section" role="alert">{rowsError} <button type="button" className="btn small" onClick={()=>void loadRows()}>Retry company list</button></div>}
   {!setupOpen&&loading&&rows.length>0&&<p className="muted tiny" role="status">Refreshing company list…</p>}
   {!setupOpen&&<div className="card pad section company-count-workspace" aria-busy={loading}>{loading&&!rows.length?<Empty>{t('company_lists.loading','Loading company list…')}</Empty>:!companyId?<Empty>{t('company_lists.select_prompt','Select a company.')}</Empty>:scoped.length===0?<Empty>{search.trim()?'No matching items. Try another spelling or size.':t('company_lists.empty','No items in this company list.')}</Empty>:<>
-   <div className="muted tiny">{scoped.length} item(s) · {countTotal} in saved draft · review before final submission.{companyHasSuggestions?' Possible spelling matches included — confirm item and size.':''}</div>
+   <div className="muted tiny">{scoped.length} items · {countTotal} in draft{companyHasSuggestions?' · Check suggested matches':''}</div>
    <div className="tablewrap section company-items-grid" style={companyRowStyle(rowLayout)}><table className="table">
     <colgroup><col/><col className="company-current-col"/><col className="company-sufficient-col"/></colgroup>
     <thead><tr><th>Item / description</th><th>Stock</th><th>Enough</th></tr></thead>
