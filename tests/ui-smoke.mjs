@@ -141,7 +141,7 @@ try{
   const deleteRequests=[]
   const destructiveRequests=[]
   const performanceMode=process.env.GH_UI_PERFORMANCE==='1',performanceReads=[]
-  let performanceHistoryFailure=false,performanceHistoryHold=false,releasePerformanceHistory
+  let performanceHistoryFailure=false,performanceHistoryHold=false,performancePreviousLot=false,releasePerformanceHistory
   const performanceHistoryGate=new Promise(resolve=>{releasePerformanceHistory=resolve})
   let stallStartup=false,releaseStartup,stalledReturned=false
   const startupGate=new Promise(resolve=>{releaseStartup=resolve})
@@ -290,6 +290,9 @@ try{
    }
    else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performanceHistoryHold){await performanceHistoryGate;data=[]}
    else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performanceHistoryFailure){performanceHistoryFailure=false;return route.fulfill({status:503,json:{message:'History temporarily offline'}})}
+   else if(performanceMode&&name==='proc_stock_latest_item_submissions_v1'&&performancePreviousLot){
+    data=req.postDataJSON().p_item_ids.includes(item.id)?[{item_id:item.id,count_id:'previous-lot',count_no:'053',submitted_at:'2026-10-21T15:01:00Z',current_stock:7}]:[]
+   }
    else if(name==='proc_requirements'&&req.method()==='HEAD'&&dashboardReviewFailure)return route.fulfill({status:503,json:{message:'Fixture dashboard queue unavailable'}})
    else if(name==='proc_work_page_v1'){
     if(workFailure)return route.fulfill({status:503,json:{message:'Fixture work unavailable'}})
@@ -460,23 +463,34 @@ try{
    assert.equal(performanceReads.filter(r=>r.name==='proc_items').length,0,'Opening Stock does not download the search catalogue')
    assert.ok(performanceReads.filter(r=>r.name==='proc_v_stock_check_due').every(r=>r.limit<=75),'First screen requests a bounded page')
    assert.ok(performanceReads.filter(r=>r.name==='proc_stock_latest_item_submissions_v1').every(r=>r.body.p_item_ids.length<=75),'History checks do not fan out over the catalogue')
-   await page.getByRole('button',{name:/Review & submit · 1/}).click()
+   await page.getByRole('button',{name:/Review · 1/}).click()
    const initialLot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
    for(let n=0;n<100&&await initialLot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'}).isDisabled();n++)await page.waitForTimeout(25)
    assert.equal(await initialLot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'}).isDisabled(),false)
    await initialLot.getByRole('button',{name:'Back to counting'}).click()
    performanceHistoryFailure=true
+   performancePreviousLot=true
    await page.locator('.dense-pagination').getByRole('button',{name:'Next',exact:true}).first().click()
    await page.getByText(/^PERFORMANCE ITEM 0020/).filter({visible:true}).first().waitFor()
-   await page.getByRole('button',{name:/Review & submit · 1/}).click()
+   await page.getByRole('button',{name:/Review · 1/}).click()
    const lot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
    await lot.getByText(/Could not check previous submissions/).waitFor()
    const submit=lot.getByRole('button',{name:'Submit reviewed lot of 1 stock items'})
    assert.equal(await submit.isDisabled(),true,'Failed validation cannot be bypassed')
    await lot.getByRole('button',{name:'Retry history check'}).click()
+   await lot.getByText('1 need action · 0 ready',{exact:true}).waitFor()
+   await lot.getByText(/^This count · 4 /).waitFor()
+   assert.equal(await submit.isDisabled(),true,'A previously finalized item blocks submission')
+   await lot.getByRole('button',{name:'Recount',exact:true}).click()
+   await page.getByRole('button',{name:'Allow recount',exact:true}).click()
+   const recountInput=lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/)
+   assert.equal(await recountInput.inputValue(),'','Recount must clear the stale draft count')
+   assert.equal(await submit.isDisabled(),true,'An unentered recount still blocks submission')
+   await recountInput.fill('4')
+   await lot.getByText('0 need action · 1 ready',{exact:true}).waitFor()
    await submit.waitFor();for(let n=0;n<100&&await submit.isDisabled();n++)await page.waitForTimeout(25)
    assert.equal(await submit.isDisabled(),false)
-   assert.equal(await lot.getByLabel(/^Count for PERFORMANCE ITEM 0000/).inputValue(),'4','Draft labels and quantities survive server page changes')
+   assert.equal(await recountInput.inputValue(),'4')
    await page.screenshot({path:'test-results/loading-stock-'+width+'.png'})
    performanceHistoryHold=true
    await submit.click()
@@ -485,7 +499,7 @@ try{
    performanceHistoryHold=false;releasePerformanceHistory()
    await lot.waitFor({state:'hidden'})
    assert.equal(stockSubmissions.length,1);assert.equal(stockSubmissions[0].p_lines[0].current_stock,4,'Only the reviewed quantity is submitted to the isolated fixture')
-   await page.getByRole('button',{name:/Review & submit · 0/}).click()
+   await page.getByRole('button',{name:/Review · 0/}).click()
    const emptyLot=page.getByRole('dialog',{name:'Review stock lot before final submission'})
    for(let n=0;n<100&&await emptyLot.getByRole('button',{name:'Retry history check'}).count();n++)await page.waitForTimeout(25)
    assert.equal(await emptyLot.getByRole('button',{name:'Retry history check'}).count(),0,'A completed lot cannot restart a stale history scope and block the next review')
@@ -1379,7 +1393,7 @@ try{
   if(process.env.GH_UI_COMPANY_ITEMS==='1'){
    await navigate('✓ Stock Entry')
    const stockHeader=page.locator('section:not([hidden]) .stock-work-header')
-   await page.getByRole('button',{name:/^Review & submit ·/}).waitFor()
+   await page.getByRole('button',{name:/^Review ·/}).waitFor()
    assert.equal(await page.getByRole('navigation',{name:'Purchasing sections',exact:true}).count(),0,'Stock has no duplicated purchasing stages')
    assert.equal(await page.locator('section:not([hidden]) .stock-simple-flow').count(),0,'Redundant Enter stock → Submit Stock → Review progress strip is absent')
    await page.getByRole('button',{name:'Filters',exact:true}).click()
@@ -1518,7 +1532,7 @@ try{
    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('gh-stock-count-draft:00000000-0000-4000-8000-000000000002')||'{}').entry?.['00000000-0000-4000-8000-000000000003']==='101')
    await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
    await navigate('✓ Stock Entry');await stock.waitFor();assert.equal(await stock.inputValue(),'101')
-   await page.getByRole('button',{name:'Review & submit · 1',exact:true}).click()
+   await page.getByRole('button',{name:'Review · 1 item',exact:true}).click()
    const submitDialog=page.getByRole('dialog',{name:'Review stock lot before final submission',exact:true})
    await submitDialog.waitFor();await submitDialog.getByRole('button',{name:'Back to counting',exact:true}).click()
    assert.equal(await stock.inputValue(),'101','Cancelling the modern dialog preserves the count draft')
@@ -1665,12 +1679,12 @@ try{
    await navigate('✓ Stock Entry')
    const input=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
    await input.waitFor();await input.fill('8')
-   await page.getByRole('button',{name:'Review & submit · 1',exact:true}).click()
+   await page.getByRole('button',{name:'Review · 1 item',exact:true}).click()
    const dialog=page.getByRole('dialog',{name:'Review stock lot before final submission',exact:true})
    await dialog.getByRole('button',{name:'Back to counting',exact:true}).click()
    assert.equal(stockSubmissions.length,0,'Leaving review saves draft without submission')
    assert.equal(await input.inputValue(),'8')
-   await page.getByRole('button',{name:'Review & submit · 1',exact:true}).click()
+   await page.getByRole('button',{name:'Review · 1 item',exact:true}).click()
    await dialog.getByRole('button',{name:'Submit reviewed lot of 1 stock items',exact:true}).click()
    await page.getByRole('heading',{name:'Purchase needed',exact:true}).waitFor()
    assert.equal(stockSubmissions.length,1,'One final submission with no duplicate dialog')
@@ -1968,7 +1982,7 @@ try{
   const historyStockInput=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
   await historyStockInput.waitFor()
   await historyStockInput.fill('8')
-  await page.getByRole('button',{name:'Review & submit · 1',exact:true}).click()
+  await page.getByRole('button',{name:'Review · 1 item',exact:true}).click()
   const stockDialog=page.getByRole('dialog',{name:'Review stock lot before final submission',exact:true})
   await stockDialog.waitFor()
   await page.screenshot({path:'test-results/stock-confirmation-'+width+'.png'})
@@ -1976,7 +1990,7 @@ try{
   await stockDialog.getByRole('button',{name:'Back to counting',exact:true}).click()
   assert.equal(stockSubmissions.length,0,'Cancel leaves the stock draft unchanged')
   assert.equal(await historyStockInput.inputValue(),'8')
-  await page.getByRole('button',{name:'Review & submit · 1',exact:true}).click()
+  await page.getByRole('button',{name:'Review · 1 item',exact:true}).click()
   await stockDialog.getByRole('button',{name:'Submit reviewed lot of 1 stock items',exact:true}).click()
   await page.getByRole('heading',{name:'Purchase needed',exact:true}).waitFor()
   assert.equal(await page.getByRole('dialog',{name:/Final confirmation/}).count(),0,'No second confirmation dialog')

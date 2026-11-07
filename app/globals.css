@@ -1473,6 +1473,18 @@ input.item-uppercase{ text-transform:uppercase; }
 }
 
 .stock-lot-modal>.stock-lot-actions{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.stock-lot-general .stock-lot-row{grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:7px 6px}
+.stock-lot-general .stock-lot-row-actions{display:flex;align-items:center;gap:5px}
+.stock-lot-general .stock-lot-row-actions>.btn{padding-inline:6px}
+.stock-lot-general .stock-lot-item small{font-size:11px}
+.stock-lot-general .stock-lot-scroll-hint{margin:0}
+.stock-lot-general .stock-lot-rows{align-content:start;scrollbar-gutter:stable}
+.stock-lot-general .stock-lot-actions .btn.primary:disabled{background:var(--panel);color:var(--muted);border-color:var(--line);opacity:1}
+@media(max-width:700px){
+ .stock-lot-general .stock-lot-row{gap:5px}
+ .stock-lot-general .stock-lot-row-actions>.btn{min-height:40px}
+ .stock-lot-general .stock-lot-qty{width:52px;font-size:16px}
+}
 
 /* Dense purchasing rows: actions and collapsed history share the final row. */
 .compact-work-case{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,auto);column-gap:10px;padding:8px 0}
