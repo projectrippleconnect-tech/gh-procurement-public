@@ -52,7 +52,7 @@ jobs:
         run: |
           npm ci
           npm install --global netlify-cli@27.13.0
-      - name: Verify existing site and build the reviewed application
+      - name: Verify the existing manual-only Netlify site
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
         run: |
@@ -71,7 +71,6 @@ jobs:
           NODE
           mkdir -p .netlify
           printf '{"siteId":"%s"}' "$NETLIFY_SITE_ID" > .netlify/state.json
-          netlify build --context production
       - name: Publish once or fall back to the supported Netlify draft
         id: publish
         env:
@@ -79,7 +78,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(--no-build --context production --site "$NETLIFY_SITE_ID" --json
+          args=(--build --context production --site "$NETLIFY_SITE_ID" --json
             --secret-env "GH_MANUAL_RELEASE_REV=$GH_RELEASE_SHA"
             --secret-env "WAHA_SENDING_ENABLED=false"
             --secret-env "GH_AUTO_DISPATCH_ENABLED=false"
