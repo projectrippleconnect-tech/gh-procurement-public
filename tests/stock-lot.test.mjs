@@ -19,8 +19,17 @@ test('sufficient and exact stock cannot double count one item; zero counts',()=>
 })
 test('previously finalized item needs explicit recount while draft items remain editable',()=>{
  const marker={x:{count_no:'ST-001',submitted_at:'2026-10-18'}}
- assert.equal(stockLotReview({x:'5',y:'3'},{},{},marker).blocked.length,1)
- assert.equal(stockLotReview({x:'5',y:'3'},{},{},marker,new Set(['x'])).blocked.length,0)
+ const initial=stockLotReview({x:'5',y:'3'},{},{},marker)
+ assert.equal(initial.blocked.length,1)
+ assert.equal(initial.ready,1)
+ const recount=new Set(['x'])
+ const waiting=stockLotReview({y:'3'},{},{},marker,recount)
+ assert.equal(waiting.count,2)
+ assert.deepEqual(waiting.incomplete.map(row=>row.id),['x'])
+ assert.equal(waiting.ready,1)
+ assert.equal(stockLotReview({x:'0',y:'3'},{},{},marker,recount).ready,2)
+ assert.equal(stockLotReview({x:'.',y:'3'},{},{},marker,recount).ready,1)
+ assert.equal(stockLotReview({y:'3'},{x:true},{},marker,recount).ready,2)
 })
 test('a single final lot refuses silently splitting after server maximum',()=>{
  const entry=Object.fromEntries(Array.from({length:1001},(_,i)=>['item'+i,'0']))

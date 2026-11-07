@@ -4,9 +4,9 @@ import {readFileSync} from 'node:fs'
 const ui=readFileSync(new URL('../components/modules-stock.jsx',import.meta.url),'utf8')
 
 test('stock header opens review rather than calling the submit RPC',()=>{
- assert.match(ui,/Review & submit · /)
+ assert.match(ui,/tr\('Review'\).*itemCountLabel/)
  assert.match(ui,/onClick=\{\(\)=>setLotReviewOpen\(true\)\}/)
- assert.match(ui,/Submit · /)
+ assert.match(ui,/tr\('Submit lot'\)/)
  assert.match(ui,/onClick=\{submit\}/)
  const submitCalls=[...ui.matchAll(/supabase\.rpc\('proc_submit_stock_and_continue_v3'/g)]
  assert.equal(submitCalls.length,1,'exactly one final stock RPC call')
