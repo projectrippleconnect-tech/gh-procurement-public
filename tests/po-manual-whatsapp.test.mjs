@@ -6,13 +6,13 @@ const orders=readFileSync(new URL('../components/modules-documents.jsx',import.m
 const share=readFileSync(new URL('../lib/po-share.js',import.meta.url),'utf8')
 
 test('primary approved PO sharing does not depend on the disconnected gateway',()=>{
- const primary=orders.match(/<div className="toolbar section no-print po-primary-action">([\s\S]*?)<\/div>/)?.[1]
+ const primary=orders.match(/aria-label="Manual supplier WhatsApp PO sharing">([\s\S]*?)<\/section>/)?.[1]
  assert.ok(primary,'Approved PO primary actions exist')
- assert.match(primary,/onClick=\{\(\)=>exportPo\('share'\)\}>\{shareBusy\?'Preparing PO PNG…':'Share PO PNG \+ Caption'\}<\/button>/)
+ assert.match(primary,/aria-label="Share PO PNG \+ Caption"[^>]*onClick=\{\(\)=>exportPo\('share'\)\}/)
  assert.doesNotMatch(primary,/sendBlock|gateway/)
  assert.match(orders,/onClick=\{\(\)=>exportPo\('share'\)\}/)
  assert.doesNotMatch(orders,/onClick=\{sendPoImage\}>Send PO image<\/button>/)
- assert.match(orders,/Manual WhatsApp sharing · works without a gateway/)
+ assert.match(primary,/onClick=\{\(\)=>whatsapp\(true\)\}/)
 })
 
 test('gateway sending remains a separate, protected, optional action',()=>{

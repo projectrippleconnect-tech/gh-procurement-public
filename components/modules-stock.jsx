@@ -700,17 +700,14 @@ export function StockCheck({activeView='stock',initialFilter='',profile,fields,f
 
   <QuickAddItem can={can} fail={fail} flash={flash} onCreated={async item=>{setSearchTerm(item.item_code);setSearchOpen(true);await load()}}/>
    <StockPrintDialog profile={profile} company={company} can={can} fail={fail}/>
-   {guidedCountEnabled&&<div className="stock-mode-tabs section">
-    <button className={'btn '+(viewMode==='guided'?'primary':'')} onClick={()=>setViewMode('guided')}>{t('stock.guided','Guided Count')}</button>
-    <button className={'btn '+(viewMode==='browse'?'primary':'')} onClick={()=>setViewMode('browse')}>{t('stock.browse','Fast Entry')}</button>
-   </div>}
+   {guidedCountEnabled&&<label className="compact-field"><span>Count mode</span><select className="select" aria-label="Count mode" value={viewMode} onChange={e=>setViewMode(e.target.value)}><option value="browse">{t('stock.browse','Fast Entry')}</option><option value="guided">{t('stock.guided','Guided Count')}</option></select></label>}
 
    {!isCounter&&feature('stock.cycle_counting')&&<div className="toolbar section"><button className={'btn '+(dueOnly?'primary':'')} onClick={()=>setDueOnly(true)}>{t('stock.due_today','Due Today')}</button><button className={'btn '+(!dueOnly?'primary':'')} onClick={()=>setDueOnly(false)}>{t('stock.browse_all','Browse All')}</button><span className="muted tiny">{dueOnly?items.length+' '+t('stock.assigned_now','assigned now')+' · '+dueTotal+' '+t('stock.due','due')+' · '+t('stock.daily_target','daily target')+' '+dailyTarget:(serverPaged?dueTotal:items.length)+' '+t('stock.items_current','item(s) in current browse set')}</span></div>}
 
-   <div className="movement-tabs no-print section"><span className="muted tiny stock-inline-help">{t('stock.movement','Movement')} <InfoButton topic={isCounter?'stock_movement':'movement'} language={language}/></span>{['FAST','NORMAL','SLOW'].map(m=><button key={m} className={'btn '+(movement===m?'primary':'')} onClick={()=>setMovement(m)}>{m}</button>)}{!isCounter&&<button className={'btn '+(movement===''?'primary':'')} onClick={()=>setMovement('')}>ALL</button>}</div>
+   <div className="stock-movement-control no-print"><label className="compact-field"><span>{t('stock.movement','Movement')}</span><select className="select" aria-label={t('stock.movement','Movement')} value={movement} onChange={e=>setMovement(e.target.value)}>{!isCounter&&<option value="">ALL</option>}{['FAST','NORMAL','SLOW'].map(m=><option key={m} value={m}>{m}</option>)}</select></label><InfoButton topic={isCounter?'stock_movement':'movement'} language={language}/></div>
 
    <div className="stock-filter-summary section">
-    <div><span className="muted tiny">{t('stock.current_filter','Current filter')}</span><strong>{[cat||t('stock.all_categories','All categories'),mainGroup||t('stock.all_groups','All groups'),movement||t('stock.all_movement','All movement')].join(' · ')}</strong></div>
+    <div><strong>{[cat||t('stock.all_categories','All categories'),mainGroup||t('stock.all_groups','All groups')].join(' · ')}</strong></div>
     <button className="btn" onClick={()=>setFiltersOpen(x=>!x)}>{filtersOpen?t('stock.hide_filters','Hide Filters'):t('stock.filters','Filters')}</button>
    </div>
 

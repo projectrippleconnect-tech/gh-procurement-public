@@ -409,9 +409,12 @@ function ProcurementApp(){
   </aside>
 
   <main className="main">
-   <AdminNotifications profile={profile} navigate={go} flash={flash}/>
-   <header className="topbar"><div className="topbar-left"><div><h2>{interfaceTranslator(language)(title)}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div><div id="stock-header-action" className="stock-header-action"/><div className="top-actions"></div></header>
-   {['requirements','rfq','po','receiving'].includes(view)&&historyTarget(-1)>=0&&<nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" onClick={()=>moveHistory(-1)}>← Back</button></nav>}
+   <header className="topbar compact-workspace-header">
+    {['requirements','rfq','po','receiving'].includes(view)&&historyTarget(-1)>=0&&<nav className="app-history-nav" aria-label="Screen navigation"><button className="btn small" aria-label="Go back" onClick={()=>moveHistory(-1)}>←</button></nav>}
+    <div className="topbar-left"><div><h2>{interfaceTranslator(language)(title)}</h2><div className="muted tiny">General Hardware · Nawalapitiya</div></div></div>
+    <div id="stock-header-action" className="stock-header-action"/>
+    <AdminNotifications profile={profile} navigate={go} flash={flash}/>
+   </header>
    <div className="content" ref={workContent}>
     <WorkflowNavigation view={view} navigate={go} canNavigate={p.canNavigate} t={t}/>
      {!visibleNav.some(n=>n[0]===view)&&<p role="status" className="muted">Opening your permitted workspace…</p>}

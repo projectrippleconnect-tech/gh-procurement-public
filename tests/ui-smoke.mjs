@@ -525,10 +525,10 @@ try{
    assert.equal(await listSelector().count(),1,'There is one visible item filter')
    assert.equal(await work.locator('.work-case').count(),25)
    assert.equal(queries.some(u=>u.pathname.endsWith('/proc_v_requirements')&&u.searchParams.get('select')?.includes('proc_work_documents')),false,'Details are not prefetched')
-   await work.getByRole('button',{name:'In progress · 1',exact:true}).click()
+   await work.getByLabel('Work view',{exact:true}).selectOption('In progress')
    await work.getByRole('heading',{name:/^Connected item 2 ·/}).waitFor()
    await work.getByText('Awaiting supplier response',{exact:true}).waitFor()
-   await work.getByRole('button',{name:'Needs me · 27',exact:true}).click()
+   await work.getByLabel('Work view',{exact:true}).selectOption('Needs me')
    await work.locator('.work-case').first().waitFor()
    const partial=work.locator('.work-case').filter({hasText:'PARTIAL PURCHASE'})
    await partial.getByText('Buy 8 PCS',{exact:true}).waitFor();await partial.getByText('Receive 4 PCS',{exact:true}).waitFor()
@@ -547,16 +547,16 @@ try{
    await navigate('⌂ Work')
    await work.getByRole('button',{name:'Next',exact:true}).click()
    await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===2);await work.getByText('Page 2 of 2',{exact:true}).waitFor();assert.equal(await work.locator('.work-case').count(),2)
-   await selectList('company');await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===2);await work.getByRole('button',{name:'History · 1',exact:true}).waitFor()
+   await selectList('company');await page.waitForFunction(()=>document.querySelectorAll('.work-list .work-case').length===2);await work.getByLabel('Work view',{exact:true}).locator('option[value=History]').filter({hasText:'History · 1'}).waitFor({state:'attached'})
    assert.equal(await work.locator('.work-case').count(),2,'Scope filtering resets pagination')
-   await work.getByRole('button',{name:'History · 1',exact:true}).click();await work.getByRole('heading',{name:/^COMPLETED PURCHASE/}).waitFor()
+   await work.getByLabel('Work view',{exact:true}).selectOption('History');await work.getByRole('heading',{name:/^COMPLETED PURCHASE/}).waitFor()
    const completed=work.locator('.work-case').filter({hasText:'COMPLETED PURCHASE'})
    await completed.locator('summary').click();await completed.getByRole('button',{name:'Stock count & requirement',exact:true}).click()
    await page.getByRole('heading',{name:'Procurement Review',exact:true}).waitFor()
    await page.getByText(/Viewing the linked requirement/).waitFor()
    assert.ok(queries.some(u=>u.pathname.endsWith('/proc_v_requirements')&&u.searchParams.get('id')==='eq.00000000-0000-4000-8000-000000000044'&&!u.searchParams.has('status')),'History deep link is not excluded by active-only filters')
    await navigate('⌂ Work')
-   await work.getByRole('button',{name:'Needs me · 2',exact:true}).click()
+   await work.getByLabel('Work view',{exact:true}).selectOption('Needs me')
    await navigate('✓ Stock Entry');await selectList('company')
    if(width<=700){
     const nav=page.getByRole('navigation',{name:'Main navigation',exact:true});assert.equal(await nav.isVisible(),true,'Stock retains the main tabs')
@@ -571,7 +571,7 @@ try{
    await navigate('⌂ Work')
    assert.equal(await listSelector().inputValue(),'company','Stock does not reset Work scope')
    await selectList('all');await work.locator('.work-case').first().waitFor()
-   workFailure=true;await page.getByRole('button',{name:'Refresh work',exact:true}).click()
+   workFailure=true;await page.locator('.work-options > summary').click();await page.getByRole('button',{name:'Refresh work',exact:true}).click()
    await work.getByRole('alert').waitFor();assert.equal(await work.getByText(/Nothing needs your action/).count(),0,'Failed loading must not look like an empty queue')
    workFailure=false;await page.getByRole('button',{name:'Refresh work',exact:true}).click();await work.locator('.work-case').first().waitFor()
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Work fits the viewport')
@@ -586,7 +586,7 @@ try{
    await page.screenshot({path:'test-results/stage-two-work-viewport-'+width+'.png'})
    currentProfile={...profile,role:'viewer',role_key:'viewer'};grantedPermissions=['dashboard.view','procurement.requirements.view','procurement.rfq.view','procurement.orders.view']
    await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor()
-   await work.getByRole('button',{name:'In progress · 28',exact:true}).click();await work.locator('.work-case').first().waitFor()
+   await work.getByLabel('Work view',{exact:true}).selectOption('In progress');await work.locator('.work-case').first().waitFor()
    assert.equal(await work.getByRole('button',{name:/^(Review quantity|Compare prices|Approve order|Record delivery)$/}).count(),0,'Viewer is never offered management actions')
    currentProfile={...profile,role:'stock_handler',role_key:'stock_handler'};grantedPermissions=['dashboard.view','stock.count.view','stock.count.enter','company_lists.view']
    const before=queries.filter(u=>u.pathname.endsWith('/proc_work_page_v1')).length
@@ -605,7 +605,7 @@ try{
     assert.equal(await panel.evaluate(el=>getComputedStyle(el).position),'static',selector+' must scroll with its content')
    }
    await navigate('≡ Review')
-   await staticPanel('.sticky-work-search')
+   await page.getByText('Search & filters',{exact:true}).click();await staticPanel('.sticky-work-search')
    await staticPanel('.procurement-bulk-actions')
    rfqItemCount=15
    await navigate('Q RFQs & Quotes')
@@ -653,6 +653,7 @@ try{
    await page.getByRole('button',{name:'Enable phone notifications',exact:true}).waitFor()
    await page.getByRole('region',{name:'Admin notifications'}).waitFor()
    assert.equal(await page.locator('.notification-row.unread').count(),1)
+   await page.getByText('Phone notification settings',{exact:true}).click()
    await page.getByRole('button',{name:'Enable phone notifications',exact:true}).click()
    await page.getByRole('button',{name:'Send test',exact:true}).click()
    await page.getByText('Push service accepted the test. Confirm that a pop-up appeared on this phone.',{exact:true}).waitFor()
@@ -667,6 +668,7 @@ try{
    assert.deepEqual(errors,[])
    notificationRows=[{id:'issue-fixture',title:'Supplier response overdue',body:'RFQ-FIXTURE · response outstanding',target_view:'rfq',record_id:rfq.id,target_filter:rfq.id,issue_key:'no-response:qa',severity:'warning',responsible_role:'Procurement',due_at:new Date().toISOString(),action_label:'Follow up supplier',created_at:new Date().toISOString(),read_at:null}]
    await page.getByRole('button',{name:'Notifications',exact:true}).click()
+   await page.getByText('Phone notification settings',{exact:true}).click()
    await page.getByRole('region',{name:'Admin notifications'}).getByRole('button',{name:'Refresh',exact:true}).click()
    await page.getByRole('button',{name:'Open Exceptions / Urgent Work',exact:true}).click()
    const issues=page.getByLabel('Exceptions and urgent work',{exact:true})
@@ -930,7 +932,7 @@ try{
    await reviewButton.click();await review.getByRole('button',{name:'Post receipt',exact:true}).click()
    await page.getByRole('region',{name:'Receipt result',exact:true}).waitFor();assert.equal(receipts.length,1)
    await page.getByRole('button',{name:'Settle rejected goods →',exact:true}).click()
-   let followups=page.getByRole('tab',{name:'Follow-ups (1)',exact:true});await followups.waitFor()
+   const followups=page.getByLabel('Receiving workspace',{exact:true});await followups.waitFor();assert.equal(await followups.inputValue(),'followup')
    assert.equal(await page.getByRole('button',{name:'Update follow-up →',exact:true}).count(),1)
    await page.getByRole('button',{name:'Update follow-up →',exact:true}).click()
    let dialog=page.getByRole('dialog',{name:'1. Settle rejected goods',exact:true})
@@ -953,7 +955,7 @@ try{
    await page.getByText('Follow-ups unavailable. Retry above.',{exact:true}).waitFor()
    assert.equal(await page.getByText('No unresolved rejected goods.',{exact:true}).count(),0,'Failure never looks settled')
    followupFailure=false;await page.getByRole('button',{name:'Retry receiving',exact:true}).click();await page.getByText('No unresolved rejected goods.',{exact:true}).waitFor()
-   await page.getByRole('tab',{name:'Deliveries',exact:true}).click()
+   await page.getByLabel('Receiving workspace',{exact:true}).selectOption('delivery')
    await chooseOption(page.getByLabel('Purchase Order',{exact:true}),po.id)
    await page.getByText('60% received',{exact:true}).filter({visible:true}).waitFor()
    await page.getByRole('button',{name:'Accept full remaining delivery',exact:true}).click()
@@ -981,7 +983,7 @@ try{
    assert.equal(await page.evaluate(draft=>localStorage.getItem(draft),recoveryDraft),null,'Confirmed recovery clears the saved attempt')
    receivingCase={...receivingCase,status:'open'};grantedPermissions=permissions.filter(x=>x!=='receiving.manage')
    await page.reload();await page.getByRole('heading',{name:'Work',exact:true}).waitFor();await navigate('⇩ Receive Goods')
-   await page.getByRole('tab',{name:'Follow-ups (1)',exact:true}).click()
+   await page.getByLabel('Receiving workspace',{exact:true}).selectOption('followup')
    assert.equal(await page.getByRole('button',{name:'Update follow-up →',exact:true}).count(),0,'Read-only users cannot resolve rejected goods')
    assert.equal(await page.getByRole('button',{name:/^Review receipt/}).filter({visible:true}).count(),0,'Read-only users cannot post receipts')
    assert.equal(errors.length,0,errors.join('\n'));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true)
@@ -1506,6 +1508,7 @@ try{
    await print.getByRole('button',{name:'Close',exact:true}).click()
    rfq.status='prepared'
    await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   await page.getByText('RFQ options',{exact:true}).click()
    await page.getByRole('button',{name:'Edit RFQ Document Template',exact:true}).click()
    const editor=page.getByRole('dialog',{name:'Supplier document template',exact:true});await editor.waitFor()
    await editor.getByLabel('Document business header',{exact:true}).fill('General Ceramics')
@@ -1775,6 +1778,7 @@ try{
    await page.getByRole('button',{name:'Approve order',exact:true}).click()
    await page.getByRole('dialog').getByRole('button',{name:'Continue',exact:true}).click()
    await page.getByText('Purchase order approved.',{exact:true}).waitFor()
+   await page.getByText('Batch and gateway sending',{exact:true}).filter({visible:true}).click()
    const poBatch=page.getByRole('region',{name:'Send all purchase orders',exact:true})
    await poBatch.getByRole('button',{name:'Send all POs · 1',exact:true}).waitFor()
    await poBatch.getByRole('button',{name:'Send all POs · 1',exact:true}).dblclick()
@@ -1896,6 +1900,22 @@ try{
    invitations=directory.map((s,i)=>({id:'bulk-invite-'+i,rfq_id:rfq.id,supplier_id:s.id,status:'pending',requested_item_ids:['00000000-0000-4000-8000-000000000008']}))
    rfqItemCount=1
    await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
+   const manualRows=page.getByRole('region',{name:'Manual supplier requests',exact:true})
+   const supplierRow=manualRows.getByRole('group',{name:supplier.name,exact:true})
+   await supplierRow.getByRole('button',{name:'Open RFQ text in WhatsApp for '+supplier.name,exact:true}).waitFor()
+   assert.equal(await supplierRow.getByRole('button',{name:'Confirm Sent for '+supplier.name,exact:true}).isVisible(),true)
+   assert.equal(await page.getByRole('button',{name:'Send PNG + Caption to 3 Suppliers',exact:true}).count(),0,'Gateway actions are collapsed on entry')
+   await page.evaluate(()=>Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false}))
+   const directImage=page.waitForEvent('download')
+   await supplierRow.getByRole('button',{name:'Share RFQ image for '+supplier.name,exact:true}).click()
+   const image=await directImage
+   assert.equal((await readFile(await image.path())).subarray(0,8).toString('hex'),'89504e470d0a1a0a')
+   assert.equal(rfqGatewayRequests.length,0,'Manual PNG does not call the gateway')
+   async function openRfqBatch(){
+    await page.getByText('RFQ options',{exact:true}).click()
+    await page.getByText('Batch and gateway sending',{exact:true}).filter({visible:true}).click()
+   }
+   await openRfqBatch()
    const panel=page.getByRole('region',{name:'Send RFQ to selected suppliers',exact:true})
    const send=panel.getByRole('button',{name:'Send PNG + Caption to 3 Suppliers',exact:true})
    await send.waitFor();assert.equal(await panel.locator('input[type="checkbox"]:checked').count(),3)
@@ -1921,7 +1941,7 @@ try{
    if(width===320){
     rfqDispatches.length=0;rfqGatewayRequests.length=0
     await page.reload();await page.locator('.app').waitFor();await navigate('Q RFQs & Quotes');await page.getByRole('button',{name:/^RFQ-FIXTURE/}).click()
-    await send.waitFor()
+    await openRfqBatch();await send.waitFor()
     bulkReady=false;await panel.getByRole('button',{name:'Refresh status',exact:true}).click()
     await page.waitForFunction(()=>document.querySelector('.rfq-bulk-send-button')?.disabled===true)
     assert.equal(rfqGatewayRequests.length,0,'Disconnected gateway sends nothing')
@@ -2014,7 +2034,7 @@ try{
    await builder.getByRole('button',{name:'Create RFQ & Continue',exact:true}).click()
    await page.getByRole('heading',{name:'RFQ-FIXTURE',exact:true}).waitFor()
    await guide.getByRole('button',{name:'Quotes',exact:true}).waitFor()
-   await page.locator('.rfq-individual-options > summary').click()
+   await page.getByText('RFQ options',{exact:true}).click();await page.locator('.rfq-individual-options > summary').click()
    await page.getByRole('button',{name:'Confirm Sent',exact:true}).click()
    await page.getByRole('dialog',{name:'Review and continue',exact:true}).getByRole('button',{name:'Continue',exact:true}).click()
    await page.locator('[data-rfq-price-item]').filter({visible:true}).first().waitFor()
@@ -2216,6 +2236,7 @@ try{
    if(card==='Stock checks due')assert.ok(queries.some(u=>u.pathname.endsWith('/'+table)&&u.searchParams.get('is_due')==='eq.true'&&!u.searchParams.has('category')&&!u.searchParams.has('movement')),'Due shortcut includes all categories and movements')
 
    if(card==='Open requirements'){
+    await page.getByText('Search & filters',{exact:true}).click()
     // Regression: compact procurement controls must never overlap on phones
     // or on the standard tablet/desktop test widths.
     const geometry=await page.evaluate(()=>{
@@ -2335,7 +2356,7 @@ try{
     assert.equal(invitations[0].requested_item_ids.length,99,'A bathroom-only request saves every matching item')
     assert.ok(!invitations[0].requested_item_ids.includes('00000000-0000-4000-8000-000000000008'),'A bathroom-only request excludes general hardware')
     if(width===320){
-     await page.locator('.rfq-individual-options > summary').click()
+     await page.getByText('RFQ options',{exact:true}).click();await page.locator('.rfq-individual-options > summary').click()
      await page.getByRole('button',{name:'Send Request',exact:true}).click()
      const pdfDownload=page.waitForEvent('download')
      await page.getByRole('button',{name:'RFQ PDF',exact:true}).click()
@@ -2590,7 +2611,7 @@ try{
     await orderWarning.getByText('Fixture operation blocked',{exact:true}).waitFor()
     assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_delete_record_v1').length,1)
     await orderWarning.getByRole('button',{name:'Cancel',exact:true}).click()
-    await page.locator('summary').filter({hasText:'Document & Sharing Options'}).click()
+    await page.getByText('Order options',{exact:true}).click();await page.getByText('Document & Sharing Options',{exact:true}).click()
     await page.getByRole('button',{name:'Download PO PNG',exact:true}).waitFor({state:'visible'})
     if(width===320){
      await page.getByText('Supplier document fields',{exact:true}).click()

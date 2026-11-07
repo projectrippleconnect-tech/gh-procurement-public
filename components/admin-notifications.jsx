@@ -55,12 +55,10 @@ export function AdminNotifications({profile,navigate,flash}){
  if(!admin)return null
  const unread=rows.filter(n=>!n.read_at&&!n.resolved_at).length
  const issues=rows.filter(n=>isOpenIssue(n))
- return <div className="admin-notifications"><button className="btn small" onClick={()=>setOpen(v=>!v)} aria-expanded={open}>Notifications{unread?' ('+unread+')':''}</button>
+ return <div className="admin-notifications"><button className="btn small" onClick={()=>setOpen(v=>!v)} aria-expanded={open} aria-label={'Notifications'+(unread?' ('+unread+')':'')}>Alerts{unread?' '+unread:''}</button>
  {open&&<div className="notification-panel" role="region" aria-label="Admin notifications"><div className="toolbar"><strong>Admin notifications</strong><button className="btn small" onClick={()=>setOpen(false)}>Close</button></div>
- <p className="muted tiny">Stock, orders, returned prices and exceptions. Enable and test each phone separately.</p>
- <div className="toolbar"><button className="btn small" disabled={busy} onClick={enabled?disable:enable}>{enabled?'Disable on this phone':'Enable phone notifications'}</button>{enabled&&<button className="btn small" disabled={busy} onClick={test}>Send test</button>}<button className="btn small" onClick={load}>Refresh</button></div>
+ <details className="section"><summary>Phone notification settings</summary><div className="toolbar"><button className="btn small" disabled={busy} onClick={enabled?disable:enable}>{enabled?'Disable on this phone':'Enable phone notifications'}</button>{enabled&&<button className="btn small" disabled={busy} onClick={test}>Send test</button>}<button className="btn small" onClick={load}>Refresh</button></div><p className="muted tiny">{enabled?'This phone is registered.':'This phone is not registered.'}</p></details>
  {status&&<p role="status" className="tiny">{status}</p>}
- <p className="muted tiny">{enabled?'This phone is registered.':'This phone is not registered.'} {issues.length} active issue(s). The latest 200 alerts are shown.</p>
  {issues.length>0&&<button className="btn small" onClick={()=>{setOpen(false);navigate('urgent_actions')}}>Open Exceptions / Urgent Work</button>}
  {rows.length===0&&<p className="muted tiny">New submissions will appear here.</p>}
  {rows.map(n=><div key={n.id} className="notification-item"><button className={'notification-row '+(!n.read_at&&!n.resolved_at?'unread':'')} onClick={()=>visit(n)}><strong>{n.title}{n.resolved_at?' · Resolved':''}</strong><span>{n.body}</span>{n.responsible_role&&<small>{n.severity} · {n.responsible_role}{n.due_at?' · Due '+new Date(n.due_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'}):''}</small>}<small>{n.action_label||'Open record'} · {new Date(n.created_at).toLocaleString('en-LK',{timeZone:'Asia/Colombo'})}</small>{n.snoozed_until&&new Date(n.snoozed_until)>new Date()&&<small>Postponed until {new Date(n.snoozed_until).toLocaleString()}</small>}</button></div>)}
