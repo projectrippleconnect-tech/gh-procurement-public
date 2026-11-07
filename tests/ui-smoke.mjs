@@ -1714,6 +1714,7 @@ try{
    await input.fill('123.45');await page.waitForTimeout(400)
    assert.equal(await page.locator('.rfq-bulk-send').filter({visible:true}).count(),0,'Quote interface hides sending')
    assert.equal(await page.getByRole('heading',{name:'Supplier Price Comparison',exact:true}).filter({visible:true}).count(),0,'Quote interface hides comparison')
+   await page.getByText('Progress & stock source',{exact:true}).click()
    await page.locator('.stock-source > summary').click()
    await page.getByText(/COUNT-FIXTURE.*02:30/).waitFor()
    await page.locator('.stock-source > summary').click()

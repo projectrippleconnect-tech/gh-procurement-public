@@ -1510,6 +1510,9 @@ input.item-uppercase{ text-transform:uppercase; }
 .compact-workspace-header .topbar-left h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .compact-workspace-header .stock-header-action:empty{display:none}
 .work-options,.compact-options{border-block-end:1px solid var(--line);margin:4px 0;padding:0 0 4px}
+.work-top-actions{display:flex;justify-content:space-between;align-items:start;gap:5px;flex-wrap:wrap}
+.work-top-actions .work-options[open]{flex:1 0 100%}
+.work-top-actions .work-options{border:0}
 .work-options>summary,.compact-options>summary,.compact-inline-options>summary,.work-case-details>summary{cursor:pointer;color:var(--muted);padding:7px 0;font-size:12px}
 .work-list-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end;gap:8px;margin:5px 0}
 .work-list-controls .item-list-selector,.work-view-filter,.compact-field{display:grid;grid-template-columns:minmax(0,1fr);gap:3px;min-width:0;margin:0;color:var(--muted);font-size:11px}
@@ -1548,6 +1551,7 @@ input.item-uppercase{ text-transform:uppercase; }
  .work-case.compact-work-case .work-case-heading h3{font-size:14px}
  .work-case.compact-work-case>.work-case-status{font-size:11px}
  .compact-review .proc-review-row{border-radius:0;box-shadow:none;min-height:50px}
+ .compact-review .proc-review-mobile-list{border-inline:0;border-radius:0}
  .compact-review .proc-review-row.selected-card{box-shadow:inset 2px 0 0 var(--brand2)}
  .compact-review .proc-review-main small{font-size:11px}
  .compact-review .proc-review-order .input{min-height:40px}
