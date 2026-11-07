@@ -2597,6 +2597,7 @@ try{
    if(heading==='Orders'){
     poFixtureStatus='approved';poLargeExport=width===320
     await page.getByRole('button',{name:/^PO-FIXTURE/}).click()
+    await page.getByText('Order options',{exact:true}).click()
     await page.getByRole('button',{name:'Delete purchase order',exact:true}).click()
     const orderWarning=page.getByRole('alertdialog',{name:'Delete purchase order',exact:true})
     const confirmOrder=orderWarning.getByRole('button',{name:'Delete permanently',exact:true})
@@ -2611,7 +2612,7 @@ try{
     await orderWarning.getByText('Fixture operation blocked',{exact:true}).waitFor()
     assert.equal(destructiveRequests.filter(r=>r.name==='proc_admin_delete_record_v1').length,1)
     await orderWarning.getByRole('button',{name:'Cancel',exact:true}).click()
-    await page.getByText('Order options',{exact:true}).click();await page.getByText('Document & Sharing Options',{exact:true}).click()
+    await page.getByText('Document & Sharing Options',{exact:true}).click()
     await page.getByRole('button',{name:'Download PO PNG',exact:true}).waitFor({state:'visible'})
     if(width===320){
      await page.getByText('Supplier document fields',{exact:true}).click()

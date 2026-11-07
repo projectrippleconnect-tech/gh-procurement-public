@@ -195,6 +195,14 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
    {directPo&&<p className="notice section"><strong>Direct PO — RFQ bypassed</strong></p>}
    <details className="compact-options"><summary>Order next step</summary><p>{poNextStep(active.status)}</p><p>{active.supplier?.name||'Unavailable'} · {active.supplier?.whatsapp||active.supplier?.phone||'Add a contact number'}</p></details>
    <div className="sectionhead"><div><h3>{active.po_no}</h3><p>{active.supplier?.name} · {active.po_date}</p></div><Badge>{active.status}</Badge></div>
+   <div className="toolbar section no-print po-primary-action">
+    {active.quantity_only&&<p className="notice">{tr('Quantity approval only. Prices are unconfirmed; this approval does not authorize final spending.')}</p>}
+    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>{tr(active.quantity_only?'Approve quantity only':'Approve order')}</button>}
+
+    {can('receiving.view')&&active.status==='received'&&<button className="btn" onClick={()=>navigate('receiving','followup:'+active.po_no)}>Review follow-ups</button>}
+    {canEdit&&canApprove&&active.status==='received'&&<button className="btn primary" disabled={busy||shareBusy||!linesReady} onClick={closeOrder}>Complete order →</button>}
+    {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary" onClick={()=>navigate('receiving',active.id)}>Receive this order →</button>}
+   </div>
    {canEdit&&active.status==='approved'&&<section className="po-manual-first no-print" aria-label="Manual supplier WhatsApp PO sharing">
     <div className="compact-send-heading"><strong>Send order</strong><span className="muted tiny">Approved · not sent</span></div>
     <div className="manual-supplier-actions">
@@ -233,14 +241,7 @@ export function PurchaseOrders({itemListType='general',onItemListTypeChange,onOr
    <details className="compact-options no-print"><summary>Order options</summary>
    <SupplierDocumentEditor kind="po" value={documentTemplate} onChange={changeDocumentTemplate} company={company} lines={lines} po={active} disabled={busy||shareBusy}/>
    <details className="section no-print"><summary>Supplier document fields</summary><p className="muted tiny">Choose fields for PDF, PNG and copied text. Saved for your account on this device. Order values and approvals are unchanged.</p><div className="formgrid">{PO_SHARE_FIELDS.map(([key,label])=><label className="checkline" key={key}><input type="checkbox" checked={shareFields[key]} disabled={!shareReady||shareBusy} onChange={e=>changeShareField(key,e.target.checked)}/>{label}</label>)}</div><button className="btn small section" disabled={shareBusy} onClick={()=>{const next=defaultPoShareFields();setShareFields(next);try{localStorage.setItem(settingsKey,JSON.stringify(next))}catch{}}}>Reset to quantity-only fields</button></details>
-   <div className="toolbar section no-print po-primary-action">
-    {active.quantity_only&&<p className="notice">{tr('Quantity approval only. Prices are unconfirmed; this approval does not authorize final spending.')}</p>}
-    {canApprove&&active.status==='pending_approval'&&<button className="btn good" disabled={busy||shareBusy} onClick={()=>action('approve')}>{tr(active.quantity_only?'Approve quantity only':'Approve order')}</button>}
 
-    {can('receiving.view')&&active.status==='received'&&<button className="btn" onClick={()=>navigate('receiving','followup:'+active.po_no)}>Review follow-ups</button>}
-    {canEdit&&canApprove&&active.status==='received'&&<button className="btn primary" disabled={busy||shareBusy||!linesReady} onClick={closeOrder}>Complete order →</button>}
-    {can('receiving.view')&&['sent','partially_received'].includes(active.status)&&<button className="btn primary" onClick={()=>navigate('receiving',active.id)}>Receive this order →</button>}
-   </div>
    {(profile.role_key||profile.role)==='admin'&&can('admin.configure_app')&&<DeleteRecordButton profile={profile} table="proc_purchase_orders" record={active} label="purchase order" fail={fail} disabled={busy||shareBusy} onDeleted={async()=>{opening.current++;setActive(null);setLines([]);flash('Purchase order and reviewed linked records deleted.');await load()}}/>}
    <details className="section no-print"><summary>Document & Sharing Options</summary><div className="toolbar section">
     <button className="btn" disabled={!linesReady||shareBusy||!shareReady} onClick={()=>exportPo('pdf')}>Download PDF</button>
