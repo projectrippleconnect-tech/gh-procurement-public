@@ -1,0 +1,79 @@
+name: GH Procurement - Promote the reviewed mobile preview once
+on:
+  push:
+    branches: [ops/promote-reviewed-mobile-preview-20261108]
+    paths: [.github/workflows/promote-reviewed-mobile-preview-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: gh-procurement-manual-netlify-production
+  cancel-in-progress: false
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NETLIFY_SITE_ID: b36357ec-4dda-4373-a3d7-95f9c8f3ad9e
+      NETLIFY_DEPLOY_ID: 6aef6820f3fc59cf2afe9c28
+      NETLIFY_AUTH_TOKEN: ${{ secrets.GH_NETLIFY_AUTH_TOKEN }}
+      REVIEWED_SHA: 29a10b750e7d3959b5632b946b74b109579b2c32
+      PREVIOUS_SHA: c95aa5b73a3a460a722d34fb4c3216f2ed92afc9
+    steps:
+      - name: Verify the existing site and publish the exact reviewed artifact once
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          const {NETLIFY_SITE_ID,NETLIFY_DEPLOY_ID,NETLIFY_AUTH_TOKEN,REVIEWED_SHA,PREVIOUS_SHA}=process.env
+          const hostname='gh-procurement.netlify.app'
+          const production='https://'+hostname
+          const api='https://api.netlify.com/api/v1/sites/'+NETLIFY_SITE_ID
+          const artifact=api+'/deploys/'+NETLIFY_DEPLOY_ID
+          assert.ok(NETLIFY_AUTH_TOKEN,'Expected the existing Netlify deployment credential')
+          const request=(url,options={})=>fetch(url,{redirect:'error',cache:'no-store',signal:AbortSignal.timeout(15000),...options})
+          const netlify=(url,method='GET')=>request(url,{method,headers:{Authorization:'Bearer '+NETLIFY_AUTH_TOKEN}})
+          const json=async(response)=>{assert.equal(response.status,200);return response.json()}
+          const health=()=>request(production+'/api/health?verify='+Date.now()).then(json)
+          const [site,deploy,quality,prior]=await Promise.all([
+            netlify(api).then(json),
+            netlify(artifact).then(json),
+            request('https://api.github.com/repos/projectrippleconnect-tech/gh-procurement-public/actions/runs/42398957730').then(json),
+            health()
+          ])
+          assert.equal(site.name,'gh-procurement')
+          assert.ok(!(site.repo||site.repo_url||site.build_settings?.repo_url),'Expected the manual-only site')
+          assert.equal(deploy.id,NETLIFY_DEPLOY_ID)
+          assert.equal(deploy.state,'ready')
+          assert.ok(deploy.title?.includes(REVIEWED_SHA))
+          assert.equal(new URL(deploy.deploy_ssl_url).hostname,NETLIFY_DEPLOY_ID+'--'+hostname)
+          assert.equal(quality.head_sha,REVIEWED_SHA)
+          assert.equal(quality.conclusion,'success')
+          console.log('PRODUCTION_BEFORE='+prior.version)
+          if(prior.version!==REVIEWED_SHA){
+            assert.equal(prior.version,PREVIOUS_SHA,'Production changed since the reviewed deployment')
+            const publish=await netlify(artifact+'/restore','POST')
+            console.log('PUBLISH_HTTP='+publish.status)
+            if(!publish.ok){
+              const body=await publish.json().catch(()=>({}))
+              const message=String(body.message||body.error||'').replace(/[\r\n]+/g,' ').slice(0,260)
+              console.log('PUBLISH_REASON='+message)
+              const unchanged=await health()
+              console.log('PRODUCTION_AFTER='+unchanged.version)
+              assert.equal(unchanged.version,PREVIOUS_SHA)
+              process.exitCode=1
+            }
+          }
+          if(!process.exitCode){
+            let result
+            for(let check=0;check<10;check++){
+              result=await health()
+              if(result.version===REVIEWED_SHA)break
+              await new Promise(resolve=>setTimeout(resolve,5000))
+            }
+            assert.equal(result.version,REVIEWED_SHA)
+            assert.equal(result.database,'connected')
+            assert.equal(result.schema_ready,true)
+            assert.equal((await request(production+'/')).status,200)
+            console.log('VERIFIED_PRODUCTION='+production)
+            console.log('PRODUCTION_AFTER='+result.version)
+          }
+          NODE
