@@ -650,7 +650,6 @@ try{
   }
   if(process.env.GH_UI_NOTIFICATIONS==='1'){
    await page.getByRole('button',{name:'Notifications (1)',exact:true}).click()
-   await page.getByRole('button',{name:'Enable phone notifications',exact:true}).waitFor()
    await page.getByRole('region',{name:'Admin notifications'}).waitFor()
    assert.equal(await page.locator('.notification-row.unread').count(),1)
    await page.getByText('Phone notification settings',{exact:true}).click()
@@ -1677,7 +1676,9 @@ try{
   }
   if(process.env.GH_UI_SIMPLIFIED_STOCK==='1'){
    const work=page.getByRole('region',{name:'Connected purchases',exact:true})
-   for(const label of ['Needs me','In progress','History'])await work.getByRole('button',{name:new RegExp('^'+label)}).waitFor()
+   const workView=work.getByLabel('Work view',{exact:true})
+   await workView.waitFor()
+   for(const label of ['Needs me','In progress','History'])await workView.locator('option').filter({hasText:new RegExp('^'+label)}).waitFor({state:'attached'})
    await page.screenshot({path:'test-results/simplified-work-lists-'+width+'.png',fullPage:true})
    await navigate('✓ Stock Entry')
    const input=page.locator('.stock-fast-panel input[inputmode="decimal"]').filter({visible:true}).first()
