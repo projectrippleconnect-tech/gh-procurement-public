@@ -264,7 +264,7 @@ try{
     if(body.delivery==='reset_link'){
      resetLinkRequests.push(body)
      assert.equal(body.user_id,'00000000-0000-4000-8000-000000000012')
-     data={ok:true,setup_link:'https://gh-procurement-production.up.railway.app/?recovery=1#token_hash=fixture-reset&type=recovery',email:'staff@example.invalid',message:'Recovery link generated without sending email.'}
+     data={ok:true,setup_link:'https://gh-procurement.netlify.app/?recovery=1#token_hash=fixture-reset&type=recovery',email:'staff@example.invalid',message:'Recovery link generated without sending email.'}
     }else{
      setupRequests.push(body)
      assert.equal(body.delivery,'link','Setup-link flow does not use SMTP')

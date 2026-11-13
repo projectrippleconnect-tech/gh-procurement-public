@@ -1,5 +1,7 @@
 import {createClient} from 'npm:@supabase/supabase-js@2.117.2'
 
+const redirectTo='https://gh-procurement.netlify.app/?recovery=1'
+
 const cors={
   'Access-Control-Allow-Origin':'*',
   'Access-Control-Allow-Headers':'authorization, x-client-info, apikey, content-type',
@@ -62,7 +64,6 @@ Deno.serve(async req=>{
       if(authError)throw authError
       const targetEmail=String(authTarget?.user?.email||'').trim().toLowerCase()
       if(!targetEmail)throw new Error('This user has no recoverable email address.')
-      const redirectTo='https://gh-procurement-production.up.railway.app/?recovery=1'
       const {data:recovery,error:linkError}=await service.auth.admin.generateLink({type:'recovery',email:targetEmail,options:{redirectTo}})
       if(linkError)throw linkError
       const hash=recovery?.properties?.hashed_token
@@ -99,7 +100,6 @@ Deno.serve(async req=>{
       if((data.users||[]).length<200)break
     }
 
-    const redirectTo='https://gh-procurement-production.up.railway.app/?recovery=1'
     let setupEmailSent=false
     let setupLink=null
     let invited=false

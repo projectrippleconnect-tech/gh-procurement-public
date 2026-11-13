@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
 
 const source=readFileSync(new URL('../supabase/functions/proc-invite-user/index.ts',import.meta.url),'utf8').replace(/^import .*\n/,'')
-const destination='https://gh-procurement-production.up.railway.app/?recovery=1'
+const destination='https://gh-procurement.netlify.app/?recovery=1'
 function harness({existing=null,allowed=true,emailError=null,linkError=null,missingHash=false,resetTargetActive=true,callerRoleEnabled=true,userPages=null,readErrorTable=null,directoryUser=null}={}){
   let handler
   const calls=[]
