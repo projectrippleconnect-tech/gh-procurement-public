@@ -1,5 +1,7 @@
 'use client'
 
+import {RfqImageExport} from './rfq-image-export'
+import {selectedRequirementRows,eligibleRfqRequirements} from '@/lib/review-selection.mjs'
 import {DeleteRecordButton} from './delete-record'
 
 import {ModernSelect} from './modern-select'
@@ -32,10 +34,11 @@ import {exportSupplierPriceRequestPdf} from '@/lib/lazy-pdf.mjs'
 import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPriceRequestPng,downloadSupplierPriceRequestPng,shareSupplierPriceRequestPng} from '@/lib/rfq-share'
 
 export function Requirements({itemListType='general',onItemListTypeChange,activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},guidedStep=2,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,t=(k,f)=>f||k}){
+ const sourceCountNo=/^stock-count:.+/.test(initialFilter)?initialFilter.slice(12):''
  const targetRequirement=/^requirement:[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter)?initialFilter.slice(12):''
- const requirementLoadRevision=useRef(0)
- const reviewRef=useRef(null),supplierBuilderRef=useRef(null)
- useEffect(()=>{if(activeView!=='requirements')return;requestAnimationFrame(()=>{const target=(guidedStep===3?supplierBuilderRef.current:null)||reviewRef.current;target?.scrollIntoView({block:'start'});target?.focus({preventScroll:true})})},[activeView,guidedStep,guideRevision])
+ const requirementLoadRevision=useRef(0),createLock=useRef(false)
+ const reviewRef=useRef(null),supplierBuilderRef=useRef(null),imageExportRef=useRef(null)
+ useEffect(()=>{if(activeView!=='requirements')return;requestAnimationFrame(()=>{const target=(guidedStep===3?(imageExportRef.current||supplierBuilderRef.current):null)||reviewRef.current;target?.scrollIntoView({block:'start'});target?.focus({preventScroll:true})})},[activeView,guidedStep,guideRevision])
  const canAdd=can('procurement.requirements.manage')
  const canReview=can('procurement.requirements.manage')
  const editableRequirement=r=>canReview&&!['received','closed','cancelled'].includes(r.status)&&r.approval_status!=='rejected'
@@ -43,7 +46,11 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
  const[rows,setRows]=useState([]),[suppliers,setSuppliers]=useState([]),[selected,setSelected]=useState(new Set()),[chosen,setChosen]=useState(new Set()),[suggestedSuppliers,setSuggestedSuppliers]=useState([]),[due,setDue]=useState(''),[busy,setBusy]=useState(false),[page,setPage]=useState(0),[total,setTotal]=useState(0),[scopeOverrides,setScopeOverrides]=useState({})
  const[activity,setActivity]=useState(null),[requirementSearch,setRequirementSearch]=useState(''),[categoryFilter,setCategoryFilter]=useState('')
  const[supplierKind,setSupplierKind]=useState('general')
- const pageSize=20
+ const[pageSize,setPageSize]=useState(20)
+ const[selectedRecords,setSelectedRecords]=useState([]),[exportRows,setExportRows]=useState([])
+ const selectedRows=useMemo(()=>selectedRequirementRows(selected,selectedRecords,rows),[selected,selectedRecords,rows])
+ function selectRow(row,checked){setExportRows([]);setSelectedRecords(v=>[...v.filter(x=>x.id!==row.id),row]);setSelected(v=>{const n=new Set(v);checked?n.add(row.id):n.delete(row.id);return n})}
+ function clearSelection(){setSelected(new Set());setSelectedRecords([]);setExportRows([])}
  const[oldestFirst,setOldestFirst]=useState(false)
  const[itemSearch,setItemSearch]=useState(''),[itemResults,setItemResults]=useState([]),[manualQty,setManualQty]=useState(''),[manualNote,setManualNote]=useState('')
  const[addMode,setAddMode]=useState('standard'),[specialItem,setSpecialItem]=useState(null)
@@ -52,8 +59,8 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
  const[summary,setSummary]=useState({review:0,rfq:0,quotes:0,orders:0})
  const[controlCounts,setControlCounts]=useState({outstanding:null,overdue:null,uncovered:null,delivery:null})
  const[controlFilter,setControlFilter]=useState('all')
- const selectedNeedsReview=selected.size>0&&[...selected].every(id=>rows.some(r=>r.id===id&&editableRequirement(r)&&['pending_review','held'].includes(r.approval_status)))
- const changeStage=next=>{setSelected(new Set());setPage(0);setControlFilter('all');setStage(next)}
+ const selectedNeedsReview=selectedRows.some(r=>editableRequirement(r)&&['pending_review','held'].includes(r.approval_status))
+ const changeStage=next=>{clearSelection();setPage(0);setControlFilter('all');setStage(next)}
 
  const reasonLabels={
   customer_request:'Customer request',
@@ -66,11 +73,11 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   manual_extra:'Other planned extra stock'
  }
 
- const load=useCallback(async()=>{try{
-  const request=++requirementLoadRevision.current
-  let q=supabase.from('proc_v_requirements').select('*,proc_requirement_is_company',{count:'exact'}).order(oldestFirst?'created_at':'source_activity_at',{ascending:!oldestFirst}).range(page*pageSize,page*pageSize+pageSize-1)
+ const matchingQuery=useCallback(()=>{
+  let q=supabase.from('proc_v_requirements').select('*,proc_requirement_is_company',{count:'exact'}).order(oldestFirst?'created_at':'source_activity_at',{ascending:!oldestFirst}).order('id')
   if(targetRequirement)q=q.eq('id',targetRequirement)
   else{q=scopePurchasingQuery(q.in('status',['open','quoting','partially_ordered','ordered','partially_received']),itemListType,'proc_requirement_is_company');if(stage!=='delivery')q=reviewWorkQuery(q)}
+  if(sourceCountNo)q=q.eq('source_count_no',sourceCountNo)
   if(!targetRequirement){
   if(stage==='to_order')q=q.gt('remaining_to_order',0)
   if(stage==='pending_review')q=q.eq('approval_status','pending_review')
@@ -85,10 +92,16 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   if(categoryFilter)q=q.eq('category',categoryFilter)
   if(requirementSearch.trim())q=q.or(containsAny(['description','size','item_code','requirement_no'],requirementSearch.trim()))
   }
+  return q
+ },[stage,oldestFirst,controlFilter,categoryFilter,requirementSearch,targetRequirement,sourceCountNo,itemListType])
+ const selectionScope=useRef(matchingQuery);selectionScope.current=matchingQuery
+ const load=useCallback(async()=>{try{
+  const request=++requirementLoadRevision.current
+  const q=matchingQuery().range(page*pageSize,page*pageSize+pageSize-1)
   const rowTask=Promise.resolve(q).then(a=>{
    if(request!==requirementLoadRevision.current)return a
    if(a.error)throw a.error
-   setRows(a.data||[]);setTotal(a.count||0)
+   setRows(a.data||[]);setTotal(a.count||0);if(a.count&&page*pageSize>=a.count)setPage(Math.max(0,Math.ceil(a.count/pageSize)-1))
    return a
   })
   const tasks=[rowTask]
@@ -105,16 +118,22 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   }
   const results=await Promise.all(tasks)
   if(request!==requirementLoadRevision.current)return
-  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0);if(targetRequirement&&a.data?.[0])onItemListTypeChange?.(a.data[0].proc_requirement_is_company?'company':'general');if(targetRequirement)setSelected(new Set((a.data||[]).filter(editableRequirement).map(r=>r.id)))
+  const a=results[0];if(a.error)throw a.error;setRows(a.data||[]);setTotal(a.count||0);if(a.count&&page*pageSize>=a.count)setPage(Math.max(0,Math.ceil(a.count/pageSize)-1));if(targetRequirement&&a.data?.[0])onItemListTypeChange?.(a.data[0].proc_requirement_is_company?'company':'general');if(targetRequirement)setSelected(new Set((a.data||[]).filter(editableRequirement).map(r=>r.id)))
   if(canReview){
    const b=results[1];if(b.error)throw b.error;setSuppliers(b.data||[])
    for(const x of results.slice(2))if(x.error)throw x.error
    setSummary({review:results[2].count||0,rfq:results[3].count||0,quotes:results[4].count||0,orders:results[5].count||0})
    setControlCounts({outstanding:results[6].count||0,overdue:results[7].count||0,uncovered:results[8].count||0,delivery:results[9].count||0})
   }
- }catch(e){fail(e)}},[fail,stage,canReview,page,oldestFirst,controlFilter,categoryFilter,requirementSearch,targetRequirement,itemListType,onItemListTypeChange])
+ }catch(e){fail(e)}},[fail,stage,canReview,page,pageSize,matchingQuery,targetRequirement,itemListType,onItemListTypeChange])
  useEffect(()=>{if(activeView==='requirements')load()},[load,activeView])
- useEffect(()=>{setPage(0);setChosen(new Set());setSelected(new Set());setScopeOverrides({})},[stage,itemListType])
+ useEffect(()=>{setPage(0);setChosen(new Set());clearSelection();setScopeOverrides({});setExportRows([])},[itemListType])
+ useEffect(()=>{clearSelection()},[requirementSearch,categoryFilter,controlFilter,targetRequirement,sourceCountNo])
+ async function selectAllMatching(){
+  if(busy)return
+  setBusy(true)
+  try{setExportRows([]);const r=await allRows(matchingQuery);if(r.error)throw r.error;if(selectionScope.current!==matchingQuery)return;const all=r.data.filter(editableRequirement);setSelectedRecords(all);setSelected(new Set(all.map(x=>x.id)));flash(all.length+' matching items selected across all pages.')}catch(e){fail(e)}finally{setBusy(false)}
+ }
 
  useEffect(()=>{
   if(!canAdd||itemSearch.trim().length<2){setItemResults([]);return}
@@ -128,11 +147,11 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
 
  useEffect(()=>{
   if(!canReview||!selected.size){setSuggestedSuppliers([]);return}
-  const approved=[...selected].filter(id=>rows.find(r=>r.id===id)?.approval_status==='approved')
+  const approved=eligibleRfqRequirements(selectedRows).map(r=>r.id)
   if(!approved.length){setSuggestedSuppliers([]);return}
   const timer=setTimeout(async()=>{const r=await supabase.rpc('proc_suggest_suppliers',{p_requirement_ids:approved});if(r.error)return fail(r.error);setSuggestedSuppliers(r.data||[])},220)
   return()=>clearTimeout(timer)
- },[selected,rows,canReview,fail])
+ },[selectedRows,canReview,fail])
 
  async function addManual(item){
   const n=Number(manualQty);if(!Number.isFinite(n)||n<=0)return fail(new Error(t('requirements.qty_positive','Enter a required quantity greater than zero.')))
@@ -178,6 +197,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
  async function setQty(id,v){
   if(!canReview)return
   const n=Number(v);if(!Number.isFinite(n)||n<0)return fail(new Error(t('requirements.adjusted_nonnegative','Adjusted quantity must be zero or positive.')))
+  setExportRows([])
   const r=await supabase.rpc('proc_update_requirement_qty_v2',{p_requirement_id:id,p_adjusted_qty:n})
   if(r.error)return fail(r.error);flash('Requirement quantity updated.');load()
  }
@@ -193,7 +213,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   setBusy(true)
   try{
    if(action==='approve'){
-    const source=await supabase.from('proc_requirements').select('id,company_id').in('id',ids)
+    const source=await allRows(()=>supabase.from('proc_requirements').select('id,company_id').in('id',ids).order('id'))
     if(source.error)throw source.error
     const companies=[...new Set((source.data||[]).map(r=>r.company_id).filter(Boolean))]
     const direct=[]
@@ -215,13 +235,21 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
     if(!ids.length){setSelected(new Set());await load();flash('Direct company requirements converted to purchase orders.');if(isActiveView('requirements'))navigate('po');return}
    }
    const r=await supabase.rpc('proc_review_requirements',{p_requirement_ids:ids,p_action:action,p_selected:action==='approve',p_reason:reason})
-  if(r.error)return fail(r.error)
-  flash((r.data||ids.length)+' requirement(s) '+(action==='approve'?'approved for supplier pricing':action==='hold'?'placed on hold':'rejected')+'.');setChosen(new Set());if(action==='approve'){setSelected(new Set(ids));setStage('approved');if(isActiveView('requirements'))guideTo(3)}else{setSelected(new Set());load()}
+  if(r.error)throw r.error
+  const fresh=await allRows(()=>supabase.from('proc_v_requirements').select('*').in('id',ids).order('description').order('id'))
+  if(fresh.error)throw fresh.error
+  setSelectedRecords(fresh.data||[])
+  setExportRows(action==='approve'?eligibleRfqRequirements(fresh.data||[]):[])
+  flash((r.data||ids.length)+' requirement(s) '+(action==='approve'?'approved for supplier pricing':action==='hold'?'placed on hold':'rejected')+'.');setChosen(new Set());if(action==='approve'){setSelected(new Set(ids));setPage(0);setStage('approved');await load();if(isActiveView('requirements'))guideTo(3)}else{setSelected(new Set());load()}
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  async function create(){
-  if(!canReview)return
-  const ids=[...selected].filter(id=>{const r=rows.find(x=>x.id===id);return r?.approval_status==='approved'&&Number(r.remaining_to_order)>0})
+  if(!canReview||busy||createLock.current||!selected.size)return
+  createLock.current=true;setBusy(true)
+  try{
+  const fresh=await allRows(()=>supabase.from('proc_v_requirements').select('*').in('id',[...selected]).order('id'))
+  if(fresh.error)return fail(fresh.error)
+  const ids=eligibleRfqRequirements(fresh.data).map(r=>r.id)
   if(!ids.length)return fail(new Error(t('requirements.select_approved','Select at least one approved requirement with quantity still to order.')))
   if(!chosen.size)return fail(new Error(t('requirements.select_supplier','Select at least one supplier.')))
   const unmatched=[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id))
@@ -239,6 +267,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   setBusy(false)
   if(r.error)return fail(r.error)
   flash('RFQ '+r.data.rfq_no+' prepared for '+ids.length+' item(s). Next: send it and enter supplier prices.');setSelected(new Set());setChosen(new Set());setScopeOverrides({});setDue('');load();if(isActiveView('requirements'))navigate('rfq',r.data.id,3)
+  }catch(e){fail(e)}finally{createLock.current=false;setBusy(false)}
  }
 
  const defaults=[
@@ -270,6 +299,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
 
  return <>
   <ItemListSelector value={itemListType} onChange={onItemListTypeChange} t={t}/>
+  {sourceCountNo&&<div className="notice section">Stock submission {sourceCountNo}<button className="btn small" onClick={()=>navigate('requirements','all',2)}>Show all review items</button></div>}
   {targetRequirement&&<div className="linked-review toolbar"><span className="muted tiny">Viewing the linked requirement</span><button type="button" className="btn small" onClick={()=>navigate('requirements','all',2)}>Show all review items</button></div>}
   {activity&&<ItemActivity row={activity} onClose={()=>setActivity(null)} can={can} navigate={navigate}/>}
   <div hidden={guidedStep===3&&stage==='approved'&&selected.size>0}>
@@ -341,17 +371,26 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
    <div ref={reviewRef} tabIndex={-1} style={{scrollMarginTop:72}} className="sectionhead procurement-review-heading"><h3>{canReview?t('requirements.review_title','Procurement Review'):t('requirements.my_items','My Procurement Items')}</h3><button className="btn small" onClick={load}>{t('common.refresh','Refresh')}</button></div>
    {['to_order','delivery'].includes(stage)&&<div className="notice section">{stage==='to_order'?'Still to order':'Awaiting receipt'} <button className="btn small" onClick={()=>changeStage('all')}>Clear filter</button></div>}
    {canReview&&<label className="compact-field"><span>Review status</span><select className="select" aria-label="Review status" value={stage} onChange={e=>changeStage(e.target.value)}><option value="all">{t('purchasing.all_review','All review items')}</option><option value="pending_review">{t('requirements.needs_review','Needs Review')}</option><option value="approved">{t('requirements.approved','Approved')}</option><option value="held">{t('requirements.held','Held')}</option><option value="attention">Outstanding</option><option value="overdue">Waiting 10+ days</option><option value="uncovered">No active RFQ</option><option value="to_order">Still to order</option><option value="delivery">Awaiting receipt</option></select></label>}
-   {canReview&&rows.some(editableRequirement)&&<div className="toolbar procurement-bulk-actions compact-review-actions"><button className="btn small" onClick={()=>setSelected(new Set(rows.filter(editableRequirement).map(r=>r.id)))}>{t('requirements.select_all_visible','Select All Visible')}</button>{selected.size>0&&<><span className="muted tiny">{selected.size} {t('requirements.selected_count','selected')}</span>{selectedNeedsReview&&<button className="btn small good" disabled={busy} onClick={()=>review('approve')}>{t('requirements.approve_continue','Approve & Continue')}</button>}<details className="compact-inline-options"><summary>More</summary><div className="toolbar"><button className="btn small" onClick={()=>review('hold')}>{t('requirements.hold','Hold')}</button><button className="btn small bad" onClick={()=>review('reject')}>{t('requirements.reject','Reject')}</button></div></details></>}</div>}
-   {rows.length?<><div className="desktop-table tablewrap section"><table className="table"><thead><tr>{canReview&&<th/>}{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id} className={selected.has(r.id)?'selected':''}>{canReview&&<td><input type="checkbox" disabled={!editableRequirement(r)} checked={selected.has(r.id)} onChange={e=>setSelected(v=>{const n=new Set(v);e.target.checked?n.add(r.id):n.delete(r.id);return n})}/></td>}{cols.map(c=><td key={c.key}>{c.render?c.render(r):String(r[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
-    <div className="proc-review-mobile-list">{rows.map(r=>{const current=r.current_stock??r.request_stock_snapshot??0,reorder=r.reorder_level??r.request_reorder_snapshot??0,max=r.max_stock??r.request_max_stock_snapshot??0;return <div className={'proc-review-row '+(selected.has(r.id)?'selected-card':'')} key={r.id}><label className="proc-review-check"><input type="checkbox" disabled={!editableRequirement(r)} checked={selected.has(r.id)} onChange={e=>setSelected(v=>{const n=new Set(v);e.target.checked?n.add(r.id):n.delete(r.id);return n})}/></label><div className="proc-review-main"><strong><button className="item-link" onClick={()=>setActivity(r)}>{itemTitle(r)}</button></strong><small>Stock {qty(current)} · Reorder {qty(reorder)} · Max {qty(max)}{r.uom?' · '+r.uom:''}</small><small>{r.source_count_no?'From '+r.source_count_no+' · '+sriLankaTimestamp(r.source_submitted_at)+' · ':''}{r.request_reason?String(r.request_reason).replaceAll('_',' '):(r.urgency_reason?String(r.urgency_reason).replaceAll('_',' '):'stock shortage')}</small></div><div className="proc-review-order"><span>ORDER</span>{editableRequirement(r)?<input className="input" inputMode="decimal" defaultValue={r.adjusted_qty} onBlur={e=>setQty(r.id,e.target.value)}/>:<b>{qty(r.adjusted_qty)}</b>}</div><div className="proc-review-status"><Badge>{r.approval_status}</Badge><AttentionBadge reason={requirementAttention(r)}/>{r.priority&&<small>{String(r.priority).toUpperCase()}</small>}</div></div>})}</div></>:<Empty>{t('requirements.no_stage','No items in this stage.')}</Empty>}
-   {total>pageSize&&<div className="toolbar section"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>}
+   <div className="toolbar section"><label className="compact-field"><span>Items per page</span><select className="select" aria-label="Items per page" value={pageSize} onChange={e=>{setPageSize(Number(e.target.value));setPage(0)}}>{[20,30,40,50,100].map(n=><option key={n} value={n}>{n}</option>)}</select></label><span className="muted tiny">{total} matching items</span></div>
+   {canReview&&(total>0||selected.size>0)&&<div className="toolbar procurement-bulk-actions compact-review-actions">
+    <button className="btn small" disabled={busy} onClick={()=>{setExportRows([]);const visible=rows.filter(editableRequirement);setSelectedRecords(v=>selectedRequirementRows(new Set([...v.map(x=>x.id),...visible.map(x=>x.id)]),v,visible));setSelected(v=>new Set([...v,...visible.map(r=>r.id)]))}}>{t('requirements.select_all_visible','Select All Visible')}</button>
+    <button className="btn small" disabled={busy} onClick={selectAllMatching}>Select all {total} matching items</button>
+    {selected.size>0&&<><span className="muted tiny" role="status">{selected.size} {t('requirements.selected_count','selected')} across all pages</span><button className="btn small" disabled={busy} onClick={clearSelection}>Clear selection</button>
+     <button className="btn small good" disabled={busy} onClick={()=>selectedNeedsReview?review('approve'):(setStage('approved'),setExportRows(eligibleRfqRequirements(selectedRows)),guideTo(3))}>{busy?'Working…':selectedNeedsReview?t('requirements.approve_continue','Approve & Continue'):'Continue to RFQ / Images'}</button>
+     <details className="compact-inline-options"><summary>More</summary><div className="toolbar"><button className="btn small" disabled={busy} onClick={()=>review('hold')}>{t('requirements.hold','Hold')}</button><button className="btn small bad" disabled={busy} onClick={()=>review('reject')}>{t('requirements.reject','Reject')}</button></div></details></>}
+   </div>}
+   {total>pageSize&&<div className="toolbar section review-pagination"><button className="btn" aria-label="Previous review page" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" aria-label="Next review page" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>}
+   {rows.length?<><div className="desktop-table tablewrap section"><table className="table"><thead><tr>{canReview&&<th/>}{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id} className={selected.has(r.id)?'selected':''}>{canReview&&<td><input type="checkbox" disabled={!editableRequirement(r)} checked={selected.has(r.id)} onChange={e=>selectRow(r,e.target.checked)}/></td>}{cols.map(c=><td key={c.key}>{c.render?c.render(r):String(r[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
+    <div className="proc-review-mobile-list">{rows.map(r=>{const current=r.current_stock??r.request_stock_snapshot??0,reorder=r.reorder_level??r.request_reorder_snapshot??0,max=r.max_stock??r.request_max_stock_snapshot??0;return <div className={'proc-review-row '+(selected.has(r.id)?'selected-card':'')} key={r.id}><label className="proc-review-check"><input type="checkbox" disabled={!editableRequirement(r)} checked={selected.has(r.id)} onChange={e=>selectRow(r,e.target.checked)}/></label><div className="proc-review-main"><strong><button className="item-link" onClick={()=>setActivity(r)}>{itemTitle(r)}</button></strong><small>Stock {qty(current)} · Reorder {qty(reorder)} · Max {qty(max)}{r.uom?' · '+r.uom:''}</small><small>{r.source_count_no?'From '+r.source_count_no+' · '+sriLankaTimestamp(r.source_submitted_at)+' · ':''}{r.request_reason?String(r.request_reason).replaceAll('_',' '):(r.urgency_reason?String(r.urgency_reason).replaceAll('_',' '):'stock shortage')}</small></div><div className="proc-review-order"><span>ORDER</span>{editableRequirement(r)?<input className="input" inputMode="decimal" defaultValue={r.adjusted_qty} onBlur={e=>setQty(r.id,e.target.value)}/>:<b>{qty(r.adjusted_qty)}</b>}</div><div className="proc-review-status"><Badge>{r.approval_status}</Badge><AttentionBadge reason={requirementAttention(r)}/>{r.priority&&<small>{String(r.priority).toUpperCase()}</small>}</div></div>})}</div></>:<Empty>{t('requirements.no_stage','No items in this stage.')}</Empty>}
+   {total>pageSize&&<div className="toolbar section review-pagination"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>}
   </div>
 
   </div>
   {guidedStep===3&&!(stage==='approved'&&selected.size>0)&&<div className="notice section" role="status">Select approved items below to choose suppliers and create the RFQ. Use Back to review shortages first.</div>}
+  {canReview&&exportRows.length>0&&<div ref={imageExportRef} tabIndex={-1} style={{scrollMarginTop:80}}><RfqImageExport rows={exportRows} fail={fail}/></div>}
   {canReview&&stage==='approved'&&selected.size>0&&<div ref={supplierBuilderRef} tabIndex={-1} style={{scrollMarginTop:100}} className="section rfq-builder compact-rfq-builder"><div className="sectionhead"><div><h3>{t('guide.step3_suppliers','Prepare request · Choose suppliers')}</h3><p>{selected.size} selected</p></div><button className="btn primary" disabled={busy} onClick={create}>{busy?t('common.loading','Loading…'):t('requirements.create_rfq_continue','Create RFQ & Continue')}</button></div>
    <button className="btn small" onClick={()=>guideTo(2)}>Edit selected items ({selected.size})</button>
-   <StockSubmissionDetails requirements={rows.filter(r=>selected.has(r.id))}/>
+   <StockSubmissionDetails requirements={selectedRows}/>
    <div className="field"><label>{t('requirements.quote_due','Quotation due date')}</label><input className="input" type="date" value={due} onChange={e=>setDue(e.target.value)}/></div>
     <SupplierChecklist suppliers={suppliers} suggested={suggestedSuppliers} selected={chosen} onChange={setChosen} kind={supplierKind} onKindChange={setSupplierKind} t={t}/>
    {[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).length>0&&<div className="notice section"><b>{t('requirements.coverage_override','Supplier coverage override')}</b><p className="muted tiny">{t('requirements.coverage_override_hint','These suppliers do not match the configured coverage for the selected items. State why they should still receive the price request.')}</p><div className="stack">{[...chosen].filter(id=>!suggestedSuppliers.some(s=>s.supplier_id===id)).map(id=><div className="field" key={id}><label>{suppliers.find(s=>s.id===id)?.name||id}</label><input className="input" value={scopeOverrides[id]||''} onChange={e=>setScopeOverrides(v=>({...v,[id]:e.target.value}))} placeholder={t('requirements.override_reason','Required override reason')}/></div>)}</div></div>}
@@ -1093,7 +1132,7 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   else navigator.clipboard.writeText(msg).then(()=>flash('Reply-ready RFQ text copied. Send it to '+s.name+', then confirm Sent.')).catch(fail)
  }
  async function downloadPng(inv){
-  try{await downloadSupplierPriceRequestPng(supplierRequestArgs(inv));flash('RFQ PNG downloaded.')}
+  try{const result=await downloadSupplierPriceRequestPng(supplierRequestArgs(inv));flash(result.pages.length+' RFQ image(s) downloaded.')}
   catch(e){fail(e)}
  }
  async function shareManualRfq(inv){
@@ -1101,7 +1140,7 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   setBrowserRfqPreparing(inv.id)
   try{
    const result=await shareSupplierPriceRequestPng(supplierRequestArgs(inv))
-   if(!result.shared)flash('Image downloaded. Open the supplier chat to attach it.')
+   if(!result.shared)flash(result.pages.length+' image(s) downloaded. Open the supplier chat to attach all of them.')
   }catch(e){if(e?.name!=='AbortError')fail(e)}
   finally{setBrowserRfqPreparing('')}
  }
@@ -1212,8 +1251,8 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   setBrowserRfqPreparing(inv.id)
   try{
    const out=await downloadSupplierPriceRequestPng(supplierRequestArgs(inv))
-   setBrowserRfqReady({invitationId:inv.id,number,filename:out.filename})
-   flash('RFQ PNG download started for '+s.name+'. Open their WhatsApp chat and attach '+out.filename+' from Downloads.')
+   setBrowserRfqReady({invitationId:inv.id,number,filename:out.pages.map(p=>p.filename).join(', ')})
+   flash('RFQ PNG download started for '+s.name+'. Open their WhatsApp chat and attach all '+out.pages.length+' RFQ image(s) from Downloads.')
   }catch(e){fail(e)}finally{setBrowserRfqPreparing('')}
  }
  function browserSupplierWhatsappUrl(inv,withText=true){

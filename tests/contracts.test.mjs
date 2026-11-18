@@ -232,7 +232,7 @@ test('RFQ browser sharing downloads PNG before opening a specific supplier chat,
  const buying=read('components/modules-buying.jsx')
  assert.match(buying,/async function prepareBrowserRfq\(inv\)/)
  assert.match(buying,/downloadSupplierPriceRequestPng\(supplierRequestArgs\(inv\)\)/)
- assert.match(buying,/setBrowserRfqReady\(\{invitationId:inv.id,number,filename:out.filename\}\)/)
+ assert.match(buying,/setBrowserRfqReady\(\{invitationId:inv.id,number,filename:out.pages.map\(p=>p.filename\).join\(', '\)\}\)/)
  assert.match(buying,/function browserSupplierWhatsappUrl\(inv,withText=true\)/)
  assert.match(buying,/whatsappUrl\(s.whatsapp\|\|s.phone,withText\?buildSupplierPngShareText/)
  assert.match(buying,/browserRfqReady\?\.invitationId===x.id/)
@@ -412,7 +412,8 @@ test('RFQ coverage actions use precise outstanding-uncovered filter',()=>{
  assert.match(buying,/stage==='uncovered'/)
  assert.match(buying,/\.eq\('has_active_rfq',false\)/)
  assert.match(buying,/changeStage\('uncovered'\)/)
- assert.match(buying,/const changeStage=next=>\{setSelected\(new Set\(\)\);setPage\(0\);setControlFilter\('all'\);setStage\(next\)\}/)
+ assert.match(buying,/const changeStage=next=>\{clearSelection\(\);setPage\(0\);setControlFilter\('all'\);setStage\(next\)\}/)
+ assert.match(buying,/function clearSelection\(\)\{setSelected\(new Set\(\)\);setSelectedRecords\(\[\]\);setExportRows\(\[\]\)\}/)
 })
 
 test('supplier punctuality uses receipt evidence and never fabricates scores',()=>{
