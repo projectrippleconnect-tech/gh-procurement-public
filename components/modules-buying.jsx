@@ -36,7 +36,7 @@ import {buildSupplierQuoteReplyText,buildSupplierPngShareText,createSupplierPric
 export function Requirements({itemListType='general',onItemListTypeChange,activeView='requirements',initialFilter='',profile,fields,features=[],flash,fail,can=()=>false,navigate=()=>{},guidedStep=2,guideRevision=0,guideTo=()=>{},isActiveView=()=>true,t=(k,f)=>f||k}){
  const sourceCountNo=/^stock-count:.+/.test(initialFilter)?initialFilter.slice(12):''
  const targetRequirement=/^requirement:[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(initialFilter)?initialFilter.slice(12):''
- const requirementLoadRevision=useRef(0)
+ const requirementLoadRevision=useRef(0),createLock=useRef(false)
  const reviewRef=useRef(null),supplierBuilderRef=useRef(null),imageExportRef=useRef(null)
  useEffect(()=>{if(activeView!=='requirements')return;requestAnimationFrame(()=>{const target=(guidedStep===3?(imageExportRef.current||supplierBuilderRef.current):null)||reviewRef.current;target?.scrollIntoView({block:'start'});target?.focus({preventScroll:true})})},[activeView,guidedStep,guideRevision])
  const canAdd=can('procurement.requirements.manage')
@@ -94,6 +94,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   }
   return q
  },[stage,oldestFirst,controlFilter,categoryFilter,requirementSearch,targetRequirement,sourceCountNo,itemListType])
+ const selectionScope=useRef(matchingQuery);selectionScope.current=matchingQuery
  const load=useCallback(async()=>{try{
   const request=++requirementLoadRevision.current
   const q=matchingQuery().range(page*pageSize,page*pageSize+pageSize-1)
@@ -131,7 +132,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
  async function selectAllMatching(){
   if(busy)return
   setBusy(true)
-  try{setExportRows([]);const r=await allRows(matchingQuery);if(r.error)throw r.error;const all=r.data.filter(editableRequirement);setSelectedRecords(all);setSelected(new Set(all.map(x=>x.id)));flash(all.length+' matching items selected across all pages.')}catch(e){fail(e)}finally{setBusy(false)}
+  try{setExportRows([]);const r=await allRows(matchingQuery);if(r.error)throw r.error;if(selectionScope.current!==matchingQuery)return;const all=r.data.filter(editableRequirement);setSelectedRecords(all);setSelected(new Set(all.map(x=>x.id)));flash(all.length+' matching items selected across all pages.')}catch(e){fail(e)}finally{setBusy(false)}
  }
 
  useEffect(()=>{
@@ -243,7 +244,9 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  async function create(){
-  if(!canReview||busy||!selected.size)return
+  if(!canReview||busy||createLock.current||!selected.size)return
+  createLock.current=true;setBusy(true)
+  try{
   const fresh=await allRows(()=>supabase.from('proc_v_requirements').select('*').in('id',[...selected]).order('id'))
   if(fresh.error)return fail(fresh.error)
   const ids=eligibleRfqRequirements(fresh.data).map(r=>r.id)
@@ -264,6 +267,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
   setBusy(false)
   if(r.error)return fail(r.error)
   flash('RFQ '+r.data.rfq_no+' prepared for '+ids.length+' item(s). Next: send it and enter supplier prices.');setSelected(new Set());setChosen(new Set());setScopeOverrides({});setDue('');load();if(isActiveView('requirements'))navigate('rfq',r.data.id,3)
+  }catch(e){fail(e)}finally{createLock.current=false;setBusy(false)}
  }
 
  const defaults=[
@@ -375,7 +379,7 @@ export function Requirements({itemListType='general',onItemListTypeChange,active
      <button className="btn small good" disabled={busy} onClick={()=>selectedNeedsReview?review('approve'):(setStage('approved'),setExportRows(eligibleRfqRequirements(selectedRows)),guideTo(3))}>{busy?'Working…':selectedNeedsReview?t('requirements.approve_continue','Approve & Continue'):'Continue to RFQ / Images'}</button>
      <details className="compact-inline-options"><summary>More</summary><div className="toolbar"><button className="btn small" disabled={busy} onClick={()=>review('hold')}>{t('requirements.hold','Hold')}</button><button className="btn small bad" disabled={busy} onClick={()=>review('reject')}>{t('requirements.reject','Reject')}</button></div></details></>}
    </div>}
-   {total>pageSize&&<div className="toolbar section review-pagination"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>}
+   {total>pageSize&&<div className="toolbar section review-pagination"><button className="btn" aria-label="Previous review page" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" aria-label="Next review page" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>}
    {rows.length?<><div className="desktop-table tablewrap section"><table className="table"><thead><tr>{canReview&&<th/>}{cols.map(c=><th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id} className={selected.has(r.id)?'selected':''}>{canReview&&<td><input type="checkbox" disabled={!editableRequirement(r)} checked={selected.has(r.id)} onChange={e=>selectRow(r,e.target.checked)}/></td>}{cols.map(c=><td key={c.key}>{c.render?c.render(r):String(r[c.key]??'—')}</td>)}</tr>)}</tbody></table></div>
     <div className="proc-review-mobile-list">{rows.map(r=>{const current=r.current_stock??r.request_stock_snapshot??0,reorder=r.reorder_level??r.request_reorder_snapshot??0,max=r.max_stock??r.request_max_stock_snapshot??0;return <div className={'proc-review-row '+(selected.has(r.id)?'selected-card':'')} key={r.id}><label className="proc-review-check"><input type="checkbox" disabled={!editableRequirement(r)} checked={selected.has(r.id)} onChange={e=>selectRow(r,e.target.checked)}/></label><div className="proc-review-main"><strong><button className="item-link" onClick={()=>setActivity(r)}>{itemTitle(r)}</button></strong><small>Stock {qty(current)} · Reorder {qty(reorder)} · Max {qty(max)}{r.uom?' · '+r.uom:''}</small><small>{r.source_count_no?'From '+r.source_count_no+' · '+sriLankaTimestamp(r.source_submitted_at)+' · ':''}{r.request_reason?String(r.request_reason).replaceAll('_',' '):(r.urgency_reason?String(r.urgency_reason).replaceAll('_',' '):'stock shortage')}</small></div><div className="proc-review-order"><span>ORDER</span>{editableRequirement(r)?<input className="input" inputMode="decimal" defaultValue={r.adjusted_qty} onBlur={e=>setQty(r.id,e.target.value)}/>:<b>{qty(r.adjusted_qty)}</b>}</div><div className="proc-review-status"><Badge>{r.approval_status}</Badge><AttentionBadge reason={requirementAttention(r)}/>{r.priority&&<small>{String(r.priority).toUpperCase()}</small>}</div></div>})}</div></>:<Empty>{t('requirements.no_stage','No items in this stage.')}</Empty>}
    {total>pageSize&&<div className="toolbar section review-pagination"><button className="btn" disabled={page<=0} onClick={()=>setPage(x=>Math.max(0,x-1))}>{t('common.previous','Previous')}</button><span className="muted tiny">{total?page*pageSize+1:0}–{Math.min((page+1)*pageSize,total)} {t('common.of','of')} {total}</span><button className="btn" disabled={(page+1)*pageSize>=total} onClick={()=>setPage(x=>x+1)}>{t('common.next','Next')}</button></div>}
@@ -1128,7 +1132,7 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   else navigator.clipboard.writeText(msg).then(()=>flash('Reply-ready RFQ text copied. Send it to '+s.name+', then confirm Sent.')).catch(fail)
  }
  async function downloadPng(inv){
-  try{await downloadSupplierPriceRequestPng(supplierRequestArgs(inv));flash('RFQ PNG downloaded.')}
+  try{const result=await downloadSupplierPriceRequestPng(supplierRequestArgs(inv));flash(result.pages.length+' RFQ image(s) downloaded.')}
   catch(e){fail(e)}
  }
  async function shareManualRfq(inv){
@@ -1136,7 +1140,7 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   setBrowserRfqPreparing(inv.id)
   try{
    const result=await shareSupplierPriceRequestPng(supplierRequestArgs(inv))
-   if(!result.shared)flash('Image downloaded. Open the supplier chat to attach it.')
+   if(!result.shared)flash(result.pages.length+' image(s) downloaded. Open the supplier chat to attach all of them.')
   }catch(e){if(e?.name!=='AbortError')fail(e)}
   finally{setBrowserRfqPreparing('')}
  }
@@ -1247,8 +1251,8 @@ export function Rfqs({itemListType='general',onItemListTypeChange,activeView='rf
   setBrowserRfqPreparing(inv.id)
   try{
    const out=await downloadSupplierPriceRequestPng(supplierRequestArgs(inv))
-   setBrowserRfqReady({invitationId:inv.id,number,filename:out.filename})
-   flash('RFQ PNG download started for '+s.name+'. Open their WhatsApp chat and attach '+out.filename+' from Downloads.')
+   setBrowserRfqReady({invitationId:inv.id,number,filename:out.pages.map(p=>p.filename).join(', ')})
+   flash('RFQ PNG download started for '+s.name+'. Open their WhatsApp chat and attach all '+out.pages.length+' RFQ image(s) from Downloads.')
   }catch(e){fail(e)}finally{setBrowserRfqPreparing('')}
  }
  function browserSupplierWhatsappUrl(inv,withText=true){
